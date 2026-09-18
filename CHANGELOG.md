@@ -1,5 +1,15 @@
 # Historial de cambios
 
+## 0.2.1 — Correcciones de comparación
+
+- Refina una presencia genérica `person.home` con la habitación del dispositivo
+  registrado sin permitir que el dispositivo sobrescriba evidencia espacial de
+  cámara, radar u otra fuente directa.
+- Expone los identificadores exactos de las fuentes indisponibles en el
+  snapshot y en el diagnóstico de cobertura.
+- Usa `last_changed` para la semántica de entidades cuyo adaptador consume el
+  estado, evitando revisiones nuevas por cambios exclusivos de atributos.
+
 ## 0.2.0 — Candidata de comparación
 
 - Añade la integración de Home Assistant con config entry, opciones y descarga

@@ -47,6 +47,10 @@ uncertain correlation preserves the wider interval rather than inventing or
 hiding a person. Person, animal and unknown-living hypotheses are never merged
 solely because their time and area match.
 
+`unavailable_source_ids` lists the configured sources responsible for
+`coverage_degraded`. An unavailable source never means that its target is away
+or that the covered area is empty.
+
 ## Geometry
 
 Current object zones take precedence over a PTZ profile. Entered/accumulated

@@ -12,6 +12,8 @@ from presence_engine.engine import (
     PresenceResolver,
     PresenceSnapshot,
     Quality,
+    SpatialClaim,
+    SpatialLevel,
     TargetKind,
 )
 
@@ -122,6 +124,65 @@ class ResolverTests(unittest.TestCase):
         result = self.resolve(device, current_count)
 
         self.assertEqual((result.count_minimum, result.count_maximum), (1, 1))
+
+    def test_home_scope_person_is_refined_by_registered_device_and_room_count(self) -> None:
+        home = observation(
+            "person-home",
+            kind=TargetKind.PERSON,
+            location=SpatialClaim(
+                level=SpatialLevel.HOME,
+                method="home_scope",
+                quality=Quality.LOW,
+                observed_at=at(-20),
+            ),
+            identity_claim=identity(seconds=-20, method="home_scope"),
+        )
+        device = observation(
+            "device-a",
+            kind=TargetKind.DEVICE,
+            target_id="device-a",
+            location=area("alpha", -2, quality=Quality.MEDIUM),
+            identity_claim=identity(seconds=-2, method="registered_owner"),
+        )
+        room = observation(
+            "radar-a",
+            kind=TargetKind.UNKNOWN_LIVING,
+            location=area("alpha", 0),
+            count=CountClaim(1, 1, at(0), True),
+            dependency_group="radar-a",
+        )
+
+        result = self.resolve(home, device, room)
+
+        self.assertEqual((result.count_minimum, result.count_maximum), (1, 1))
+        person = next(item for item in result.presences if item.identity == "person_a")
+        self.assertEqual(person.location.area, "alpha")
+        self.assertEqual(person.location_status, "refined_by_device")
+        self.assertEqual(
+            set(person.source_ids),
+            {"source.person-home", "source.device-a", "source.radar-a"},
+        )
+
+    def test_registered_device_does_not_override_direct_area_evidence(self) -> None:
+        visual = observation(
+            "visual-a",
+            kind=TargetKind.PERSON,
+            location=area("beta", -1, quality=Quality.HIGH),
+            identity_claim=identity(seconds=-1),
+        )
+        device = observation(
+            "device-a",
+            kind=TargetKind.DEVICE,
+            target_id="device-a",
+            location=area("alpha", 0, quality=Quality.MEDIUM),
+            identity_claim=identity(seconds=0, method="registered_owner"),
+        )
+
+        result = self.resolve(visual, device)
+
+        person = next(item for item in result.presences if item.identity == "person_a")
+        self.assertEqual(person.location.area, "beta")
+        self.assertEqual(person.location_status, "resolved")
 
     def test_recognized_person_does_not_hide_nonadjacent_visitor(self) -> None:
         known = observation(
@@ -299,6 +360,7 @@ class ResolverTests(unittest.TestCase):
         result=self.resolve(unavailable=("source.offline",))
         self.assertTrue(result.coverage_degraded)
         self.assertIn("coverage_degraded",result.reasons)
+        self.assertEqual(result.unavailable_source_ids,("source.offline",))
 
     def test_resolution_is_independent_of_input_order(self) -> None:
         observations = (

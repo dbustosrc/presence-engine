@@ -232,6 +232,7 @@ class PresenceSnapshot:
     coverage_degraded: bool
     conflicts: tuple[str, ...] = ()
     reasons: tuple[str, ...] = ()
+    unavailable_source_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         require_aware(self.evaluated_at, "evaluated_at")

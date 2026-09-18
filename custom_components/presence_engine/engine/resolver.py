@@ -123,6 +123,9 @@ class PresenceResolver:
                 same_area=[person for person in people.values()
                            if self._same_area(person.location,group.location)]
                 if same_area:
+                    if group_min >= len(same_area):
+                        for person in same_area:
+                            person.sources.update(group.source_ids)
                     consumed=min(len(same_area),group_max)
                     group_min=max(0,group_min-consumed)
                     group_max=max(0,group_max-consumed)
@@ -166,6 +169,7 @@ class PresenceResolver:
             coverage_degraded=bool(unavailable),
             conflicts=tuple(dict.fromkeys(conflicts)),
             reasons=tuple(dict.fromkeys(reasons)),
+            unavailable_source_ids=tuple(sorted(set(unavailable))),
         )
 
     def _resolve_devices(self, observations: tuple[Observation, ...]) -> tuple[DeviceState, ...]:
@@ -214,7 +218,14 @@ class PresenceResolver:
                 continue
             identity=item.identity.value
             if identity in people:
-                people[identity].sources.add(item.source.source_id)
+                candidate=people[identity]
+                candidate.sources.add(item.source.source_id)
+                if item.identity.quality.rank > candidate.certainty.rank:
+                    candidate.certainty=item.identity.quality
+                if self._device_refines_home_scope(candidate.location,item.location):
+                    candidate.location=item.location
+                    candidate.from_device=True
+                    candidate.status="refined_by_device"
                 continue
             people[identity]=_PersonCandidate(
                 identity=identity,
@@ -491,6 +502,18 @@ class PresenceResolver:
             # components, so an aware sentinel is unnecessary here.
             return (-1, -1, datetime.min)
         return (1 if direct else 0, location.quality.rank, location.observed_at)
+
+    @staticmethod
+    def _device_refines_home_scope(
+        current: SpatialClaim | None,
+        device: SpatialClaim | None,
+    ) -> bool:
+        """Refine generic home presence without overriding spatial evidence."""
+        if device is None:
+            return False
+        if current is None:
+            return True
+        return current.level is SpatialLevel.HOME and current.method == "home_scope"
 
     @staticmethod
     def _same_area(left: SpatialClaim | None, right: SpatialClaim | None) -> bool:

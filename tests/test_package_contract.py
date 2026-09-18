@@ -56,6 +56,12 @@ class PackageContractTests(unittest.TestCase):
         self.assertNotIn("EVENT_STATE_CHANGED", python_source)
         self.assertIn("async_track_state_change_event", python_source)
 
+    def test_entity_state_semantics_use_last_changed(self) -> None:
+        runtime_source = (COMPONENT / "ha_runtime.py").read_text(encoding="utf-8")
+
+        self.assertIn("observed_at=state.last_changed", runtime_source)
+        self.assertNotIn("observed_at=state.last_updated", runtime_source)
+
     def test_services_document_both_read_only_queries(self) -> None:
         services = (COMPONENT / "services.yaml").read_text(encoding="utf-8")
 

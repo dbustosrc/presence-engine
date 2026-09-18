@@ -300,6 +300,30 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(runtime.next_expiration(), None)
         self.assertEqual(len(runtime.export_state()["observations"]), 1)
 
+    def test_same_entity_state_and_observation_time_do_not_advance_revision(self) -> None:
+        runtime = PresenceRuntime(integration_config(), now=lambda: at(10))
+        first = runtime.process(
+            AdapterEnvelope(
+                "state",
+                "sensor.device_area",
+                {"state": "alpha"},
+                at(0),
+                at(1),
+            )
+        )
+        second = runtime.process(
+            AdapterEnvelope(
+                "state",
+                "sensor.device_area",
+                {"state": "alpha", "attributes": {"diagnostic": 2}},
+                at(0),
+                at(2),
+            )
+        )
+
+        self.assertFalse(second.changed)
+        self.assertEqual(second.snapshot.revision, first.snapshot.revision)
+
     def test_frigate_target_and_mtr_population_share_one_runtime_result(self) -> None:
         configuration = parse_configuration(
             {

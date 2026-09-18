@@ -203,7 +203,9 @@ class HomeAssistantPresenceRuntime:
                 "last_changed": state.last_changed.isoformat(),
                 "last_updated": state.last_updated.isoformat(),
             },
-            observed_at=state.last_updated,
+            # Entity adapters consume the state value, not attributes. An
+            # attribute-only refresh must not create a semantic revision.
+            observed_at=state.last_changed,
             received_at=dt_util.utcnow(),
         )
         await self._async_process(envelope)

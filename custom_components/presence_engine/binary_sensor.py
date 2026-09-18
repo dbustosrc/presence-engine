@@ -36,5 +36,8 @@ class PresenceCoverageSensor(PresenceEngineEntity, BinarySensorEntity):
     def extra_state_attributes(self):
         return {
             "reasons": list(self.coordinator.data.reasons),
+            "unavailable_source_ids": list(
+                self.coordinator.data.unavailable_source_ids
+            ),
             "failures": [failure.source_id for failure in self.runtime.engine.failures],
         }

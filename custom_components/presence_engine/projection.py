@@ -24,6 +24,7 @@ def snapshot_payload(
             "exact": snapshot.count_minimum == snapshot.count_maximum,
         },
         "coverage_degraded": snapshot.coverage_degraded,
+        "unavailable_source_ids": list(snapshot.unavailable_source_ids),
         "conflicts": list(snapshot.conflicts),
         "reasons": list(snapshot.reasons),
         "presences": [
