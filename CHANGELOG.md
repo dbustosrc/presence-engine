@@ -1,5 +1,13 @@
 # Historial de cambios
 
+## 0.2.2 — Actualizaciones multidimensionales atómicas
+
+- Aplica en una sola operación las dimensiones aceptadas de una observación,
+  evitando estados intermedios inválidos al finalizar contadores y sensores
+  binarios (`count=0` junto con ciclo de vida finalizado).
+- Añade una regresión que reproduce el fallo observado durante el arranque de
+  Home Assistant.
+
 ## 0.2.1 — Correcciones de comparación
 
 - Refina una presencia genérica `person.home` con la habitación del dispositivo

@@ -107,20 +107,20 @@ class EvidenceStore:
             self._evict_if_needed()
             return update
 
-        merged = current.observation
         accepted: list[RevisionDimension] = []
         rejected: list[RevisionDimension] = []
+        accepted_changes: dict[str, object] = {}
         merged_revisions = dict(current.dimension_revisions)
         dimensions = self._updated_dimensions(incoming)
         for dimension in dimensions:
             candidate_revision = incoming_revisions[dimension]
             existing_revision = current.dimension_revisions[dimension]
             candidate_value = self._dimension_value(incoming, dimension)
-            existing_value = self._dimension_value(merged, dimension)
+            existing_value = self._dimension_value(current.observation, dimension)
             if candidate_revision > existing_revision:
                 if candidate_value != existing_value:
-                    merged = self._replace_dimension(merged, incoming, dimension)
                     accepted.append(dimension)
+                    accepted_changes.update(self._dimension_changes(incoming, dimension))
                 merged_revisions[dimension]=candidate_revision
             elif candidate_revision == existing_revision:
                 if candidate_value != existing_value:
@@ -140,10 +140,13 @@ class EvidenceStore:
             self._history[key].append(update)
             return update
 
-        # received_at describes the accepted envelope, not the event time.
+        # Apply all accepted dimensions together. Some domain invariants span
+        # multiple dimensions: a zero count and an ended lifecycle are valid
+        # as a pair but invalid if either one is materialized first.
         merged = replace(
-            merged,
-            received_at=max(merged.received_at, incoming.received_at),
+            current.observation,
+            **accepted_changes,
+            received_at=max(current.observation.received_at, incoming.received_at),
             revisions=merged_revisions,
         )
         self._global_revision += 1
@@ -225,34 +228,31 @@ class EvidenceStore:
         }[dimension]
 
     @staticmethod
-    def _replace_dimension(
-        current: Observation,
+    def _dimension_changes(
         incoming: Observation,
         dimension: RevisionDimension,
-    ) -> Observation:
+    ) -> dict[str, object]:
         if dimension is RevisionDimension.EVENT_TIME:
-            return replace(current, detected_at=incoming.detected_at)
+            return {"detected_at": incoming.detected_at}
         if dimension is RevisionDimension.IDENTITY:
-            return replace(current, identity=incoming.identity)
+            return {"identity": incoming.identity}
         if dimension is RevisionDimension.LOCATION:
-            return replace(current, location=incoming.location)
+            return {"location": incoming.location}
         if dimension is RevisionDimension.CLASSIFICATION:
-            return replace(
-                current,
-                target_kind=incoming.target_kind,
-                classification=incoming.classification,
-            )
+            return {
+                "target_kind": incoming.target_kind,
+                "classification": incoming.classification,
+            }
         if dimension is RevisionDimension.COUNT:
-            return replace(current, count=incoming.count)
+            return {"count": incoming.count}
         if dimension is RevisionDimension.LIFECYCLE:
-            return replace(
-                current,
-                status=incoming.status,
-                active_since=incoming.active_since,
-                ended_at=incoming.ended_at,
-            )
+            return {
+                "status": incoming.status,
+                "active_since": incoming.active_since,
+                "ended_at": incoming.ended_at,
+            }
         if dimension is RevisionDimension.IMAGE:
-            return replace(current, image=incoming.image)
+            return {"image": incoming.image}
         raise AssertionError(f"unsupported dimension: {dimension}")
 
     def _evict_if_needed(self) -> None:

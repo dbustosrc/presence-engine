@@ -4,6 +4,7 @@ import unittest
 from dataclasses import replace
 
 from presence_engine.engine import (
+    CountClaim,
     EvidenceStore,
     ObservationStatus,
     RevisionDimension,
@@ -122,6 +123,43 @@ class EvidenceStoreTests(unittest.TestCase):
         self.assertFalse(update.changed)
         self.assertIn(RevisionDimension.LOCATION,update.rejected_dimensions)
         self.assertEqual(stored.observation.location.area,"beta")
+
+    def test_count_and_lifecycle_revisions_are_applied_atomically(self) -> None:
+        store = EvidenceStore()
+        initial = observation(
+            "area-count",
+            count=CountClaim(1, 1, at(1), False),
+            active_since=1,
+            revisions={
+                RevisionDimension.COUNT: RevisionStamp(1, at(1)),
+                RevisionDimension.LIFECYCLE: RevisionStamp(1, at(1)),
+            },
+        )
+        store.upsert(initial)
+        ended = observation(
+            "area-count",
+            count=CountClaim(0, 0, at(2), False),
+            received=2,
+            active_since=1,
+            status=ObservationStatus.ENDED,
+            ended=2,
+            revisions={
+                RevisionDimension.COUNT: RevisionStamp(2, at(2)),
+                RevisionDimension.LIFECYCLE: RevisionStamp(2, at(2)),
+            },
+        )
+
+        update = store.upsert(ended)
+        stored = store.get("source.area-count", "area-count")
+
+        assert stored is not None
+        self.assertEqual(
+            update.changed_dimensions,
+            (RevisionDimension.COUNT, RevisionDimension.LIFECYCLE),
+        )
+        self.assertEqual(stored.observation.status, ObservationStatus.ENDED)
+        self.assertEqual(stored.observation.count.maximum, 0)
+        self.assertEqual(stored.observation.ended_at, at(2))
 
     def test_source_removal_does_not_remove_other_sources(self) -> None:
         store=EvidenceStore()
