@@ -160,6 +160,19 @@ class SourceDefinition:
                 raise ConfigurationError(
                     f"source {self.source_id} has zone mappings outside entity_ids"
                 )
+        if self.adapter is AdapterType.PERSON_HOME:
+            for option_name in ("ignored_source_ids", "ignored_source_prefixes"):
+                values = self.options.get(option_name, ())
+                if not isinstance(values, (list, tuple)):
+                    raise ConfigurationError(
+                        f"source {self.source_id} {option_name} must be a list"
+                    )
+                for value in values:
+                    if not isinstance(value, str):
+                        raise ConfigurationError(
+                            f"source {self.source_id} {option_name} must contain strings"
+                        )
+                    _require_entity_id(value)
         if self.expires_after_seconds is not None and self.expires_after_seconds < 1:
             raise ConfigurationError(
                 f"source {self.source_id} expires_after_seconds must be positive"

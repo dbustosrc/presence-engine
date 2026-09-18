@@ -1,5 +1,13 @@
 # Historial de cambios
 
+## 0.2.5 — Prevención de realimentación indirecta
+
+- Permite excluir fuentes concretas o prefijos de trackers al adaptar entidades
+  `person` como evidencia de alcance doméstico.
+- Retira la observación anterior cuando la entidad `person` selecciona un
+  tracker calculado que no debe volver a entrar al motor.
+- Valida los filtros de fuentes como parte del contrato de configuración.
+
 ## 0.2.4 — Limpieza de cobertura retirada
 
 - Descarta durante la restauración las fuentes indisponibles que ya no forman

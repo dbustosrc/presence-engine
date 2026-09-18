@@ -101,6 +101,27 @@ class ConfigurationTests(unittest.TestCase):
         with self.assertRaises(ConfigurationError):
             parse_configuration(raw)
 
+    def test_rejects_non_list_person_source_filters(self) -> None:
+        raw = {
+            "schema_version": 1,
+            "areas": {},
+            "adjacency": {},
+            "sources": [
+                {
+                    "source_id": "person_owner",
+                    "adapter": "person_home",
+                    "entity_ids": ["person.owner"],
+                    "identity": "owner",
+                    "options": {
+                        "ignored_source_prefixes": "device_tracker.indoor_"
+                    },
+                }
+            ],
+        }
+
+        with self.assertRaises(ConfigurationError):
+            parse_configuration(raw)
+
 
 if __name__ == "__main__":
     unittest.main()

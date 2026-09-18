@@ -10,7 +10,7 @@ from presence_engine.adapters import (
     FrigateFaceAdapter,
     PTZContextAdapter,
 )
-from presence_engine.configuration import AdapterType
+from presence_engine.configuration import AdapterType, parse_configuration
 from presence_engine.temporal import TemporalCameraRegistry
 
 from helpers import at
@@ -148,6 +148,57 @@ class AdapterTests(unittest.TestCase):
 
         self.assertEqual(result.remove_source_ids, ("device_area",))
         self.assertEqual(result.observations, ())
+
+    def test_person_home_ignores_a_configured_tracker_prefix(self) -> None:
+        definition = parse_configuration(
+            {
+                "schema_version": 1,
+                "areas": {},
+                "adjacency": {},
+                "sources": [
+                    {
+                        "source_id": "person_owner",
+                        "adapter": "person_home",
+                        "entity_ids": ["person.owner"],
+                        "identity": "owner",
+                        "options": {
+                            "ignored_source_prefixes": ["device_tracker.indoor_"]
+                        },
+                    }
+                ],
+            }
+        ).sources[0]
+        adapter = EntityStateAdapter(definition)
+
+        ignored = adapter.parse(
+            AdapterEnvelope(
+                "state",
+                "person.owner",
+                {
+                    "state": "home",
+                    "attributes": {"source": "device_tracker.indoor_owner"},
+                },
+                at(2),
+                at(2),
+            )
+        )
+        accepted = adapter.parse(
+            AdapterEnvelope(
+                "state",
+                "person.owner",
+                {
+                    "state": "home",
+                    "attributes": {"source": "device_tracker.mobile_owner"},
+                },
+                at(3),
+                at(3),
+            )
+        )
+
+        self.assertEqual(ignored.remove_source_ids, ("person_owner",))
+        self.assertEqual(ignored.observations, ())
+        self.assertEqual(accepted.observations[0].identity.value, "owner")
+        self.assertEqual(accepted.observations[0].status.value, "active")
 
     def test_unavailable_ptz_telemetry_invalidates_previous_room_context(self) -> None:
         contexts = TemporalCameraRegistry(dict(self.config.cameras))

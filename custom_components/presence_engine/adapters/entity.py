@@ -168,6 +168,22 @@ class EntityStateAdapter:
         return AdapterResult(observations=(observation,))
 
     def _person_home(self, envelope: AdapterEnvelope, state: str) -> AdapterResult:
+        attributes = envelope.payload.get("attributes", {})
+        source_entity_id = (
+            attributes.get("source") if isinstance(attributes, Mapping) else None
+        )
+        ignored_source_ids = self._definition.options.get("ignored_source_ids", ())
+        ignored_source_prefixes = self._definition.options.get(
+            "ignored_source_prefixes", ()
+        )
+        if isinstance(source_entity_id, str) and (
+            source_entity_id in ignored_source_ids
+            or any(
+                source_entity_id.startswith(prefix)
+                for prefix in ignored_source_prefixes
+            )
+        ):
+            return AdapterResult(remove_source_ids=(self.source_id,))
         active = state == "home"
         identity = (
             IdentityClaim(
