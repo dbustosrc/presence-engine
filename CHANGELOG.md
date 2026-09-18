@@ -14,9 +14,8 @@
 - Evita que los canales auxiliares de un dispositivo ya configurado de forma
   explícita se activen otra vez como fuentes independientes mediante el
   descubrimiento automático.
-- Elimina las revisiones redundantes observadas cuando los canales internos de
-  movimiento, quietud y zonas del MSR-2 de Office alternaban sin cambiar el
-  resultado de presencia.
+- Evita revisiones redundantes cuando los canales auxiliares de un dispositivo
+  cambian sin modificar el resultado de presencia.
 - Añade una regresión para conservar una sola representación canónica por
   dispositivo explícitamente modelado.
 
@@ -55,5 +54,5 @@
 - Añade validación de paquete, matriz de regresión y procedimiento de
   comparación/reversión.
 
-Esta versión no sustituye todavía ningún consumidor operativo. Su propósito es
-ejecutarse como observadora durante N4.
+Esta versión está destinada al modo de comparación y no sustituye consumidores
+existentes de forma automática.
