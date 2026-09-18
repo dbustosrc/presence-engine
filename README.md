@@ -31,6 +31,13 @@ automatizaciones consumidoras.
   nombre visible.
 - La configuración física de una casa no pertenece al repositorio.
 
+## Estado de la versión
+
+La versión `0.2.0` es una candidata para comparación paralela. Debe instalarse
+con `comparison_mode` activo y no debe conectarse todavía a automatizaciones
+operativas. El sistema anterior continúa siendo el único responsable de
+trackers, notificaciones y movimiento PTZ durante N4.
+
 ## Pruebas
 
 Desde este directorio:
@@ -50,3 +57,7 @@ Las pruebas usan exclusivamente nombres y geometrías sintéticas.
 - `docs/compatibility.md`: versiones y APIs verificadas.
 - `docs/contract.md`: semántica del contrato v1 y límites entre capas.
 - `docs/regression-matrix.md`: invariantes y su prueba ejecutable.
+- `docs/installation.md`: publicación e instalación por HACS.
+- `docs/comparison.md`: protocolo de comparación sin efectos.
+- `docs/rollback.md`: reversión soportada de la candidata.
+- `CHANGELOG.md`: notas de la versión candidata.
