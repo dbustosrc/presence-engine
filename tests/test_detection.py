@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from dataclasses import replace
 
-from presence_engine import EvidenceStore, RevisionDimension, RevisionStamp, resolve_detection
+from presence_engine.engine import EvidenceStore, RevisionDimension, RevisionStamp, resolve_detection
 
 from helpers import area, at, identity, observation
 

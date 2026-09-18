@@ -48,6 +48,11 @@ class EvidenceStore:
     def revision(self) -> int:
         return self._global_revision
 
+    def advance_revision(self) -> int:
+        """Advance the publication revision without mutating stored evidence."""
+        self._global_revision += 1
+        return self._global_revision
+
     def get(self, source_id: str, observation_id: str) -> StoredObservation | None:
         return self._records.get((source_id, observation_id))
 

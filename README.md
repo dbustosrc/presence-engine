@@ -1,45 +1,52 @@
-# Presence Engine Core
+# Presence Engine
 
-Motor determinista y agnóstico de plataforma para normalizar evidencia de
-presencia, mantener sus revisiones y producir resultados reutilizables.
+Integración personalizada de Home Assistant para normalizar evidencia de
+presencia, conservar su cronología y publicar una resolución reutilizable y
+coherente.
 
-Este repositorio contiene únicamente el núcleo de dominio. No importa Home
-Assistant, MQTT, Frigate ni clientes de red; tampoco contiene nombres de
-entidades, dispositivos, cámaras, habitaciones o personas de una instalación
-real. Los adaptadores pertenecen a una etapa posterior.
+El motor no controla dispositivos ni decide destinatarios de notificaciones.
+Consume fuentes originales mediante adaptadores, produce snapshots y
+resultados de detección versionados, y deja las políticas de actuación a las
+automatizaciones consumidoras.
 
-## Responsabilidades
+## Capacidades
 
-- Contratos inmutables para observaciones, identidad, ubicación, conteo,
-  imágenes y tiempos.
-- Registro idempotente por fuente/observación con revisiones independientes por
-  dimensión.
-- Interpretación geométrica explícita de zonas actuales y contexto PTZ.
-- Resolución de detecciones históricas sin confundir hora del hecho con hora de
-  reconocimiento/localización.
-- Snapshot actual que mantiene separados persona, dispositivo y animal, y usa
-  intervalos cuando la evidencia no permite un conteo exacto.
+- Núcleo determinista independiente de Home Assistant.
+- Adaptadores para eventos y rostros de Frigate, contexto PTZ, áreas Bermuda,
+  radares binarios, contadores simples y MTR multizona.
+- Registro acotado con revisiones por dimensión y recuperación mediante
+  `Store`.
+- Caducidad selectiva programada al próximo vencimiento, sin polling global.
+- Descubrimiento conservador mediante registros de entidades y dispositivos.
+- Última imagen identificada persistente e independiente de la ubicación
+  actual.
+- Entidades diagnósticas, eventos y acciones con respuesta para consumidores.
 
-## Fuera de alcance
+## Límites
 
-- Suscripciones y entidades de Home Assistant.
-- Transporte MQTT o REST.
-- Texto, destino y política de entrega de notificaciones.
-- Movimiento físico PTZ.
-- Persistencia de largo plazo o reemplazo de Recorder.
+- No mueve cámaras ni publica trackers operativos.
+- No envía notificaciones.
+- No modifica Home Assistant, Frigate ni integraciones instaladas.
+- No deduce geometría desconocida ni asocia dispositivos a personas por el
+  nombre visible.
+- La configuración física de una casa no pertenece al repositorio.
 
 ## Pruebas
 
 Desde este directorio:
 
 ```powershell
-$env:PYTHONPATH = "src"
+$env:PYTHONPATH = "custom_components"
 python -m unittest discover -s tests -v
+python -m compileall -q custom_components tests
 ```
 
 Las pruebas usan exclusivamente nombres y geometrías sintéticas.
 
 ## Documentación
 
+- `docs/architecture.md`: capas, propiedad del estado y recuperación.
+- `docs/configuration.md`: contrato de configuración y fuentes.
+- `docs/compatibility.md`: versiones y APIs verificadas.
 - `docs/contract.md`: semántica del contrato v1 y límites entre capas.
 - `docs/regression-matrix.md`: invariantes y su prueba ejecutable.

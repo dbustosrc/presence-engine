@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from datetime import datetime
 
-from presence_engine import CountClaim, Observation, SourceRef, TargetKind
+from presence_engine.engine import CountClaim, Observation, SourceRef, TargetKind
 
 from helpers import at
 
@@ -30,4 +30,3 @@ class ContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

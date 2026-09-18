@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from presence_engine import (
+from presence_engine.engine import (
     CountClaim,
     IdentityClaim,
     Observation,
@@ -92,4 +92,3 @@ def observation(
         ended_at=at(ended) if ended is not None else None,
         revisions=revisions or {},
     )
-

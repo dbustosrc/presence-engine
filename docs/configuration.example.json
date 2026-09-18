@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "areas": {
+    "room_alpha": "floor_one",
+    "room_beta": "floor_one"
+  },
+  "adjacency": {
+    "room_alpha": ["room_beta"],
+    "room_beta": ["room_alpha"]
+  },
+  "identities": {
+    "bermuda:example-device": "resident_one"
+  },
+  "cameras": {
+    "camera_one": {
+      "floor": "floor_one",
+      "zone_to_area": {
+        "zone_alpha": "room_alpha",
+        "zone_beta": "room_beta"
+      },
+      "profile_to_area": {
+        "profile_alpha": "room_alpha",
+        "profile_beta": "room_beta"
+      },
+      "profile_entity_id": "select.camera_one_profile",
+      "movement_entity_id": "sensor.camera_one_motion_state",
+      "stable_states": ["available"],
+      "moving_states": ["moving"]
+    }
+  },
+  "sources": [
+    {
+      "source_id": "frigate_events",
+      "adapter": "frigate_events",
+      "topics": ["frigate/events"],
+      "expires_after_seconds": 300,
+      "options": {
+        "labels": ["person", "dog"]
+      }
+    },
+    {
+      "source_id": "frigate_faces",
+      "adapter": "frigate_face",
+      "topics": ["frigate/tracked_object_update"],
+      "expires_after_seconds": 300,
+      "options": {
+        "recognition_threshold": 0.9,
+        "identity_map": {
+          "Resident One": "resident_one"
+        }
+      }
+    },
+    {
+      "source_id": "resident_phone",
+      "adapter": "bermuda_area",
+      "entity_ids": ["sensor.resident_phone_area"],
+      "identity": "resident_one",
+      "target_kind": "device",
+      "spatial_quality": "medium",
+      "options": {
+        "area_map": {
+          "Alpha": "room_alpha",
+          "Beta": "room_beta"
+        }
+      }
+    },
+    {
+      "source_id": "room_counter",
+      "adapter": "mtr_count",
+      "entity_ids": [
+        "sensor.room_counter_total",
+        "sensor.room_counter_zone_1"
+      ],
+      "floor": "floor_one",
+      "coverage_group": "room_counter",
+      "options": {
+        "total_entity_id": "sensor.room_counter_total",
+        "zone_areas": {
+          "sensor.room_counter_zone_1": "room_alpha"
+        }
+      }
+    },
+    {
+      "source_id": "room_radar",
+      "adapter": "binary_presence",
+      "entity_ids": ["binary_sensor.room_radar_target"],
+      "area": "room_beta",
+      "floor": "floor_one",
+      "target_kind": "unknown_living",
+      "spatial_quality": "high"
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "title": "Motor de presencia",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configurar el motor de presencia",
+        "description": "Pega la configuración validada de la instalación. La integración inicia en modo comparación y no opera dispositivos.",
+        "data": {"configuration": "Configuración JSON"},
+        "data_description": {"configuration": "Áreas, geometría, identidades y fuentes versionadas."}
+      },
+      "reconfigure": {
+        "title": "Reconfigurar el motor de presencia",
+        "description": "Actualiza la configuración versionada de la instalación.",
+        "data": {"configuration": "Configuración JSON"}
+      }
+    },
+    "error": {"invalid_configuration": "La configuración no es válida."},
+    "abort": {"single_instance_allowed": "Solo se admite una instancia del motor de presencia."}
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opciones del motor de presencia",
+        "data": {
+          "comparison_mode": "Modo comparación",
+          "max_records": "Máximo de evidencias",
+          "save_delay_seconds": "Demora de persistencia"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "snapshot": {"name": "Resultado"},
+      "revision": {"name": "Revisión"}
+    },
+    "binary_sensor": {
+      "coverage_degraded": {"name": "Cobertura degradada"}
+    },
+    "event": {
+      "detection": {"name": "Detección"}
+    }
+  }
+}

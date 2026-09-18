@@ -1,0 +1,28 @@
+get_snapshot:
+  name: Get presence snapshot
+  description: Returns one coherent revision of the current presence result.
+  fields:
+    config_entry_id:
+      name: Config entry
+      description: Optional Presence Engine config entry ID.
+      required: false
+      selector:
+        config_entry:
+          integration: presence_engine
+get_detection:
+  name: Get detection
+  description: Returns the latest revision of one detection event.
+  fields:
+    config_entry_id:
+      name: Config entry
+      description: Optional Presence Engine config entry ID.
+      required: false
+      selector:
+        config_entry:
+          integration: presence_engine
+    detection_id:
+      name: Detection ID
+      description: Native stable event identifier.
+      required: true
+      selector:
+        text:

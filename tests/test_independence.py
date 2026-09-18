@@ -7,7 +7,12 @@ from pathlib import Path
 
 class IndependenceTests(unittest.TestCase):
     def test_core_has_no_platform_or_network_imports(self) -> None:
-        source_root=Path(__file__).resolve().parents[1]/"src"/"presence_engine"
+        source_root = (
+            Path(__file__).resolve().parents[1]
+            / "custom_components"
+            / "presence_engine"
+            / "engine"
+        )
         forbidden={"homeassistant","paho","requests","httpx","aiohttp","socket","urllib"}
         found=[]
         for path in source_root.glob("*.py"):
@@ -24,7 +29,12 @@ class IndependenceTests(unittest.TestCase):
         self.assertEqual(found,[])
 
     def test_core_does_not_contain_installation_identifiers(self) -> None:
-        source_root=Path(__file__).resolve().parents[1]/"src"/"presence_engine"
+        source_root = (
+            Path(__file__).resolve().parents[1]
+            / "custom_components"
+            / "presence_engine"
+            / "engine"
+        )
         forbidden=("sensor.","binary_sensor.","device_tracker.","frigate/","mqtt")
         hits=[]
         for path in source_root.glob("*.py"):

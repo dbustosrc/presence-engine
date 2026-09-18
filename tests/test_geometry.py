@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import unittest
 
-from presence_engine import CameraGeometry, GeometryContext, Quality, SpatialLevel, resolve_camera_location
+from presence_engine.engine import (
+    CameraGeometry,
+    GeometryContext,
+    Quality,
+    SpatialLevel,
+    resolve_camera_location,
+)
 
 from helpers import at
 
@@ -75,7 +81,21 @@ class GeometryTests(unittest.TestCase):
         self.assertEqual(claim.level,SpatialLevel.FLOOR)
         self.assertEqual(claim.candidates,("alpha","beta"))
 
+    def test_fixed_camera_area_is_used_when_no_current_zone_exists(self) -> None:
+        claim=resolve_camera_location(GeometryContext(
+            context_id="ctx-fixed",
+            observed_at=at(7),
+            telemetry_valid=True,
+        ),CameraGeometry(
+            floor="floor_alpha",
+            zone_to_area={},
+            profile_to_area={},
+            fixed_area="alpha",
+        ))
+        self.assertEqual(claim.level,SpatialLevel.AREA)
+        self.assertEqual(claim.area,"alpha")
+        self.assertEqual(claim.method,"fixed_camera_area")
+
 
 if __name__ == "__main__":
     unittest.main()
-

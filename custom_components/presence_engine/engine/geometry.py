@@ -15,6 +15,7 @@ class CameraGeometry:
     floor: str
     zone_to_area: Mapping[str, str]
     profile_to_area: Mapping[str, str]
+    fixed_area: str | None = None
 
     def __post_init__(self) -> None:
         if not self.floor.strip():
@@ -24,7 +25,10 @@ class CameraGeometry:
 
     @property
     def candidate_areas(self) -> tuple[str, ...]:
-        return tuple(sorted(set(self.zone_to_area.values()) | set(self.profile_to_area.values())))
+        values = set(self.zone_to_area.values()) | set(self.profile_to_area.values())
+        if self.fixed_area is not None:
+            values.add(self.fixed_area)
+        return tuple(sorted(values))
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +115,18 @@ def resolve_camera_location(context: GeometryContext, geometry: CameraGeometry) 
             candidates=(area,),
             method="ptz_profile_fallback",
             quality=Quality.MEDIUM,
+            observed_at=context.observed_at,
+            geometry_context_id=context.context_id,
+        )
+
+    if geometry.fixed_area is not None:
+        return SpatialClaim(
+            level=SpatialLevel.AREA,
+            area=geometry.fixed_area,
+            floor=geometry.floor,
+            candidates=(geometry.fixed_area,),
+            method="fixed_camera_area",
+            quality=Quality.HIGH,
             observed_at=context.observed_at,
             geometry_context_id=context.context_id,
         )

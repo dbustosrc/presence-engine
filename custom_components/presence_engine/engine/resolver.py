@@ -107,7 +107,7 @@ class PresenceResolver:
         ))
         devices=self._resolve_devices(active)
         people=self._known_people(active,previous,now)
-        groups=self._evidence_groups(active,now)
+        groups=self._reconcile_area_populations(self._evidence_groups(active,now))
         conflicts: list[str]=[]
         reasons: list[str]=[]
         extras: list[PresenceHypothesis]=[]
@@ -290,6 +290,75 @@ class PresenceResolver:
                 coverage_group=representative.source.coverage_group,
             ))
         return tuple(sorted(results,key=lambda group:group.key))
+
+    def _reconcile_area_populations(
+        self,
+        groups: tuple[_EvidenceGroup, ...],
+    ) -> tuple[_EvidenceGroup, ...]:
+        """Apply aggregate room counts as population bounds, not extra people.
+
+        Tracked object IDs remain independent individuals. Anonymous counters,
+        radars and other aggregates observing the same room describe the same
+        population; their strongest interval is retained and any already
+        tracked objects are consumed from that interval.
+        """
+        passthrough: list[_EvidenceGroup] = []
+        by_area: dict[str, list[_EvidenceGroup]] = {}
+        for group in groups:
+            if (
+                group.kind is TargetKind.ANIMAL
+                or group.location is None
+                or group.location.area is None
+            ):
+                passthrough.append(group)
+                continue
+            by_area.setdefault(group.location.area, []).append(group)
+
+        for area, area_groups in sorted(by_area.items()):
+            specific = [group for group in area_groups if group.target_id is not None]
+            aggregates = [group for group in area_groups if group.target_id is None]
+            passthrough.extend(specific)
+            if not aggregates:
+                continue
+            aggregate_minimum = max(group.minimum for group in aggregates)
+            aggregate_maximum = max(group.maximum for group in aggregates)
+            specific_minimum = sum(group.minimum for group in specific)
+            specific_maximum = sum(group.maximum for group in specific)
+            residual_minimum = max(0, aggregate_minimum - specific_maximum)
+            residual_maximum = max(0, aggregate_maximum - specific_minimum)
+            if residual_maximum == 0:
+                continue
+            representative = max(
+                aggregates,
+                key=lambda group: (
+                    group.location.observed_at if group.location else datetime.min
+                ),
+            )
+            passthrough.append(
+                replace(
+                    representative,
+                    key=f"area-population:{area}",
+                    kind=(
+                        TargetKind.PERSON
+                        if any(group.kind is TargetKind.PERSON for group in aggregates)
+                        else TargetKind.UNKNOWN_LIVING
+                    ),
+                    minimum=residual_minimum,
+                    maximum=residual_maximum,
+                    source_ids=tuple(
+                        sorted(
+                            {
+                                source_id
+                                for group in aggregates
+                                for source_id in group.source_ids
+                            }
+                        )
+                    ),
+                    target_id=None,
+                    dependency_group=f"area-population:{area}",
+                )
+            )
+        return tuple(sorted(passthrough, key=lambda group: group.key))
 
     def _effective_interval(self, item: Observation, now: datetime) -> CountClaim:
         if item.count is None:

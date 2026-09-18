@@ -1,0 +1,44 @@
+{
+  "title": "Presence Engine",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configure Presence Engine",
+        "description": "Paste the validated installation configuration. The integration starts in comparison mode and does not operate devices.",
+        "data": {"configuration": "Configuration JSON"},
+        "data_description": {"configuration": "Versioned areas, geometry, identities and sources."}
+      },
+      "reconfigure": {
+        "title": "Reconfigure Presence Engine",
+        "description": "Update the versioned installation configuration.",
+        "data": {"configuration": "Configuration JSON"}
+      }
+    },
+    "error": {"invalid_configuration": "The configuration is not valid."},
+    "abort": {"single_instance_allowed": "Only one Presence Engine instance is supported."}
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Presence Engine options",
+        "data": {
+          "comparison_mode": "Comparison mode",
+          "max_records": "Maximum evidence records",
+          "save_delay_seconds": "Persistence delay"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "snapshot": {"name": "Snapshot"},
+      "revision": {"name": "Revision"}
+    },
+    "binary_sensor": {
+      "coverage_degraded": {"name": "Coverage degraded"}
+    },
+    "event": {
+      "detection": {"name": "Detection"}
+    }
+  }
+}

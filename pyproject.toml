@@ -3,9 +3,9 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "presence-engine-core"
-version = "0.1.0"
-description = "Deterministic, platform-independent presence evidence engine"
+name = "presence-engine"
+version = "0.2.0"
+description = "Home Assistant presence evidence integration with a deterministic core"
 readme = "README.md"
 requires-python = ">=3.13"
 license = "MIT"
@@ -13,12 +13,12 @@ authors = [{ name = "David R. Bustos" }]
 dependencies = []
 
 [tool.setuptools]
-package-dir = {"" = "src"}
+package-dir = {"" = "custom_components"}
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["custom_components"]
+include = ["presence_engine*"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py313"
-

@@ -20,6 +20,7 @@ from .model import (
     SpatialClaim,
     SpatialLevel,
     TargetKind,
+    require_aware,
 )
 from .resolver import FrozenClock, PresenceConfig, PresenceResolver
 from .store import EvidenceStore, StoreUpdate
@@ -51,5 +52,5 @@ __all__ = [
     "TargetKind",
     "resolve_camera_location",
     "resolve_detection",
+    "require_aware",
 ]
-

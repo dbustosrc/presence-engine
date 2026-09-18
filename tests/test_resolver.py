@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from itertools import permutations
 
-from presence_engine import (
+from presence_engine.engine import (
     CONTRACT_VERSION,
     CountClaim,
     FrozenClock,
@@ -201,6 +201,50 @@ class ResolverTests(unittest.TestCase):
             count=CountClaim(1,1,at(0),True),dependency_group="camera-target-a",
         )
         result=self.resolve(event,aggregate)
+        self.assertEqual((result.count_minimum,result.count_maximum),(1,1))
+
+    def test_tracked_event_and_independent_room_counter_are_one_population(self) -> None:
+        event=observation(
+            "event-a",kind=TargetKind.PERSON,target_id="event-a",location=area("alpha",0),
+            dependency_group="camera-target-a",
+        )
+        aggregate=observation(
+            "count-a",kind=TargetKind.UNKNOWN_LIVING,location=area("alpha",0),
+            count=CountClaim(1,1,at(0),True),dependency_group="mtr-alpha",
+        )
+
+        result=self.resolve(event,aggregate)
+
+        self.assertEqual((result.count_minimum,result.count_maximum),(1,1))
+
+    def test_two_tracked_events_consume_room_count_two(self) -> None:
+        first=observation(
+            "event-a",kind=TargetKind.PERSON,target_id="event-a",location=area("alpha",0),
+        )
+        second=observation(
+            "event-b",kind=TargetKind.PERSON,target_id="event-b",location=area("alpha",0),
+        )
+        aggregate=observation(
+            "count-a",kind=TargetKind.UNKNOWN_LIVING,location=area("alpha",0),
+            count=CountClaim(2,2,at(0),True),dependency_group="mtr-alpha",
+        )
+
+        result=self.resolve(first,second,aggregate)
+
+        self.assertEqual((result.count_minimum,result.count_maximum),(2,2))
+
+    def test_multiple_anonymous_room_sensors_do_not_create_exact_duplicates(self) -> None:
+        radar=observation(
+            "radar",kind=TargetKind.UNKNOWN_LIVING,location=area("alpha",0),
+            dependency_group="radar-alpha",
+        )
+        camera=observation(
+            "camera-count",kind=TargetKind.PERSON,location=area("alpha",0),
+            dependency_group="camera-alpha",
+        )
+
+        result=self.resolve(radar,camera)
+
         self.assertEqual((result.count_minimum,result.count_maximum),(1,1))
 
     def test_previous_direct_path_beats_newer_device_jump(self) -> None:
