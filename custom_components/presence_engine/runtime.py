@@ -227,12 +227,6 @@ class PresenceRuntime:
         configured_source_ids = {
             source.source_id for source in self.configuration.sources if source.enabled
         }
-        previous_source_ids = {
-            value
-            for value in raw.get("configured_source_ids", ())
-            if isinstance(value, str)
-        }
-        self._unavailable_sources.update(previous_source_ids - configured_source_ids)
         for item in raw.get("observations", ()):  # type: ignore[union-attr]
             try:
                 observation = decode_observation(item)
@@ -250,7 +244,9 @@ class PresenceRuntime:
         unavailable = raw.get("unavailable_sources", ())
         if isinstance(unavailable, list):
             self._unavailable_sources.update(
-                value for value in unavailable if isinstance(value, str)
+                value
+                for value in unavailable
+                if isinstance(value, str) and value in configured_source_ids
             )
         images = raw.get("latest_images", {})
         if isinstance(images, Mapping):

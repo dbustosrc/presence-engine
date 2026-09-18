@@ -1,5 +1,14 @@
 # Historial de cambios
 
+## 0.2.4 — Limpieza de cobertura retirada
+
+- Descarta durante la restauración las fuentes indisponibles que ya no forman
+  parte de la configuración efectiva.
+- Evita que una fuente retirada deliberadamente quede marcada para siempre
+  como cobertura degradada después de una actualización.
+- Conserva el estado indisponible únicamente para fuentes que siguen
+  configuradas y, por tanto, continúan siendo cobertura esperada.
+
 ## 0.2.3 — Descubrimiento por dispositivo
 
 - Evita que los canales auxiliares de un dispositivo ya configurado de forma

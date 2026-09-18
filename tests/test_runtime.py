@@ -260,7 +260,19 @@ class RuntimeTests(unittest.TestCase):
         restored.restore_state(saved)
 
         self.assertEqual(restored.snapshot.count_maximum, 0)
-        self.assertTrue(restored.snapshot.coverage_degraded)
+        self.assertFalse(restored.snapshot.coverage_degraded)
+        self.assertNotIn("device_area", restored.snapshot.unavailable_source_ids)
+
+    def test_restore_keeps_unavailable_state_only_for_configured_sources(self) -> None:
+        self.runtime.mark_channel_unavailable(("device_area",))
+        saved = self.runtime.export_state()
+        saved["unavailable_sources"] = ["device_area", "removed_source"]
+        restored = PresenceRuntime(integration_config(), now=lambda: at(11))
+
+        restored.restore_state(saved)
+
+        self.assertIn("device_area", restored.snapshot.unavailable_source_ids)
+        self.assertNotIn("removed_source", restored.snapshot.unavailable_source_ids)
 
     def test_expiration_revises_current_snapshot_without_deleting_history(self) -> None:
         config = integration_config()
