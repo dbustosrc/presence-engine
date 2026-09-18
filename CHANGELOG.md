@@ -1,5 +1,16 @@
 # Historial de cambios
 
+## 0.2.3 — Descubrimiento por dispositivo
+
+- Evita que los canales auxiliares de un dispositivo ya configurado de forma
+  explícita se activen otra vez como fuentes independientes mediante el
+  descubrimiento automático.
+- Elimina las revisiones redundantes observadas cuando los canales internos de
+  movimiento, quietud y zonas del MSR-2 de Office alternaban sin cambiar el
+  resultado de presencia.
+- Añade una regresión para conservar una sola representación canónica por
+  dispositivo explícitamente modelado.
+
 ## 0.2.2 — Actualizaciones multidimensionales atómicas
 
 - Aplica en una sola operación las dimensiones aceptadas de una observación,

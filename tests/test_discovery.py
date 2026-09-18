@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from presence_engine.configuration import AdapterType
+from presence_engine.configuration import AdapterType, SourceDefinition
 from presence_engine.discovery import (
     EntityDescriptor,
     apply_discovery,
@@ -115,6 +115,56 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(len(plan.pending), 1)
         self.assertIn("binary_sensor.gamma_radar", plan.configuration.entity_ids)
         self.assertNotIn("sensor.gamma_zone_1_all_target_count", plan.configuration.entity_ids)
+
+    def test_explicit_device_suppresses_auto_discovered_auxiliary_channels(self) -> None:
+        configured = integration_config()
+        configured = type(configured)(
+            schema_version=configured.schema_version,
+            areas=configured.areas,
+            adjacency=configured.adjacency,
+            identities=configured.identities,
+            cameras=configured.cameras,
+            sources=(
+                *configured.sources,
+                SourceDefinition(
+                    source_id="office_radar",
+                    adapter=AdapterType.BINARY_PRESENCE,
+                    entity_ids=("binary_sensor.office_radar_target",),
+                    entity_registry_ids=("entry-radar-target",),
+                    area="alpha",
+                ),
+            ),
+        )
+        descriptors = (
+            EntityDescriptor(
+                registry_id="entry-radar-target",
+                entity_id="binary_sensor.office_radar_target",
+                platform="esphome",
+                unique_id="office_ld2450_radar_target",
+                domain="binary_sensor",
+                area_id="alpha",
+                device_model="MSR-2",
+                device_id="device-office-radar",
+            ),
+            EntityDescriptor(
+                registry_id="entry-radar-moving",
+                entity_id="binary_sensor.office_radar_moving_target",
+                platform="esphome",
+                unique_id="office_ld2450_radar_moving_target",
+                domain="binary_sensor",
+                area_id="alpha",
+                device_model="MSR-2",
+                device_id="device-office-radar",
+            ),
+        )
+
+        plan = apply_discovery(configured, descriptors)
+
+        self.assertEqual(plan.activated, ())
+        self.assertNotIn(
+            "binary_sensor.office_radar_moving_target",
+            plan.configuration.entity_ids,
+        )
 
     def test_raw_registry_binding_survives_rename(self) -> None:
         raw = {

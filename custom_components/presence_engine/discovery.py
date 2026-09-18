@@ -30,6 +30,7 @@ class EntityDescriptor:
     device_model: str | None = None
     device_class: str | None = None
     original_name: str | None = None
+    device_id: str | None = None
 
     @property
     def stable_key(self) -> str:
@@ -210,14 +211,31 @@ def apply_discovery(
     descriptors: Iterable[EntityDescriptor],
 ) -> DiscoveryPlan:
     """Activate unambiguous known sources and expose every other candidate."""
+    descriptors = tuple(descriptors)
     existing_entities = {
         entity_id for source in configuration.sources for entity_id in source.entity_ids
+    }
+    existing_registry_ids = {
+        registry_id
+        for source in configuration.sources
+        for registry_id in source.entity_registry_ids
+    }
+    represented_device_ids = {
+        descriptor.device_id
+        for descriptor in descriptors
+        if descriptor.device_id is not None
+        and (
+            descriptor.entity_id in existing_entities
+            or descriptor.registry_id in existing_registry_ids
+        )
     }
     sources = list(configuration.sources)
     activated: list[DiscoveryCandidate] = []
     pending: list[DiscoveryCandidate] = []
     for candidate in discover_candidates(descriptors):
         if candidate.descriptor.entity_id in existing_entities:
+            continue
+        if candidate.descriptor.device_id in represented_device_ids:
             continue
         normalized = _normalize_candidate(candidate, configuration)
         source = _candidate_source(normalized, configuration)

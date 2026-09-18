@@ -26,6 +26,7 @@ def collect_entity_descriptors(hass: HomeAssistant) -> tuple[EntityDescriptor, .
                 device_model=device.model if device else None,
                 device_class=entry.device_class or entry.original_device_class,
                 original_name=entry.original_name,
+                device_id=entry.device_id,
             )
         )
     return tuple(descriptors)
