@@ -10,6 +10,7 @@ from presence_engine.const import (
     CONFIG_SCHEMA_VERSION,
     CONTRACT_VERSION,
     INTEGRATION_VERSION,
+    PLATFORMS,
 )
 
 
@@ -93,6 +94,14 @@ class PackageContractTests(unittest.TestCase):
         for token in forbidden:
             with self.subTest(token=token):
                 self.assertNotIn(token, python_source)
+
+    def test_room_projection_uses_records_not_deprecated_trackers(self) -> None:
+        init_source = (COMPONENT / "__init__.py").read_text(encoding="utf-8")
+
+        self.assertNotIn("device_tracker", PLATFORMS)
+        self.assertFalse((COMPONENT / "device_tracker.py").exists())
+        self.assertIn("_remove_deprecated_tracker_candidates", init_source)
+        self.assertIn('endswith("_tracker_candidate")', init_source)
 
     def test_release_documentation_is_present(self) -> None:
         for relative_path in (

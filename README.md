@@ -21,13 +21,13 @@ automatizaciones consumidoras.
 - Última imagen identificada persistente e independiente de la ubicación
   actual.
 - Entidades diagnósticas, eventos y acciones con respuesta para consumidores.
-- Proyecciones públicas candidatas deshabilitadas por defecto para migraciones
-  con un solo escritor por salida.
+- Proyecciones públicas candidatas deshabilitadas por defecto para presencia,
+  cobertura y registros por identidad, con un solo escritor por salida.
 
 ## Límites
 
-- No mueve cámaras ni publica trackers mediante MQTT. Los trackers candidatos
-  permanecen deshabilitados hasta una migración explícita.
+- No mueve cámaras ni publica trackers mediante MQTT. Las proyecciones
+  candidatas permanecen deshabilitadas hasta una migración explícita.
 - No envía notificaciones.
 - No modifica Home Assistant, Frigate ni integraciones instaladas.
 - No deduce geometría desconocida ni asocia dispositivos a personas por el
@@ -36,7 +36,7 @@ automatizaciones consumidoras.
 
 ## Estado de la versión
 
-La versión `0.3.2` incorpora entidades candidatas para una migración
+La versión `0.3.3` incorpora entidades candidatas para una migración
 controlada. Se crean deshabilitadas por defecto y no sustituyen trackers,
 notificaciones ni controles existentes automáticamente.
 

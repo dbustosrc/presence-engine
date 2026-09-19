@@ -20,11 +20,14 @@ coverage never asserts an empty home.
 
 ## Identity candidates
 
-Each configured canonical identity receives a tracker candidate and an atomic
-record candidate. Both expose the same location, identity, timing, source and
-image metadata from one revision. The compatibility `confidence` attribute
-describes the resolved presence hypothesis; identity and location keep their
-own confidence fields.
+Each configured canonical identity receives an atomic record candidate. It
+exposes location, identity, timing, source and image metadata from one
+revision. The compatibility `confidence` attribute describes the resolved
+presence hypothesis; identity and location keep their own confidence fields.
+
+Room names are intentionally not projected as `device_tracker` state. Home
+Assistant deprecated free-form tracker locations; consumers should read the
+identity record and its explicit location fields instead.
 
 - No current hypothesis produces `unknown`, not `not_home`.
 - Identity confidence never substitutes for location confidence.

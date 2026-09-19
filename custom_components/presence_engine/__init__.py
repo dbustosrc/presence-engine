@@ -102,11 +102,25 @@ async def async_setup_entry(
     try:
         await runtime.async_setup()
         entry.runtime_data = runtime
+        _remove_deprecated_tracker_candidates(hass, entry)
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     except Exception:
         await runtime.async_shutdown()
         raise
     return True
+
+
+def _remove_deprecated_tracker_candidates(
+    hass: HomeAssistant,
+    entry: PresenceEngineConfigEntry,
+) -> None:
+    """Remove pre-0.3.3 room-name trackers from the entity registry."""
+    from homeassistant.helpers import entity_registry as er
+
+    registry = er.async_get(hass)
+    for registry_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if registry_entry.unique_id.endswith("_tracker_candidate"):
+            registry.async_remove(registry_entry.entity_id)
 
 
 async def async_unload_entry(

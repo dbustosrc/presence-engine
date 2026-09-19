@@ -1,5 +1,14 @@
 # Historial de cambios
 
+## 0.3.3 — Proyección de ubicación mantenible
+
+- Retira la proyección candidata basada en nombres libres de ubicación del
+  dominio `device_tracker`, deprecada por Home Assistant.
+- Mantiene el registro por identidad como contrato canónico para ubicaciones
+  interiores y elimina de forma soportada las entidades candidatas obsoletas.
+- No modifica trackers heredados ni consumidores existentes durante la
+  migración controlada.
+
 ## 0.3.2 — Imágenes de eventos accesibles
 
 - Expone las referencias de instantáneas de eventos mediante la ruta
