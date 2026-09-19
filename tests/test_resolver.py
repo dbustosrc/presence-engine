@@ -63,8 +63,8 @@ class ResolverTests(unittest.TestCase):
         result=self.resolve(device,count)
         self.assertEqual((result.count_minimum,result.count_maximum),(1,2))
         person=next(item for item in result.presences if item.identity == "person_a")
-        self.assertEqual(person.location.area,"beta")
-        self.assertEqual(person.location_status,"ambiguous_movement")
+        self.assertEqual(person.location.level,SpatialLevel.HOME)
+        self.assertEqual(person.location_status,"device_person_separation_possible")
 
     def test_stale_device_does_not_hide_a_real_visitor(self) -> None:
         device=observation(
@@ -75,7 +75,8 @@ class ResolverTests(unittest.TestCase):
             "target-b",kind=TargetKind.PERSON,target_id="target-b",location=area("gamma",0),
         )
         result=self.resolve(device,visitor)
-        self.assertEqual((result.count_minimum,result.count_maximum),(2,2))
+        self.assertEqual((result.count_minimum,result.count_maximum),(1,2))
+        self.assertIn("presence_count_is_an_interval",result.conflicts)
 
     def test_floor_scope_identity_can_be_refined_by_current_area_evidence(self) -> None:
         person=observation(
@@ -125,7 +126,10 @@ class ResolverTests(unittest.TestCase):
 
         self.assertEqual((result.count_minimum, result.count_maximum), (1, 1))
         person = next(item for item in result.presences if item.identity == "person_a")
-        self.assertEqual(person.identity_quality, Quality.HIGH)
+        self.assertEqual(person.location.area, "alpha")
+        self.assertEqual(person.location_status, "correlated_movement")
+        self.assertEqual(person.identity_quality, Quality.MEDIUM)
+        self.assertEqual(result.devices[0].location.area, "alpha")
 
     def test_home_scope_person_is_refined_by_registered_device_and_room_count(self) -> None:
         home = observation(
@@ -159,11 +163,97 @@ class ResolverTests(unittest.TestCase):
         self.assertEqual((result.count_minimum, result.count_maximum), (1, 1))
         person = next(item for item in result.presences if item.identity == "person_a")
         self.assertEqual(person.location.area, "alpha")
-        self.assertEqual(person.location_status, "refined_by_device")
+        self.assertEqual(person.location_status, "correlated_movement")
         self.assertEqual(
             set(person.source_ids),
             {"source.person-home", "source.device-a", "source.radar-a"},
         )
+
+    def test_phone_and_physical_presence_in_different_rooms_remain_separate(self) -> None:
+        home = observation(
+            "person-home",
+            kind=TargetKind.PERSON,
+            location=SpatialClaim(
+                level=SpatialLevel.HOME,
+                method="home_scope",
+                quality=Quality.LOW,
+                observed_at=at(-20),
+            ),
+            identity_claim=identity(seconds=-20, method="home_scope"),
+        )
+        phone = observation(
+            "device-a",
+            kind=TargetKind.DEVICE,
+            target_id="device-a",
+            location=area("alpha", -2, quality=Quality.MEDIUM),
+            identity_claim=identity(seconds=-2, method="registered_owner"),
+        )
+        physical_presence = observation(
+            "radar-delta",
+            kind=TargetKind.UNKNOWN_LIVING,
+            location=area("delta", 0),
+            count=CountClaim(1, 1, at(0), True),
+            dependency_group="radar-delta",
+        )
+
+        result = self.resolve(home, phone, physical_presence)
+
+        self.assertEqual((result.count_minimum, result.count_maximum), (1, 2))
+        self.assertIn("presence_count_is_an_interval", result.conflicts)
+        self.assertIn("device_separated_from_physical_presence", result.reasons)
+        person = next(item for item in result.presences if item.identity == "person_a")
+        self.assertEqual(person.location.level, SpatialLevel.HOME)
+        self.assertEqual(person.location_status, "device_person_separation_possible")
+        self.assertEqual(person.candidate_areas, ())
+        self.assertEqual(
+            set(person.source_ids),
+            {"source.person-home", "source.device-a"},
+        )
+        possible = next(item for item in result.presences if item.identity is None)
+        self.assertEqual(possible.location.area, "delta")
+        self.assertEqual(possible.location_status, "possible")
+        self.assertEqual(result.devices[0].location.area, "alpha")
+
+    def test_registered_device_alone_supports_home_not_owner_room(self) -> None:
+        device = observation(
+            "device-a",
+            kind=TargetKind.DEVICE,
+            target_id="device-a",
+            location=area("alpha", 0, quality=Quality.MEDIUM),
+            identity_claim=identity(seconds=0, method="registered_owner"),
+        )
+
+        result = self.resolve(device)
+
+        self.assertEqual((result.count_minimum, result.count_maximum), (1, 1))
+        person = result.presences[0]
+        self.assertEqual(person.location.level, SpatialLevel.HOME)
+        self.assertIsNone(person.location.area)
+        self.assertEqual(person.location_status, "home_from_device")
+        self.assertEqual(result.devices[0].location.area, "alpha")
+
+    def test_multiple_registered_devices_are_alternative_support_for_one_person(self) -> None:
+        first = observation(
+            "device-a",
+            kind=TargetKind.DEVICE,
+            target_id="device-a",
+            location=area("alpha", -2, quality=Quality.MEDIUM),
+            identity_claim=identity(seconds=-2, method="registered_owner"),
+        )
+        second = observation(
+            "device-b",
+            kind=TargetKind.DEVICE,
+            target_id="device-b",
+            location=area("beta", 0, quality=Quality.MEDIUM),
+            identity_claim=identity(seconds=0, method="registered_owner"),
+        )
+
+        result = self.resolve(first, second)
+
+        self.assertEqual((result.count_minimum, result.count_maximum), (1, 1))
+        self.assertEqual(len(result.presences), 1)
+        self.assertEqual(result.presences[0].location.level, SpatialLevel.HOME)
+        self.assertEqual({item.location.area for item in result.devices}, {"alpha", "beta"})
 
     def test_registered_device_does_not_override_direct_area_evidence(self) -> None:
         visual = observation(
@@ -329,6 +419,21 @@ class ResolverTests(unittest.TestCase):
         person=next(item for item in result.presences if item.identity == "person_a")
         self.assertEqual(person.location.area,"beta")
         self.assertEqual((result.count_minimum,result.count_maximum),(1,1))
+
+    def test_previous_snapshot_without_current_evidence_does_not_create_presence(self) -> None:
+        previous=PresenceSnapshot(
+            contract_version=CONTRACT_VERSION,snapshot_id="previous",revision=6,evaluated_at=at(-1),
+            presences=(PresenceHypothesis(
+                hypothesis_id="person:person_a",kind=TargetKind.PERSON,identity="person_a",
+                location=area("alpha",-1),location_status="resolved",certainty=Quality.HIGH,
+                source_ids=("source.visual",),candidate_areas=("alpha",),
+            ),),devices=(),count_minimum=1,count_maximum=1,coverage_degraded=False,
+        )
+
+        result=self.resolve(previous=previous)
+
+        self.assertEqual((result.count_minimum,result.count_maximum),(0,0))
+        self.assertEqual(result.presences,())
 
     def test_same_animal_target_across_areas_is_one_trajectory(self) -> None:
         first=observation(

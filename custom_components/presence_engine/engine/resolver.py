@@ -77,6 +77,7 @@ class _PersonCandidate:
     from_device: bool
     status: str = "resolved"
     candidate_areas: set[str] = field(default_factory=set)
+    device_locations: list[SpatialClaim] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,24 +128,42 @@ class PresenceResolver:
             group_min=group.minimum
             group_max=group.maximum
             if group.kind in {TargetKind.PERSON,TargetKind.UNKNOWN_LIVING}:
-                same_area=[person for person in people.values()
-                           if self._same_area(person.location,group.location)]
-                if same_area:
-                    if group_min >= len(same_area):
-                        for person in same_area:
-                            person.sources.update(group.source_ids)
-                    consumed=min(len(same_area),group_max)
-                    group_min=max(0,group_min-consumed)
-                    group_max=max(0,group_max-consumed)
-                elif group.maximum:
-                    match,exact=self._movement_match(people,group,now)
-                    if match is not None:
-                        self._apply_group_location(match,group,exact)
-                        group_min=max(0,group_min-1)
-                        if exact:
-                            group_max=max(0,group_max-1)
-                        else:
-                            reasons.append("movement_correlation_kept_visitor_uncertainty")
+                corroborated=self._device_corroboration_match(people,group)
+                if corroborated is not None:
+                    self._apply_group_location(corroborated,group,True)
+                    group_min=max(0,group_min-1)
+                    group_max=max(0,group_max-1)
+                if corroborated is None:
+                    separated=self._separate_device_proxy_from_physical_presence(
+                        people,
+                        group,
+                    )
+                    if separated is not None:
+                        # A registered device and an anonymous physical presence
+                        # in different rooms are two intact observations, but
+                        # not proof of either one or two people. Keep the device
+                        # location separate and retain the physical presence as
+                        # a possible visitor.
+                        group_min=0
+                        reasons.append("device_separated_from_physical_presence")
+                    same_area=[person for person in people.values()
+                               if self._same_area(person.location,group.location)]
+                    if same_area:
+                        if group_min >= len(same_area):
+                            for person in same_area:
+                                person.sources.update(group.source_ids)
+                        consumed=min(len(same_area),group_max)
+                        group_min=max(0,group_min-consumed)
+                        group_max=max(0,group_max-consumed)
+                    elif group.maximum:
+                        match,exact=self._movement_match(people,group,now)
+                        if match is not None:
+                            self._apply_group_location(match,group,exact)
+                            group_min=max(0,group_min-1)
+                            if exact:
+                                group_max=max(0,group_max-1)
+                            else:
+                                reasons.append("movement_correlation_kept_visitor_uncertainty")
             extra_min+=group_min
             extra_max+=group_max
             for index in range(group_min):
@@ -247,39 +266,26 @@ class PresenceResolver:
             if identity in people:
                 candidate=people[identity]
                 candidate.sources.add(item.source.source_id)
-                candidate.identity_sources.add(item.source.source_id)
-                if (
-                    item.identity.quality.rank,
-                    item.identity.observed_at,
-                ) > (
-                    candidate.identity_quality.rank,
-                    candidate.identity_observed_at,
-                ):
-                    candidate.certainty=item.identity.quality
-                    candidate.identity_quality=item.identity.quality
-                    candidate.identity_method=item.identity.method
-                    candidate.identity_observed_at=item.identity.observed_at
-                    candidate.identity_score=item.identity.score
-                if self._device_refines_home_scope(candidate.location,item.location):
-                    candidate.location=item.location
-                    candidate.location_sources={item.source.source_id}
+                if item.location is not None:
+                    candidate.device_locations.append(item.location)
+                if candidate.location is None or candidate.location.area is None:
                     candidate.from_device=True
-                    candidate.status="refined_by_device"
                 continue
             people[identity]=_PersonCandidate(
                 identity=identity,
-                location=item.location,
+                location=self._device_home_scope(item),
                 certainty=Quality.MEDIUM if item.identity.quality is Quality.HIGH else Quality.LOW,
-                identity_quality=item.identity.quality,
-                identity_method=item.identity.method,
+                identity_quality=Quality.MEDIUM,
+                identity_method="registered_device_presence",
                 identity_observed_at=item.identity.observed_at,
                 identity_score=item.identity.score,
                 identity_sources={item.source.source_id},
-                location_sources={item.source.source_id} if item.location else set(),
+                location_sources={item.source.source_id},
                 sources={item.source.source_id},
                 direct_person=False,
                 from_device=True,
-                status="inferred_from_device",
+                status="home_from_device",
+                device_locations=[item.location] if item.location is not None else [],
             )
 
         if previous is not None:
@@ -303,23 +309,61 @@ class PresenceResolver:
                         current.from_device=False
                         current.sources.update(prior.source_ids)
                     continue
-                people[prior.identity]=_PersonCandidate(
-                    identity=prior.identity,
-                    location=prior.location,
-                    certainty=Quality.LOW,
-                    identity_quality=prior.identity_quality,
-                    identity_method=prior.identity_method or "continued",
-                    identity_observed_at=prior.identity_observed_at or prior.location.observed_at,
-                    identity_score=prior.identity_score,
-                    identity_sources=set(prior.identity_source_ids),
-                    location_sources=set(prior.location_source_ids),
-                    sources=set(prior.source_ids),
-                    direct_person=False,
-                    from_device=False,
-                    status="continued",
-                    candidate_areas=set(prior.candidate_areas),
-                )
         return people
+
+    @staticmethod
+    def _device_corroboration_match(
+        people: dict[str, _PersonCandidate],
+        group: _EvidenceGroup,
+    ) -> _PersonCandidate | None:
+        """Use physical evidence to locate one device-backed person.
+
+        The device does not locate its owner. It only helps correlate a
+        separate physical observation when both independently agree on the
+        room and there is exactly one eligible identity.
+        """
+        if group.location is None or group.location.area is None or not group.maximum:
+            return None
+        candidates = [
+            person
+            for person in people.values()
+            if person.from_device
+            and not (person.location and person.location.area)
+            and any(
+                location.area == group.location.area
+                for location in person.device_locations
+            )
+        ]
+        return candidates[0] if len(candidates) == 1 else None
+
+    @staticmethod
+    def _separate_device_proxy_from_physical_presence(
+        people: dict[str, _PersonCandidate],
+        group: _EvidenceGroup,
+    ) -> _PersonCandidate | None:
+        """Preserve a phone/person split without inventing an identity.
+
+        A device only supports home scope. When a physical source does not
+        corroborate its room, neither observation may overwrite the other and
+        the anonymous presence must remain possible.
+        """
+        if group.location is None or group.location.area is None:
+            return None
+        candidates = [
+            person
+            for person in people.values()
+            if person.from_device
+            and person.device_locations
+            and not any(
+                location.area == group.location.area
+                for location in person.device_locations
+            )
+        ]
+        if len(candidates) != 1:
+            return None
+        person = candidates[0]
+        person.status = "device_person_separation_possible"
+        return person
 
     def _evidence_groups(self, observations: tuple[Observation, ...], now: datetime) -> tuple[_EvidenceGroup, ...]:
         grouped: dict[str,list[Observation]]={}
@@ -579,16 +623,21 @@ class PresenceResolver:
         return (1 if direct else 0, location.quality.rank, location.observed_at)
 
     @staticmethod
-    def _device_refines_home_scope(
-        current: SpatialClaim | None,
-        device: SpatialClaim | None,
-    ) -> bool:
-        """Refine generic home presence without overriding spatial evidence."""
-        if device is None:
-            return False
-        if current is None:
-            return True
-        return current.level is SpatialLevel.HOME and current.method == "home_scope"
+    def _device_home_scope(item: Observation) -> SpatialClaim:
+        """Represent what a registered endpoint proves about its owner."""
+        observed_at = (
+            item.location.observed_at
+            if item.location is not None
+            else item.identity.observed_at
+            if item.identity is not None
+            else item.detected_at
+        )
+        return SpatialClaim(
+            level=SpatialLevel.HOME,
+            method="registered_device_home_scope",
+            quality=Quality.LOW,
+            observed_at=observed_at,
+        )
 
     @staticmethod
     def _same_area(left: SpatialClaim | None, right: SpatialClaim | None) -> bool:

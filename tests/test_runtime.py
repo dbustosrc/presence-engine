@@ -163,7 +163,9 @@ class RuntimeTests(unittest.TestCase):
         restored.restore_state(saved)
 
         self.assertEqual(restored.snapshot.count_minimum, 1)
-        self.assertEqual(restored.snapshot.presences[0].location.area, "alpha")
+        self.assertEqual(restored.snapshot.presences[0].location.level.value, "home")
+        self.assertIsNone(restored.snapshot.presences[0].location.area)
+        self.assertEqual(restored.snapshot.devices[0].location.area, "alpha")
 
     def test_export_restore_keeps_last_confirmed_image(self) -> None:
         self.runtime.process(
@@ -286,16 +288,94 @@ class RuntimeTests(unittest.TestCase):
         self.assertFalse(restored.snapshot.coverage_degraded)
         self.assertNotIn("device_area", restored.snapshot.unavailable_source_ids)
 
-    def test_restore_keeps_unavailable_state_only_for_configured_sources(self) -> None:
-        self.runtime.mark_channel_unavailable(("device_area",))
+    def test_tracked_endpoint_unavailable_is_absence_not_degraded_coverage(self) -> None:
+        self.runtime.process(
+            AdapterEnvelope(
+                "state",
+                "sensor.device_area",
+                {"state": "Alpha Room"},
+                at(0),
+                at(0),
+            )
+        )
+        update = self.runtime.process(
+            AdapterEnvelope(
+                "state",
+                "sensor.device_area",
+                {"state": "unavailable"},
+                at(1),
+                at(1),
+            )
+        )
+        self.assertEqual(update.snapshot.count_maximum, 0)
+        self.assertFalse(update.snapshot.coverage_degraded)
         saved = self.runtime.export_state()
         saved["unavailable_sources"] = ["device_area", "removed_source"]
         restored = PresenceRuntime(integration_config(), now=lambda: at(11))
 
         restored.restore_state(saved)
 
-        self.assertIn("device_area", restored.snapshot.unavailable_source_ids)
+        self.assertEqual(restored.snapshot.count_maximum, 0)
+        self.assertFalse(restored.snapshot.coverage_degraded)
+        self.assertNotIn("device_area", restored.snapshot.unavailable_source_ids)
         self.assertNotIn("removed_source", restored.snapshot.unavailable_source_ids)
+
+    def test_missing_infrastructure_source_degrades_coverage(self) -> None:
+        update = self.runtime.mark_channel_unavailable(("area_count",))
+
+        self.assertTrue(update.snapshot.coverage_degraded)
+        self.assertEqual(update.snapshot.unavailable_source_ids, ("area_count",))
+
+    def test_dog_event_is_anonymous_and_ends_with_direct_evidence(self) -> None:
+        active = self.runtime.process(
+            AdapterEnvelope(
+                "mqtt",
+                "frigate/events",
+                {
+                    "type": "update",
+                    "after": {
+                        "id": "event-dog",
+                        "camera": "camera_a",
+                        "label": "dog",
+                        "start_time": at(0).timestamp(),
+                        "frame_time": at(1).timestamp(),
+                        "end_time": None,
+                        "current_zones": ["zone_alpha"],
+                    },
+                },
+                at(1),
+                at(1),
+            )
+        )
+
+        self.assertEqual((active.snapshot.count_minimum, active.snapshot.count_maximum), (1, 1))
+        self.assertIsNone(active.snapshot.presences[0].identity)
+        self.assertEqual(active.snapshot.presences[0].classification, "dog")
+
+        ended = self.runtime.process(
+            AdapterEnvelope(
+                "mqtt",
+                "frigate/events",
+                {
+                    "type": "end",
+                    "after": {
+                        "id": "event-dog",
+                        "camera": "camera_a",
+                        "label": "dog",
+                        "start_time": at(0).timestamp(),
+                        "frame_time": at(3).timestamp(),
+                        "end_time": at(3).timestamp(),
+                        "current_zones": ["zone_alpha"],
+                    },
+                },
+                at(3),
+                at(3),
+            )
+        )
+
+        self.assertEqual((ended.snapshot.count_minimum, ended.snapshot.count_maximum), (0, 0))
+        self.assertEqual(ended.detections[0].classification, "dog")
+        self.assertIsNotNone(self.runtime.detection("event-dog"))
 
     def test_expiration_revises_current_snapshot_without_deleting_history(self) -> None:
         config = integration_config()

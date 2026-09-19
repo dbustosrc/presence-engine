@@ -35,6 +35,14 @@ class AdapterType(str, Enum):
     AUXILIARY_ACTIVITY = "auxiliary_activity"
 
 
+class AvailabilityRole(str, Enum):
+    """How source availability contributes to coverage health."""
+
+    AUTO = "auto"
+    COVERAGE = "coverage"
+    OBSERVATION = "observation"
+
+
 @dataclass(frozen=True, slots=True)
 class CameraDefinition:
     """Geometry and telemetry inputs for one logical camera."""
@@ -173,6 +181,7 @@ class SourceDefinition:
     coverage_group: str | None = None
     camera_id: str | None = None
     expires_after_seconds: int | None = None
+    availability_role: AvailabilityRole = AvailabilityRole.AUTO
     enabled: bool = True
     options: Mapping[str, Any] = field(default_factory=dict)
 
@@ -247,6 +256,24 @@ class SourceDefinition:
         )
         object.__setattr__(self, "topics", tuple(dict.fromkeys(self.topics)))
         object.__setattr__(self, "options", MappingProxyType(dict(self.options)))
+
+    @property
+    def degrades_coverage_when_unavailable(self) -> bool:
+        """Return whether losing this channel reduces observing capability.
+
+        Tracked endpoints describe the thing being observed. Their absence is
+        not a failure of the scanners, network or detection infrastructure.
+        The explicit role remains available for source families whose local
+        semantics differ from the default.
+        """
+        if self.availability_role is AvailabilityRole.COVERAGE:
+            return True
+        if self.availability_role is AvailabilityRole.OBSERVATION:
+            return False
+        return self.adapter not in {
+            AdapterType.BERMUDA_AREA,
+            AdapterType.PERSON_HOME,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -437,6 +464,9 @@ def _parse_source(raw: Mapping[str, Any]) -> SourceDefinition:
             int(raw["expires_after_seconds"])
             if raw.get("expires_after_seconds") is not None
             else None
+        ),
+        availability_role=AvailabilityRole(
+            raw.get("availability_role", AvailabilityRole.AUTO.value)
         ),
         enabled=bool(raw.get("enabled", True)),
         options=dict(raw.get("options", {})),

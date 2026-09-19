@@ -58,6 +58,7 @@
       "identity": "resident_one",
       "target_kind": "device",
       "spatial_quality": "medium",
+      "availability_role": "observation",
       "options": {
         "area_map": {
           "Alpha": "room_alpha",
@@ -88,7 +89,8 @@
       "area": "room_beta",
       "floor": "floor_one",
       "target_kind": "unknown_living",
-      "spatial_quality": "high"
+      "spatial_quality": "high",
+      "availability_role": "coverage"
     }
   ]
 }

@@ -26,13 +26,25 @@ asíncrono.
   Una solicitud no confirma posición física. La zona actual válida tiene
   prioridad; el perfil requiere confirmación de estado estable.
 - `bermuda_area`: representa un dispositivo enlazado a una identidad. Nunca lo
-  convierte automáticamente en una persona.
+  convierte automáticamente en una persona. Si el dispositivo no está
+  disponible, se retira únicamente esa observación; no se declara degradada la
+  cobertura de los receptores.
 - `mtr_count`: trata total y zonas como una fuente compuesta. Publica cada zona
   una vez y solo el remanente no cubierto por ellas.
 - `binary_presence`, `count` y `person_home`: fuentes simples con semántica
   declarada en configuración.
 
 Una excepción de un adaptador solo degrada esa fuente. El resto continúa.
+
+Cada fuente tiene un `availability_role`: `coverage` representa infraestructura
+que permite observar (cámara, radar, contador, receptor); `observation`
+representa el objetivo observado (teléfono o entidad de persona). `auto` aplica
+la semántica propia del adaptador y evita convertir la ausencia normal de un
+visitante o dispositivo en una avería de la casa.
+
+Las detecciones de animales conservan la clasificación que entrega la fuente,
+pero no reciben identidad sin evidencia explícita. Una detección finalizada
+deja el historial del evento y sale inmediatamente del snapshot activo.
 
 ## Vigencia y recuperación
 

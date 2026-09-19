@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import unittest
 
-from presence_engine.configuration import ConfigurationError, parse_configuration
+from presence_engine.configuration import (
+    AvailabilityRole,
+    ConfigurationError,
+    parse_configuration,
+)
 
 from integration_helpers import integration_config
 
@@ -182,6 +186,43 @@ class ConfigurationTests(unittest.TestCase):
 
         with self.assertRaises(ConfigurationError):
             parse_configuration(raw)
+
+    def test_tracked_endpoints_do_not_degrade_coverage_by_default(self) -> None:
+        config = integration_config()
+
+        device = next(source for source in config.sources if source.source_id == "device_area")
+        counter = next(source for source in config.sources if source.source_id == "area_count")
+
+        self.assertFalse(device.degrades_coverage_when_unavailable)
+        self.assertTrue(counter.degrades_coverage_when_unavailable)
+
+    def test_availability_role_can_override_the_adapter_default(self) -> None:
+        raw = {
+            "schema_version": 1,
+            "areas": {"alpha": "floor_alpha"},
+            "adjacency": {"alpha": []},
+            "sources": [
+                {
+                    "source_id": "scanner_health",
+                    "adapter": "binary_presence",
+                    "entity_ids": ["binary_sensor.scanner_health"],
+                    "area": "alpha",
+                    "availability_role": "observation",
+                },
+                {
+                    "source_id": "tracked_endpoint",
+                    "adapter": "bermuda_area",
+                    "entity_ids": ["sensor.tracked_endpoint_area"],
+                    "availability_role": "coverage",
+                },
+            ],
+        }
+
+        config = parse_configuration(raw)
+
+        self.assertEqual(config.sources[0].availability_role, AvailabilityRole.OBSERVATION)
+        self.assertFalse(config.sources[0].degrades_coverage_when_unavailable)
+        self.assertTrue(config.sources[1].degrades_coverage_when_unavailable)
 
 
 if __name__ == "__main__":

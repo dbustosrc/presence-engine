@@ -15,9 +15,13 @@ modo comparación, limitar registros y ajustar el retraso de persistencia.
 
 Cada fuente puede indicar `entity_ids`, `entity_registry_ids`, `topics`, área,
 planta, identidad, calidad espacial, grupos de dependencia/cobertura y
-`expires_after_seconds`. Cuando se proporcionan IDs de registro, debe existir
-uno por cada entidad. Las salidas de Presence Engine están prohibidas como
-entradas.
+`expires_after_seconds`. `availability_role` separa infraestructura de
+observaciones: `coverage` degrada cobertura si el canal no está disponible;
+`observation` retira únicamente la evidencia del objetivo. `auto` aplica el
+valor propio del adaptador: áreas Bermuda y entidades `person` son
+observaciones, mientras radares, contadores y transportes de detección son
+cobertura. Cuando se proporcionan IDs de registro, debe existir uno por cada
+entidad. Las salidas de Presence Engine están prohibidas como entradas.
 
 ## Ejemplo neutro
 
@@ -42,6 +46,11 @@ Las fuentes compuestas, como un contador total con varios contadores de zona,
 solo recuperan su cobertura cuando todos sus canales configurados vuelven a
 tener un estado utilizable. La recuperación parcial no reactiva observaciones
 anteriores.
+
+Un teléfono o tracker ausente no implica una avería de sus receptores ni
+ausencia de su propietario. Los receptores deben configurarse como fuentes de
+salud separadas cuando la instalación expone una entidad fiable para esa
+capacidad.
 
 ## Descubrimiento
 

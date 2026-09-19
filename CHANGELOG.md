@@ -1,5 +1,17 @@
 # Historial de cambios
 
+## 0.4.2 — Evidencia de dispositivos y salud de cobertura
+
+- Distingue la ausencia de un objetivo rastreado de la pérdida de una fuente
+  de cobertura, con una política configurable por fuente.
+- Mantiene separadas la ubicación de un dispositivo y la ubicación demostrada
+  de su propietario; el dispositivo por sí solo respalda únicamente alcance
+  doméstico.
+- Conserva la clasificación nativa de animales en el snapshot activo y retira
+  la presencia cuando finaliza su evidencia directa.
+- Impide que un snapshot anterior cree presencia actual sin ninguna evidencia
+  vigente.
+
 ## 0.4.1 — Aislamiento de cámaras degradadas
 
 - Permite declarar entidades de disponibilidad por cámara sin acoplarlas al

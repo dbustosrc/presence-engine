@@ -100,6 +100,11 @@ class PresenceRuntime:
             for source in configuration.sources
             if source.enabled and source.expires_after_seconds is not None
         }
+        self._coverage_source_ids = {
+            source.source_id
+            for source in configuration.sources
+            if source.enabled and source.degrades_coverage_when_unavailable
+        }
         self._freshness_signature: tuple[tuple[str, str], ...] = ()
 
     @property
@@ -136,10 +141,16 @@ class PresenceRuntime:
             except (KeyError, TypeError, ValueError) as err:
                 failure = AdapterFailure(adapter.source_id, type(err).__name__, str(err))
                 self._failures[adapter.source_id] = failure
-                if adapter.source_id not in self._unavailable_sources:
+                removed = bool(self._store.remove_source(adapter.source_id))
+                if (
+                    adapter.source_id in self._coverage_source_ids
+                    and adapter.source_id not in self._unavailable_sources
+                ):
                     self._unavailable_sources.add(adapter.source_id)
-                    self._store.advance_revision()
+                    if not removed:
+                        self._store.advance_revision()
                     changed = True
+                changed = removed or changed
                 continue
             self._failures.pop(adapter.source_id, None)
             explicit_availability = {
@@ -149,10 +160,16 @@ class PresenceRuntime:
             availability_changed = False
             if adapter.source_id not in explicit_availability:
                 if result.remove_source_ids:
-                    availability_changed = (
-                        adapter.source_id not in self._unavailable_sources
-                    )
-                    self._unavailable_sources.add(adapter.source_id)
+                    if adapter.source_id in self._coverage_source_ids:
+                        availability_changed = (
+                            adapter.source_id not in self._unavailable_sources
+                        )
+                        self._unavailable_sources.add(adapter.source_id)
+                    else:
+                        availability_changed = (
+                            adapter.source_id in self._unavailable_sources
+                        )
+                        self._unavailable_sources.discard(adapter.source_id)
                 else:
                     availability_changed = (
                         adapter.source_id in self._unavailable_sources
@@ -165,10 +182,16 @@ class PresenceRuntime:
                     ) or availability_changed
                     self._unavailable_sources.discard(source_id)
                 else:
-                    availability_changed = (
-                        source_id not in self._unavailable_sources
-                    ) or availability_changed
-                    self._unavailable_sources.add(source_id)
+                    if source_id in self._coverage_source_ids:
+                        availability_changed = (
+                            source_id not in self._unavailable_sources
+                        ) or availability_changed
+                        self._unavailable_sources.add(source_id)
+                    else:
+                        availability_changed = (
+                            source_id in self._unavailable_sources
+                        ) or availability_changed
+                        self._unavailable_sources.discard(source_id)
             for availability in result.camera_availability:
                 changed = self._apply_camera_availability(
                     availability.camera_id,
@@ -245,8 +268,17 @@ class PresenceRuntime:
         """Invalidate configured sources without turning missing coverage into empty home."""
         changed = False
         for source_id in source_ids:
-            self._unavailable_sources.add(source_id)
+            availability_changed = False
+            if source_id in self._coverage_source_ids:
+                availability_changed = source_id not in self._unavailable_sources
+                self._unavailable_sources.add(source_id)
+            else:
+                availability_changed = source_id in self._unavailable_sources
+                self._unavailable_sources.discard(source_id)
             changed = bool(self._store.remove_source(source_id)) or changed
+            if availability_changed and not changed:
+                self._store.advance_revision()
+            changed = availability_changed or changed
         self._snapshot = self._resolve_snapshot()
         return RuntimeUpdate(self.snapshot, (), self.failures, changed)
 
@@ -304,7 +336,7 @@ class PresenceRuntime:
                 pass
         unavailable = raw.get("unavailable_sources", ())
         if isinstance(unavailable, list):
-            valid_unavailable_ids = configured_source_ids | {
+            valid_unavailable_ids = self._coverage_source_ids | {
                 self._camera_coverage_id(camera_id) for camera_id in configured_camera_ids
             }
             self._unavailable_sources.update(
@@ -528,6 +560,7 @@ class PresenceRuntime:
                     received_at=now,
                     detected_at=result.detected_at,
                     target_kind=result.kind,
+                    classification=result.classification,
                     target_id=event_id,
                     event_id=event_id,
                     identity=identity,
