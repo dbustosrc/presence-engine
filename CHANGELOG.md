@@ -1,5 +1,12 @@
 # Historial de cambios
 
+## 0.3.1 — Contrato uniforme sin ubicación
+
+- Mantiene el mismo conjunto de atributos en las proyecciones por identidad
+  cuando todavía no existe una hipótesis activa.
+- Expresa explícitamente como desconocidas las confianzas de identidad y
+  ubicación, sin convertir la falta de evidencia en ausencia.
+
 ## 0.3.0 — Proyecciones públicas candidatas
 
 - Añade proyecciones deshabilitadas por defecto para presencia general,

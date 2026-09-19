@@ -106,6 +106,10 @@ class PublicProjectionTests(unittest.TestCase):
         self.assertIsNone(result["state"])
         self.assertEqual(result["confidence"], "unknown")
         self.assertEqual(result["location_status"], "unknown")
+        self.assertEqual(result["location_confidence"], "unknown")
+        self.assertEqual(result["identity_confidence"], "unknown")
+        self.assertEqual(result["location_sources"], [])
+        self.assertEqual(result["identity_sources"], [])
         self.assertNotEqual(result["state"], "not_home")
 
     def test_area_presence_exposes_its_floor_as_scope(self) -> None:
