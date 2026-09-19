@@ -1,5 +1,15 @@
 # Historial de cambios
 
+## 0.4.0 — Contratos públicos estables
+
+- Promueve las proyecciones aceptadas de presencia y registros por identidad a
+  identificadores internos estables sin perder la configuración existente del
+  registro de entidades.
+- Consolida la cobertura en una sola entidad canónica y elimina la proyección
+  duplicada utilizada durante la comparación.
+- Mantiene separados ubicación actual, identidad, confianza e imagen histórica
+  antes de conectar consumidores operativos.
+
 ## 0.3.3 — Proyección de ubicación mantenible
 
 - Retira la proyección candidata basada en nombres libres de ubicación del

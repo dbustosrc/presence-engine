@@ -5,6 +5,7 @@ from pathlib import Path
 import tomllib
 import unittest
 
+from presence_engine import _stable_public_unique_id
 from presence_engine.configuration import parse_configuration
 from presence_engine.const import (
     CONFIG_SCHEMA_VERSION,
@@ -97,11 +98,32 @@ class PackageContractTests(unittest.TestCase):
 
     def test_room_projection_uses_records_not_deprecated_trackers(self) -> None:
         init_source = (COMPONENT / "__init__.py").read_text(encoding="utf-8")
+        sensor_source = (COMPONENT / "sensor.py").read_text(encoding="utf-8")
+        coverage_source = (COMPONENT / "binary_sensor.py").read_text(encoding="utf-8")
 
         self.assertNotIn("device_tracker", PLATFORMS)
         self.assertFalse((COMPONENT / "device_tracker.py").exists())
-        self.assertIn("_remove_deprecated_tracker_candidates", init_source)
-        self.assertIn('endswith("_tracker_candidate")', init_source)
+        self.assertIn("_migrate_public_projection_registry", init_source)
+        self.assertIn('"_tracker_candidate", "_coverage_candidate"', init_source)
+        self.assertNotIn("PresenceCandidateSensor", sensor_source)
+        self.assertNotIn("RecordCandidateSensor", sensor_source)
+        self.assertNotIn("PresenceCoverageCandidateSensor", coverage_source)
+
+    def test_pre_0_4_public_unique_ids_migrate_without_identity_loss(self) -> None:
+        entry_id = "entry-a"
+
+        self.assertEqual(
+            _stable_public_unique_id("entry-a_presence_candidate", entry_id),
+            "entry-a_presence",
+        )
+        self.assertEqual(
+            _stable_public_unique_id("entry-a_person_alpha_record_candidate", entry_id),
+            "entry-a_person_alpha_record",
+        )
+        self.assertIsNone(
+            _stable_public_unique_id("entry-a_coverage_candidate", entry_id)
+        )
+        self.assertIsNone(_stable_public_unique_id("other_presence_candidate", entry_id))
 
     def test_release_documentation_is_present(self) -> None:
         for relative_path in (

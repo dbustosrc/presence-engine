@@ -1,26 +1,26 @@
-# Public candidate projections
+# Public projections
 
-Version 0.3.0 adds candidate entities for controlled migration. Every candidate
-is disabled by default and is derived from the same canonical snapshot
-revision. Enabling an entity does not publish MQTT, call a Home Assistant
-service or replace another entity.
+Version 0.4.0 promotes the validated projections to stable public entities.
+Every projection is derived from the same canonical snapshot revision. An
+entity does not publish MQTT, call a Home Assistant service or replace another
+entity automatically.
 
-## General presence candidate
+## General presence
 
 The sensor reports `on` when the snapshot maximum is greater than zero and
 `off` otherwise. Its attributes expose the exact count interval, classified
 presences, active areas, conservative confidence, coverage, conflicts,
 snapshot identifier and revision.
 
-## Coverage candidate
+## Coverage
 
-The binary sensor mirrors degraded coverage and exposes both
+The canonical diagnostic binary sensor mirrors degraded coverage and exposes both
 `unavailable_sources` and `unavailable_source_ids` for compatibility. Missing
 coverage never asserts an empty home.
 
-## Identity candidates
+## Identity records
 
-Each configured canonical identity receives an atomic record candidate. It
+Each configured canonical identity receives an atomic record. It
 exposes location, identity, timing, source and image metadata from one
 revision. The compatibility `confidence` attribute describes the resolved
 presence hypothesis; identity and location keep their own confidence fields.
@@ -40,6 +40,6 @@ identity record and its explicit location fields instead.
 
 ## Cutover rule
 
-Validate candidate entity contracts before disabling an existing writer. A
+Validate public entity contracts before disabling an existing writer. A
 public entity identifier is transferred only after the old writer is stopped;
 two writers must never own the same contract at once.

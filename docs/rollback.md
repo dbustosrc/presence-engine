@@ -1,7 +1,7 @@
-# Reversión de la candidata
+# Reversión de la integración
 
 La integración no reemplaza consumidores automáticamente. Las proyecciones
-públicas candidatas se crean deshabilitadas por defecto. Mientras ninguna haya
+públicas no toman propiedad de entity IDs existentes. Mientras ninguna haya
 sido conectada a consumidores, la reversión no exige restaurar automatizaciones,
 scripts, templates, trackers ni dashboards.
 

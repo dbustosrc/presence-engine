@@ -102,7 +102,7 @@ async def async_setup_entry(
     try:
         await runtime.async_setup()
         entry.runtime_data = runtime
-        _remove_deprecated_tracker_candidates(hass, entry)
+        _migrate_public_projection_registry(hass, entry)
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     except Exception:
         await runtime.async_shutdown()
@@ -110,17 +110,41 @@ async def async_setup_entry(
     return True
 
 
-def _remove_deprecated_tracker_candidates(
+def _migrate_public_projection_registry(
     hass: HomeAssistant,
     entry: PresenceEngineConfigEntry,
 ) -> None:
-    """Remove pre-0.3.3 room-name trackers from the entity registry."""
+    """Promote accepted projections and remove superseded registry entries."""
     from homeassistant.helpers import entity_registry as er
 
     registry = er.async_get(hass)
     for registry_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
-        if registry_entry.unique_id.endswith("_tracker_candidate"):
+        stable_unique_id = _stable_public_unique_id(
+            registry_entry.unique_id,
+            entry.entry_id,
+        )
+        if stable_unique_id is not None:
+            registry.async_update_entity(
+                registry_entry.entity_id,
+                new_unique_id=stable_unique_id,
+            )
+        elif registry_entry.unique_id.endswith(
+            ("_tracker_candidate", "_coverage_candidate")
+        ):
             registry.async_remove(registry_entry.entity_id)
+
+
+def _stable_public_unique_id(unique_id: str, entry_id: str) -> str | None:
+    """Return the stable unique ID for an accepted pre-0.4 projection."""
+    if unique_id == f"{entry_id}_presence_candidate":
+        return f"{entry_id}_presence"
+    record_prefix = f"{entry_id}_"
+    record_suffix = "_record_candidate"
+    if unique_id.startswith(record_prefix) and unique_id.endswith(record_suffix):
+        identity = unique_id[len(record_prefix) : -len(record_suffix)]
+        if identity:
+            return f"{entry_id}_{identity}_record"
+    return None
 
 
 async def async_unload_entry(

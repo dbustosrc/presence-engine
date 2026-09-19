@@ -24,9 +24,9 @@ async def async_setup_entry(
         (
             PresenceSnapshotSensor(runtime),
             PresenceRevisionSensor(runtime),
-            PresenceCandidateSensor(runtime),
+            PresenceSensor(runtime),
             *(
-                PresenceIdentityRecordCandidateSensor(runtime, identity)
+                PresenceIdentityRecordSensor(runtime, identity)
                 for identity in runtime.engine.configuration.identity_ids
             ),
         )
@@ -85,16 +85,15 @@ class PresenceRevisionSensor(PresenceEngineEntity, SensorEntity):
         }
 
 
-class PresenceCandidateSensor(PresenceEngineEntity, SensorEntity):
-    """Disabled-by-default public projection candidate."""
+class PresenceSensor(PresenceEngineEntity, SensorEntity):
+    """Stable public projection of the canonical presence snapshot."""
 
-    _attr_name = "Presence candidate"
+    _attr_name = "Presence"
     _attr_icon = "mdi:radar"
-    _attr_entity_registry_enabled_default = False
 
     def __init__(self, runtime) -> None:
         super().__init__(runtime)
-        self._attr_unique_id = f"{runtime.entry.entry_id}_presence_candidate"
+        self._attr_unique_id = f"{runtime.entry.entry_id}_presence"
 
     @property
     def native_value(self):
@@ -112,18 +111,17 @@ class PresenceCandidateSensor(PresenceEngineEntity, SensorEntity):
         )
 
 
-class PresenceIdentityRecordCandidateSensor(PresenceEngineEntity, SensorEntity):
-    """Atomic diagnostic record candidate for one configured identity."""
+class PresenceIdentityRecordSensor(PresenceEngineEntity, SensorEntity):
+    """Atomic public record for one configured identity."""
 
     _attr_icon = "mdi:account-details-outline"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_entity_registry_enabled_default = False
 
     def __init__(self, runtime, identity: str) -> None:
         super().__init__(runtime)
         self.identity = identity
-        self._attr_unique_id = f"{runtime.entry.entry_id}_{identity}_record_candidate"
-        self._attr_name = f"{identity.replace('_', ' ').title()} record candidate"
+        self._attr_unique_id = f"{runtime.entry.entry_id}_{identity}_record"
+        self._attr_name = f"{identity.replace('_', ' ').title()} record"
 
     @property
     def native_value(self):

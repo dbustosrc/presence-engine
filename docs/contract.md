@@ -58,7 +58,7 @@ from the other.
 
 ## Public projections
 
-Public candidate entities are deterministic views of one `PresenceSnapshot`
+Public entities are deterministic views of one `PresenceSnapshot`
 revision. The general sensor, coverage sensor, identity tracker and identity
 record therefore expose the same snapshot identifier and revision. A missing
 identity hypothesis produces an unknown tracker state, never an invented

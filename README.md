@@ -21,13 +21,13 @@ automatizaciones consumidoras.
 - Última imagen identificada persistente e independiente de la ubicación
   actual.
 - Entidades diagnósticas, eventos y acciones con respuesta para consumidores.
-- Proyecciones públicas candidatas deshabilitadas por defecto para presencia,
-  cobertura y registros por identidad, con un solo escritor por salida.
+- Proyecciones públicas estables para presencia, cobertura y registros por
+  identidad, con un solo escritor por salida.
 
 ## Límites
 
-- No mueve cámaras ni publica trackers mediante MQTT. Las proyecciones
-  candidatas permanecen deshabilitadas hasta una migración explícita.
+- No mueve cámaras ni publica trackers mediante MQTT. Conectar consumidores o
+  transferir entity IDs continúa siendo una migración explícita.
 - No envía notificaciones.
 - No modifica Home Assistant, Frigate ni integraciones instaladas.
 - No deduce geometría desconocida ni asocia dispositivos a personas por el
@@ -36,9 +36,8 @@ automatizaciones consumidoras.
 
 ## Estado de la versión
 
-La versión `0.3.3` incorpora entidades candidatas para una migración
-controlada. Se crean deshabilitadas por defecto y no sustituyen trackers,
-notificaciones ni controles existentes automáticamente.
+La versión `0.4.0` estabiliza los contratos públicos ya comparados. No
+sustituye trackers, notificaciones ni controles existentes automáticamente.
 
 ## Pruebas
 
@@ -61,6 +60,6 @@ Las pruebas usan exclusivamente nombres y geometrías sintéticas.
 - `docs/regression-matrix.md`: invariantes y su prueba ejecutable.
 - `docs/installation.md`: publicación e instalación por HACS.
 - `docs/comparison.md`: protocolo de comparación sin efectos.
-- `docs/public-projections.md`: contrato de las entidades candidatas.
-- `docs/rollback.md`: reversión soportada de la candidata.
-- `CHANGELOG.md`: notas de la versión candidata.
+- `docs/public-projections.md`: contrato de las entidades públicas.
+- `docs/rollback.md`: reversión soportada de la integración.
+- `CHANGELOG.md`: notas de cada versión.
