@@ -123,6 +123,29 @@ class RuntimeTests(unittest.TestCase):
 
         self.assertEqual(update.snapshot.count_minimum, 1)
         self.assertEqual(update.failures[0].source_id, "frigate_events")
+        self.assertTrue(update.snapshot.coverage_degraded)
+
+        recovered = self.runtime.process(
+            AdapterEnvelope(
+                "mqtt",
+                "frigate/events",
+                {
+                    "type": "update",
+                    "after": {
+                        "id": "event-after-bad-payload",
+                        "camera": "camera_a",
+                        "label": "person",
+                        "start_time": at(2).timestamp(),
+                        "frame_time": at(2).timestamp(),
+                        "end_time": None,
+                        "current_zones": ["zone_alpha"],
+                    },
+                },
+                at(2),
+                at(2),
+            )
+        )
+        self.assertFalse(recovered.snapshot.coverage_degraded)
 
     def test_export_restore_keeps_observations_and_context(self) -> None:
         self.runtime.process(
@@ -404,6 +427,195 @@ class RuntimeTests(unittest.TestCase):
 
         self.assertEqual((update.snapshot.count_minimum, update.snapshot.count_maximum), (1, 1))
         self.assertEqual(update.snapshot.presences[0].location.area, "alpha")
+
+    def test_compound_source_recovers_only_after_every_channel_is_fresh(self) -> None:
+        configuration = parse_configuration(
+            {
+                "schema_version": 1,
+                "areas": {"alpha": "floor_alpha", "beta": "floor_alpha"},
+                "adjacency": {"alpha": ["beta"], "beta": ["alpha"]},
+                "cameras": {},
+                "sources": [
+                    {
+                        "source_id": "mtr",
+                        "adapter": "mtr_count",
+                        "entity_ids": ["sensor.total", "sensor.zone_1", "sensor.zone_2"],
+                        "floor": "floor_alpha",
+                        "options": {
+                            "total_entity_id": "sensor.total",
+                            "zone_areas": {
+                                "sensor.zone_1": "alpha",
+                                "sensor.zone_2": "beta",
+                            },
+                        },
+                    }
+                ],
+            }
+        )
+        runtime = PresenceRuntime(configuration, now=lambda: at(20))
+        initial_partial = runtime.process(
+            AdapterEnvelope("state", "sensor.zone_1", {"state": "1"}, at(0), at(0))
+        )
+        self.assertTrue(initial_partial.snapshot.coverage_degraded)
+
+        for entity_id, value, second in (
+            ("sensor.zone_2", "0", 1),
+            ("sensor.total", "1", 2),
+        ):
+            healthy = runtime.process(
+                AdapterEnvelope("state", entity_id, {"state": value}, at(second), at(second))
+            )
+        self.assertFalse(healthy.snapshot.coverage_degraded)
+
+        degraded = runtime.process(
+            AdapterEnvelope(
+                "state",
+                "sensor.zone_1",
+                {"state": "unavailable"},
+                at(3),
+                at(3),
+            )
+        )
+        self.assertTrue(degraded.snapshot.coverage_degraded)
+        self.assertEqual(degraded.snapshot.count_maximum, 0)
+
+        partial = runtime.process(
+            AdapterEnvelope("state", "sensor.total", {"state": "1"}, at(4), at(4))
+        )
+        self.assertTrue(partial.snapshot.coverage_degraded)
+        self.assertEqual(partial.snapshot.count_maximum, 0)
+
+        recovered = runtime.process(
+            AdapterEnvelope("state", "sensor.zone_1", {"state": "1"}, at(5), at(5))
+        )
+        self.assertFalse(recovered.snapshot.coverage_degraded)
+        self.assertEqual(recovered.snapshot.count_minimum, 1)
+
+    def test_unavailable_camera_gates_only_its_evidence_until_recovery(self) -> None:
+        configuration = parse_configuration(
+            {
+                "schema_version": 1,
+                "areas": {"alpha": "floor_alpha", "beta": "floor_alpha"},
+                "adjacency": {"alpha": ["beta"], "beta": ["alpha"]},
+                "cameras": {
+                    "camera_a": {
+                        "floor": "floor_alpha",
+                        "fixed_area": "alpha",
+                        "availability_entity_ids": [
+                            "camera.camera_a",
+                            "binary_sensor.camera_a_connected",
+                        ],
+                    },
+                    "camera_b": {
+                        "floor": "floor_alpha",
+                        "fixed_area": "beta",
+                        "availability_entity_ids": ["camera.camera_b"],
+                    },
+                },
+                "sources": [
+                    {
+                        "source_id": "frigate_events",
+                        "adapter": "frigate_events",
+                        "topics": ["frigate/events"],
+                        "options": {"labels": ["person"]},
+                    }
+                ],
+            }
+        )
+        runtime = PresenceRuntime(configuration, now=lambda: at(20))
+        for entity_id, state in (
+            ("camera.camera_a", "idle"),
+            ("binary_sensor.camera_a_connected", "on"),
+            ("camera.camera_b", "idle"),
+        ):
+            runtime.process(
+                AdapterEnvelope(
+                    "state",
+                    entity_id,
+                    {"state": state},
+                    at(0),
+                    at(0),
+                )
+            )
+
+        def event(event_id: str, camera_id: str, second: int) -> AdapterEnvelope:
+            return AdapterEnvelope(
+                "mqtt",
+                "frigate/events",
+                {
+                    "type": "update",
+                    "after": {
+                        "id": event_id,
+                        "camera": camera_id,
+                        "label": "person",
+                        "start_time": at(second).timestamp(),
+                        "frame_time": at(second).timestamp(),
+                        "end_time": None,
+                        "current_zones": [],
+                    },
+                },
+                at(second),
+                at(second),
+            )
+
+        runtime.process(event("event-a", "camera_a", 1))
+        runtime.process(event("event-b", "camera_b", 2))
+        degraded = runtime.process(
+            AdapterEnvelope(
+                "state",
+                "binary_sensor.camera_a_connected",
+                {"state": "off"},
+                at(3),
+                at(3),
+            )
+        )
+
+        self.assertTrue(degraded.snapshot.coverage_degraded)
+        self.assertEqual(
+            degraded.snapshot.unavailable_source_ids,
+            ("camera:camera_a",),
+        )
+        self.assertEqual(degraded.snapshot.count_minimum, 1)
+        self.assertEqual(degraded.snapshot.presences[0].location.area, "beta")
+
+        ignored = runtime.process(event("event-a-while-down", "camera_a", 4))
+        self.assertEqual(ignored.snapshot.count_minimum, 1)
+        self.assertIsNone(runtime.detection("event-a-while-down"))
+
+        still_degraded = runtime.process(
+            AdapterEnvelope(
+                "state",
+                "camera.camera_a",
+                {"state": "unavailable"},
+                at(5),
+                at(5),
+            )
+        )
+        still_degraded = runtime.process(
+            AdapterEnvelope(
+                "state",
+                "camera.camera_a",
+                {"state": "idle"},
+                at(6),
+                at(6),
+            )
+        )
+        self.assertTrue(still_degraded.snapshot.coverage_degraded)
+        self.assertEqual(still_degraded.snapshot.count_minimum, 1)
+
+        recovered = runtime.process(
+            AdapterEnvelope(
+                "state",
+                "binary_sensor.camera_a_connected",
+                {"state": "on"},
+                at(7),
+                at(7),
+            )
+        )
+        self.assertFalse(recovered.snapshot.coverage_degraded)
+
+        accepted = runtime.process(event("event-a-after-recovery", "camera_a", 8))
+        self.assertEqual(accepted.snapshot.count_minimum, 2)
 
 
 if __name__ == "__main__":

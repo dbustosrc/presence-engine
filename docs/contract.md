@@ -51,6 +51,11 @@ solely because their time and area match.
 `coverage_degraded`. An unavailable source never means that its target is away
 or that the covered area is empty.
 
+Camera evidence may be guarded by exact availability entities. While a camera
+is unavailable, its active evidence is removed and subsequent visual events
+are ignored. Recovery permits only newly received evidence; stale events are
+not replayed as current. Other cameras and non-visual sources remain usable.
+
 Known native classification is preserved separately from the broad target
 kind. Identity and location metadata retain their own quality, observation
 time, method and source identifiers; consumers do not infer one dimension

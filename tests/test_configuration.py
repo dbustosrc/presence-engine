@@ -60,6 +60,67 @@ class ConfigurationTests(unittest.TestCase):
         with self.assertRaises(ConfigurationError):
             parse_configuration(raw)
 
+    def test_camera_availability_entities_are_exact_subscriptions(self) -> None:
+        raw = {
+            "schema_version": 1,
+            "areas": {"alpha": "floor_alpha"},
+            "adjacency": {"alpha": []},
+            "cameras": {
+                "camera_a": {
+                    "floor": "floor_alpha",
+                    "availability_entity_ids": [
+                        "camera.camera_a",
+                        "binary_sensor.camera_a_connected",
+                    ],
+                    "availability_registry_ids": ["camera-entry", "connected-entry"],
+                }
+            },
+        }
+
+        config = parse_configuration(raw)
+
+        self.assertEqual(
+            config.entity_ids,
+            ("binary_sensor.camera_a_connected", "camera.camera_a"),
+        )
+
+    def test_camera_availability_registry_ids_must_be_paired(self) -> None:
+        raw = {
+            "schema_version": 1,
+            "areas": {},
+            "adjacency": {},
+            "cameras": {
+                "camera_a": {
+                    "floor": "floor_alpha",
+                    "availability_entity_ids": ["camera.camera_a"],
+                    "availability_registry_ids": ["one", "two"],
+                }
+            },
+        }
+
+        with self.assertRaises(ConfigurationError):
+            parse_configuration(raw)
+
+    def test_camera_availability_pairs_reject_duplicates(self) -> None:
+        raw = {
+            "schema_version": 1,
+            "areas": {},
+            "adjacency": {},
+            "cameras": {
+                "camera_a": {
+                    "floor": "floor_alpha",
+                    "availability_entity_ids": [
+                        "camera.camera_a",
+                        "camera.camera_a",
+                    ],
+                    "availability_registry_ids": ["one", "two"],
+                }
+            },
+        }
+
+        with self.assertRaises(ConfigurationError):
+            parse_configuration(raw)
+
     def test_rejects_non_positive_source_expiration(self) -> None:
         raw = {
             "schema_version": 1,

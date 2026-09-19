@@ -5,7 +5,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Mapping
 
-from .base import AdapterEnvelope, AdapterResult
+from .base import (
+    AdapterEnvelope,
+    AdapterResult,
+    CameraAvailability,
+    SourceAvailability,
+)
 from ..configuration import AdapterType, CameraDefinition, SourceDefinition
 from ..engine import (
     CountClaim,
@@ -25,6 +30,32 @@ from ..temporal import TemporalCameraRegistry
 
 INVALID_STATES = frozenset({"unknown", "unavailable", "none", ""})
 ABSENT_AREA_STATES = frozenset({"not_home", "away"})
+
+
+class CameraAvailabilityAdapter:
+    """Reduce exact camera health entities to one evidence availability state."""
+
+    def __init__(self, camera: CameraDefinition) -> None:
+        self.source_id = f"camera-health:{camera.camera_id}"
+        self._camera_id = camera.camera_id
+        self._entities = frozenset(camera.availability_entity_ids)
+        self._unavailable_states = frozenset(camera.availability_unavailable_states)
+        self._states: dict[str, str | None] = {
+            entity_id: None for entity_id in camera.availability_entity_ids
+        }
+
+    def accepts(self, envelope: AdapterEnvelope) -> bool:
+        return envelope.channel_type == "state" and envelope.channel in self._entities
+
+    def parse(self, envelope: AdapterEnvelope) -> AdapterResult:
+        self._states[envelope.channel] = str(envelope.payload.get("state", "")).casefold()
+        available = all(
+            state is not None and state not in self._unavailable_states
+            for state in self._states.values()
+        )
+        return AdapterResult(
+            camera_availability=(CameraAvailability(self._camera_id, available),)
+        )
 
 
 class PTZContextAdapter:
@@ -80,7 +111,10 @@ class EntityStateAdapter:
         state = str(envelope.payload.get("state", ""))
         normalized = state.casefold()
         if normalized in INVALID_STATES:
-            return AdapterResult(remove_source_ids=(self.source_id,))
+            return AdapterResult(
+                remove_source_ids=(self.source_id,),
+                source_availability=(SourceAvailability(self.source_id, False),),
+            )
         if self._definition.adapter is AdapterType.BERMUDA_AREA:
             return self._bermuda(envelope, state)
         if self._definition.adapter is AdapterType.COUNT:
@@ -95,7 +129,10 @@ class EntityStateAdapter:
 
     def _bermuda(self, envelope: AdapterEnvelope, state: str) -> AdapterResult:
         if state.casefold() in ABSENT_AREA_STATES:
-            return AdapterResult(remove_source_ids=(self.source_id,))
+            return AdapterResult(
+                remove_source_ids=(self.source_id,),
+                source_availability=(SourceAvailability(self.source_id, True),),
+            )
         area_map = self._definition.options.get("area_map", {})
         area = area_map.get(state, state.casefold().replace(" ", "_"))
         if not isinstance(area, str) or not area:
@@ -128,7 +165,10 @@ class EntityStateAdapter:
             count=None,
             active=True,
         )
-        return AdapterResult(observations=(observation,))
+        return AdapterResult(
+            observations=(observation,),
+            source_availability=(SourceAvailability(self.source_id, True),),
+        )
 
     def _count(self, envelope: AdapterEnvelope, state: str) -> AdapterResult:
         value = int(float(state))
@@ -183,7 +223,10 @@ class EntityStateAdapter:
                 for prefix in ignored_source_prefixes
             )
         ):
-            return AdapterResult(remove_source_ids=(self.source_id,))
+            return AdapterResult(
+                remove_source_ids=(self.source_id,),
+                source_availability=(SourceAvailability(self.source_id, True),),
+            )
         active = state == "home"
         identity = (
             IdentityClaim(

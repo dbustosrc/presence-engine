@@ -178,6 +178,8 @@ class DiscoveryTests(unittest.TestCase):
                 "camera_a": {
                     "profile_entity_id": "select.old_profile",
                     "profile_registry_id": "entry-profile",
+                    "availability_entity_ids": ["camera.old_camera"],
+                    "availability_registry_ids": ["entry-camera"],
                 }
             },
         }
@@ -196,6 +198,13 @@ class DiscoveryTests(unittest.TestCase):
                 "profile",
                 "select",
             ),
+            EntityDescriptor(
+                "entry-camera",
+                "camera.new_camera",
+                "frigate",
+                "camera",
+                "camera",
+            ),
         )
 
         resolved = resolve_raw_registry_bindings(raw, descriptors)
@@ -207,6 +216,10 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(
             resolved["cameras"]["camera_a"]["profile_entity_id"],
             "select.new_profile",
+        )
+        self.assertEqual(
+            resolved["cameras"]["camera_a"]["availability_entity_ids"],
+            ["camera.new_camera"],
         )
 
 

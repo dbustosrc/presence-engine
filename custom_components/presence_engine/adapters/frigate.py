@@ -133,7 +133,9 @@ class FrigateEventAdapter:
             preset=historical.preset if historical else None,
             moving=historical.moving if historical else False,
             telemetry_valid=(
-                historical.telemetry_valid if historical else not camera.entity_ids
+                historical.telemetry_valid
+                if historical
+                else not camera.context_entity_ids
             ),
             physical_profile_confirmed=(
                 historical.physical_profile_confirmed if historical else False

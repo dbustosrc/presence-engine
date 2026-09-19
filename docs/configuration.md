@@ -25,6 +25,24 @@ entradas.
 Bermuda, MTR y radar. El archivo forma parte de las pruebas y debe continuar
 siendo aceptado por el parser.
 
+Cada cámara puede declarar `availability_entity_ids`. Todos los canales
+declarados deben tener un estado distinto de `unknown`, `unavailable`, `none`
+o vacío para aceptar evidencia nueva de esa cámara. Cuando alguno deja de
+estar disponible, el motor retira únicamente la evidencia visual de esa
+cámara, marca la cobertura degradada y conserva las demás fuentes. La última
+imagen confirmada se mantiene separada de la evidencia activa.
+
+`availability_registry_ids` puede emparejarse uno a uno con esas entidades para
+resolver renombres mediante el registro soportado de Home Assistant.
+`availability_unavailable_states` permite ampliar los estados no fiables para
+dispositivos que publiquen valores propios; por defecto incluye estados
+desconocidos, desconectados, `off` y `down`.
+
+Las fuentes compuestas, como un contador total con varios contadores de zona,
+solo recuperan su cobertura cuando todos sus canales configurados vuelven a
+tener un estado utilizable. La recuperación parcial no reactiva observaciones
+anteriores.
+
 ## Descubrimiento
 
 El descubrimiento lee los registros oficiales de Home Assistant al cargar o

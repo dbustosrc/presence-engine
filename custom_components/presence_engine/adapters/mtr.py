@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Mapping
 
-from .base import AdapterEnvelope, AdapterResult
+from .base import AdapterEnvelope, AdapterResult, SourceAvailability
 from .entity import INVALID_STATES
 from ..configuration import SourceDefinition
 from ..engine import (
@@ -48,7 +48,10 @@ class MTRCountAdapter:
         raw_state = str(envelope.payload.get("state", ""))
         if raw_state.casefold() in INVALID_STATES:
             self._states.pop(envelope.channel, None)
-            return AdapterResult(remove_source_ids=(self.source_id,))
+            return AdapterResult(
+                remove_source_ids=(self.source_id,),
+                source_availability=(SourceAvailability(self.source_id, False),),
+            )
         value = max(0, int(float(raw_state)))
         self._states[envelope.channel] = _CountState(
             value=value,
@@ -56,7 +59,10 @@ class MTRCountAdapter:
             active_since=_state_time(envelope.payload, envelope.observed_at),
         )
         if any(entity_id not in self._states for entity_id in self._entities):
-            return AdapterResult(ignored=True)
+            return AdapterResult(
+                source_availability=(SourceAvailability(self.source_id, False),),
+                ignored=True,
+            )
         total = self._states.get(self._total_entity_id)
         assert total is not None
         zone_states = {
@@ -90,7 +96,10 @@ class MTRCountAdapter:
         observations.append(
             self._outside_observation(outside_value, total, envelope.received_at)
         )
-        return AdapterResult(observations=tuple(observations))
+        return AdapterResult(
+            observations=tuple(observations),
+            source_availability=(SourceAvailability(self.source_id, True),),
+        )
 
     def _area_bucket_observations(
         self,

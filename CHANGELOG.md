@@ -1,5 +1,18 @@
 # Historial de cambios
 
+## 0.4.1 — Aislamiento de cámaras degradadas
+
+- Permite declarar entidades de disponibilidad por cámara sin acoplarlas al
+  transporte o fabricante del dispositivo.
+- Retira la evidencia activa de una cámara cuando su canal configurado deja de
+  estar disponible y expone la degradación sin afectar otras fuentes.
+- Ignora nuevos eventos visuales de la cámara degradada hasta observar su
+  recuperación; conserva de forma independiente la última imagen confirmada.
+- Mantiene degradadas las fuentes compuestas hasta que todos sus canales
+  requeridos vuelven a estar disponibles.
+- Resuelve renombres de las entidades de disponibilidad mediante identificadores
+  estables del registro de Home Assistant.
+
 ## 0.4.0 — Contratos públicos estables
 
 - Promueve las proyecciones aceptadas de presencia y registros por identidad a

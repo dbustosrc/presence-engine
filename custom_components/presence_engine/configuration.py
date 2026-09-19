@@ -47,9 +47,20 @@ class CameraDefinition:
     profile_entity_id: str | None = None
     preset_entity_id: str | None = None
     movement_entity_id: str | None = None
+    availability_entity_ids: tuple[str, ...] = ()
     profile_registry_id: str | None = None
     preset_registry_id: str | None = None
     movement_registry_id: str | None = None
+    availability_registry_ids: tuple[str, ...] = ()
+    availability_unavailable_states: tuple[str, ...] = (
+        "unknown",
+        "unavailable",
+        "none",
+        "",
+        "off",
+        "down",
+        "disconnected",
+    )
     stable_states: tuple[str, ...] = ("available",)
     moving_states: tuple[str, ...] = ("moving",)
 
@@ -74,14 +85,58 @@ class CameraDefinition:
         ):
             if value is not None:
                 _require_registry_id(value)
+        for value in self.availability_entity_ids:
+            _require_entity_id(value)
+        for value in self.availability_registry_ids:
+            _require_registry_id(value)
+        if self.availability_registry_ids and (
+            len(self.availability_registry_ids) != len(self.availability_entity_ids)
+        ):
+            raise ConfigurationError(
+                f"camera {self.camera_id} must pair each availability registry id "
+                "with one entity id"
+            )
+        if len(set(self.availability_entity_ids)) != len(self.availability_entity_ids):
+            raise ConfigurationError(
+                f"camera {self.camera_id} contains duplicate availability entities"
+            )
+        if len(set(self.availability_registry_ids)) != len(
+            self.availability_registry_ids
+        ):
+            raise ConfigurationError(
+                f"camera {self.camera_id} contains duplicate availability registry ids"
+            )
+        if not self.availability_unavailable_states:
+            raise ConfigurationError(
+                f"camera {self.camera_id} requires availability_unavailable_states"
+            )
+        if any(not isinstance(state, str) for state in self.availability_unavailable_states):
+            raise ConfigurationError(
+                f"camera {self.camera_id} availability states must be strings"
+            )
         object.__setattr__(self, "zone_to_area", MappingProxyType(dict(self.zone_to_area)))
         object.__setattr__(self, "profile_to_area", MappingProxyType(dict(self.profile_to_area)))
         object.__setattr__(self, "stable_states", tuple(state.casefold() for state in self.stable_states))
         object.__setattr__(self, "moving_states", tuple(state.casefold() for state in self.moving_states))
+        object.__setattr__(
+            self,
+            "availability_entity_ids",
+            tuple(self.availability_entity_ids),
+        )
+        object.__setattr__(
+            self,
+            "availability_registry_ids",
+            tuple(self.availability_registry_ids),
+        )
+        object.__setattr__(
+            self,
+            "availability_unavailable_states",
+            tuple(state.casefold() for state in self.availability_unavailable_states),
+        )
 
     @property
-    def entity_ids(self) -> tuple[str, ...]:
-        """Return exact HA entities needed for this camera context."""
+    def context_entity_ids(self) -> tuple[str, ...]:
+        """Return exact HA entities needed for PTZ geometry context."""
         return tuple(
             value
             for value in (
@@ -90,6 +145,13 @@ class CameraDefinition:
                 self.movement_entity_id,
             )
             if value is not None
+        )
+
+    @property
+    def entity_ids(self) -> tuple[str, ...]:
+        """Return every exact HA subscription required by this camera."""
+        return tuple(
+            dict.fromkeys((*self.context_entity_ids, *self.availability_entity_ids))
         )
 
 
@@ -312,9 +374,27 @@ def parse_configuration(raw: Mapping[str, Any]) -> EngineConfiguration:
                 profile_entity_id=value.get("profile_entity_id"),
                 preset_entity_id=value.get("preset_entity_id"),
                 movement_entity_id=value.get("movement_entity_id"),
+                availability_entity_ids=tuple(value.get("availability_entity_ids", ())),
                 profile_registry_id=value.get("profile_registry_id"),
                 preset_registry_id=value.get("preset_registry_id"),
                 movement_registry_id=value.get("movement_registry_id"),
+                availability_registry_ids=tuple(
+                    value.get("availability_registry_ids", ())
+                ),
+                availability_unavailable_states=tuple(
+                    value.get(
+                        "availability_unavailable_states",
+                        (
+                            "unknown",
+                            "unavailable",
+                            "none",
+                            "",
+                            "off",
+                            "down",
+                            "disconnected",
+                        ),
+                    )
+                ),
                 stable_states=tuple(value.get("stable_states", ("available",))),
                 moving_states=tuple(value.get("moving_states", ("moving",))),
             )

@@ -10,6 +10,7 @@ from typing import Callable, Iterable, Mapping
 from .adapters import (
     AdapterEnvelope,
     AdapterFailure,
+    CameraAvailabilityAdapter,
     EntityStateAdapter,
     FrigateEventAdapter,
     FrigateFaceAdapter,
@@ -81,6 +82,15 @@ class PresenceRuntime:
         self._snapshot: PresenceSnapshot | None = None
         self._latest_images: dict[str, ImageRecord] = {}
         self._unavailable_sources: set[str] = set()
+        self._unavailable_cameras: set[str] = {
+            camera.camera_id
+            for camera in configuration.cameras.values()
+            if camera.availability_entity_ids
+        }
+        self._unavailable_sources.update(
+            self._camera_coverage_id(camera_id)
+            for camera_id in self._unavailable_cameras
+        )
         self._failures: dict[str, AdapterFailure] = {}
         self._event_envelopes: OrderedDict[str, AdapterEnvelope] = OrderedDict()
         self._max_event_envelopes = max_event_envelopes
@@ -108,7 +118,6 @@ class PresenceRuntime:
 
     def process(self, envelope: AdapterEnvelope) -> RuntimeUpdate:
         """Process one push envelope; isolate each matching adapter failure."""
-        self._remember_event_envelope(envelope)
         changed = False
         detection_ids: set[str] = set()
         matched = False
@@ -116,24 +125,70 @@ class PresenceRuntime:
             if not adapter.accepts(envelope):
                 continue
             matched = True
+            camera_id = self._camera_id_from_envelope(envelope)
+            if (
+                camera_id in self._unavailable_cameras
+                and isinstance(adapter, (FrigateEventAdapter, FrigateFaceAdapter))
+            ):
+                continue
             try:
                 result = adapter.parse(envelope)
             except (KeyError, TypeError, ValueError) as err:
                 failure = AdapterFailure(adapter.source_id, type(err).__name__, str(err))
                 self._failures[adapter.source_id] = failure
-                self._unavailable_sources.add(adapter.source_id)
+                if adapter.source_id not in self._unavailable_sources:
+                    self._unavailable_sources.add(adapter.source_id)
+                    self._store.advance_revision()
+                    changed = True
                 continue
             self._failures.pop(adapter.source_id, None)
-            self._unavailable_sources.discard(adapter.source_id)
+            explicit_availability = {
+                availability.source_id: availability.available
+                for availability in result.source_availability
+            }
+            availability_changed = False
+            if adapter.source_id not in explicit_availability:
+                if result.remove_source_ids:
+                    availability_changed = (
+                        adapter.source_id not in self._unavailable_sources
+                    )
+                    self._unavailable_sources.add(adapter.source_id)
+                else:
+                    availability_changed = (
+                        adapter.source_id in self._unavailable_sources
+                    )
+                    self._unavailable_sources.discard(adapter.source_id)
+            for source_id, available in explicit_availability.items():
+                if available:
+                    availability_changed = (
+                        source_id in self._unavailable_sources
+                    ) or availability_changed
+                    self._unavailable_sources.discard(source_id)
+                else:
+                    availability_changed = (
+                        source_id not in self._unavailable_sources
+                    ) or availability_changed
+                    self._unavailable_sources.add(source_id)
+            for availability in result.camera_availability:
+                changed = self._apply_camera_availability(
+                    availability.camera_id,
+                    availability.available,
+                ) or changed
+            removed = False
             for source_id in result.remove_source_ids:
-                changed = bool(self._store.remove_source(source_id)) or changed
-                self._unavailable_sources.add(source_id)
+                removed = bool(self._store.remove_source(source_id)) or removed
+            if availability_changed and not removed:
+                self._store.advance_revision()
+            changed = availability_changed or removed or changed
             for observation in result.observations:
                 update = self._store.upsert(observation)
                 changed = update.changed or changed
                 if observation.event_id and update.changed:
                     detection_ids.add(observation.event_id)
             changed = result.context_changed or changed
+
+        if self._camera_id_from_envelope(envelope) not in self._unavailable_cameras:
+            self._remember_event_envelope(envelope)
 
         if any(
             adapter.accepts(envelope)
@@ -218,6 +273,7 @@ class PresenceRuntime:
             },
             "detection_revisions": dict(self._detection_revisions),
             "unavailable_sources": sorted(self._unavailable_sources),
+            "unavailable_cameras": sorted(self._unavailable_cameras),
         }
 
     def restore_state(self, raw: Mapping[str, object]) -> None:
@@ -226,6 +282,11 @@ class PresenceRuntime:
             return
         configured_source_ids = {
             source.source_id for source in self.configuration.sources if source.enabled
+        }
+        configured_camera_ids = {
+            camera.camera_id
+            for camera in self.configuration.cameras.values()
+            if camera.availability_entity_ids
         }
         for item in raw.get("observations", ()):  # type: ignore[union-attr]
             try:
@@ -243,10 +304,20 @@ class PresenceRuntime:
                 pass
         unavailable = raw.get("unavailable_sources", ())
         if isinstance(unavailable, list):
+            valid_unavailable_ids = configured_source_ids | {
+                self._camera_coverage_id(camera_id) for camera_id in configured_camera_ids
+            }
             self._unavailable_sources.update(
                 value
                 for value in unavailable
-                if isinstance(value, str) and value in configured_source_ids
+                if isinstance(value, str) and value in valid_unavailable_ids
+            )
+        unavailable_cameras = raw.get("unavailable_cameras", ())
+        if isinstance(unavailable_cameras, list):
+            self._unavailable_cameras.update(
+                value
+                for value in unavailable_cameras
+                if isinstance(value, str) and value in configured_camera_ids
             )
         images = raw.get("latest_images", {})
         if isinstance(images, Mapping):
@@ -275,6 +346,8 @@ class PresenceRuntime:
     def _build_adapters(self) -> tuple[SourceAdapter, ...]:
         adapters: list[SourceAdapter] = []
         for camera in self.configuration.cameras.values():
+            if camera.availability_entity_ids:
+                adapters.append(CameraAvailabilityAdapter(camera))
             if camera.entity_ids:
                 adapters.append(PTZContextAdapter(camera, self._contexts))
         for definition in self.configuration.sources:
@@ -291,6 +364,47 @@ class PresenceRuntime:
             elif definition.adapter is not AdapterType.PTZ_CONTEXT:
                 adapters.append(EntityStateAdapter(definition))
         return tuple(adapters)
+
+    @staticmethod
+    def _camera_coverage_id(camera_id: str) -> str:
+        return f"camera:{camera_id}"
+
+    @staticmethod
+    def _camera_id_from_envelope(envelope: AdapterEnvelope) -> str | None:
+        if envelope.channel_type != "mqtt":
+            return None
+        after = envelope.payload.get("after")
+        if isinstance(after, Mapping):
+            camera_id = after.get("camera")
+        else:
+            camera_id = envelope.payload.get("camera")
+        return camera_id if isinstance(camera_id, str) and camera_id else None
+
+    def _apply_camera_availability(self, camera_id: str, available: bool) -> bool:
+        coverage_id = self._camera_coverage_id(camera_id)
+        if available:
+            was_unavailable = camera_id in self._unavailable_cameras
+            self._unavailable_cameras.discard(camera_id)
+            self._unavailable_sources.discard(coverage_id)
+            if was_unavailable:
+                self._store.advance_revision()
+            return was_unavailable
+
+        was_available = camera_id not in self._unavailable_cameras
+        self._unavailable_cameras.add(camera_id)
+        self._unavailable_sources.add(coverage_id)
+        removed = self._store.remove_where(
+            lambda observation: observation.source.native_id == camera_id
+            and observation.source.family in {"frigate_event", "frigate_face"}
+        )
+        self._event_envelopes = OrderedDict(
+            (event_id, envelope)
+            for event_id, envelope in self._event_envelopes.items()
+            if self._camera_id_from_envelope(envelope) != camera_id
+        )
+        if was_available and not removed:
+            self._store.advance_revision()
+        return was_available or bool(removed)
 
     def _remember_event_envelope(self, envelope: AdapterEnvelope) -> None:
         if envelope.channel_type != "mqtt":
@@ -314,6 +428,8 @@ class PresenceRuntime:
             adapter for adapter in self._adapters if isinstance(adapter, FrigateEventAdapter)
         )
         for envelope in self._event_envelopes.values():
+            if self._camera_id_from_envelope(envelope) in self._unavailable_cameras:
+                continue
             for adapter in event_adapters:
                 if not adapter.accepts(envelope):
                     continue

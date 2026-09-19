@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import defaultdict, deque
 from dataclasses import dataclass, replace
 from datetime import datetime
-from typing import Iterable
+from typing import Callable, Iterable
 
 from .model import Observation, ObservationStatus, RevisionDimension, RevisionStamp
 
@@ -79,6 +79,24 @@ class EvidenceStore:
     def remove_source(self, source_id: str) -> tuple[tuple[str, str], ...]:
         """Invalidate one adapter without affecting evidence from other sources."""
         keys = tuple(key for key in self._records if key[0] == source_id)
+        if not keys:
+            return ()
+        for key in keys:
+            self._records.pop(key, None)
+            self._history.pop(key, None)
+        self._global_revision += 1
+        return keys
+
+    def remove_where(
+        self,
+        predicate: Callable[[Observation], bool],
+    ) -> tuple[tuple[str, str], ...]:
+        """Invalidate matching evidence while preserving unrelated sources."""
+        keys = tuple(
+            key
+            for key, record in self._records.items()
+            if predicate(record.observation)
+        )
         if not keys:
             return ()
         for key in keys:

@@ -203,6 +203,13 @@ def resolve_raw_registry_bindings(
             registry_id = camera.get(f"{role}_registry_id")
             if registry_id in by_registry_id:
                 camera[f"{role}_entity_id"] = by_registry_id[registry_id]
+        registry_ids = camera.get("availability_registry_ids", ())
+        entity_ids = list(camera.get("availability_entity_ids", ()))
+        if len(registry_ids) == len(entity_ids):
+            camera["availability_entity_ids"] = [
+                by_registry_id.get(registry_id, entity_id)
+                for registry_id, entity_id in zip(registry_ids, entity_ids, strict=True)
+            ]
     return resolved
 
 

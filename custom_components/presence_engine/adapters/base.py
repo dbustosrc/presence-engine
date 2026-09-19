@@ -32,10 +32,28 @@ class AdapterFailure:
 
 
 @dataclass(frozen=True, slots=True)
+class CameraAvailability:
+    """Coherent availability of one configured camera evidence channel."""
+
+    camera_id: str
+    available: bool
+
+
+@dataclass(frozen=True, slots=True)
+class SourceAvailability:
+    """Coherent availability of one normalized evidence source."""
+
+    source_id: str
+    available: bool
+
+
+@dataclass(frozen=True, slots=True)
 class AdapterResult:
     observations: tuple[Observation, ...] = ()
     remove_source_ids: tuple[str, ...] = ()
     context_changed: bool = False
+    camera_availability: tuple[CameraAvailability, ...] = ()
+    source_availability: tuple[SourceAvailability, ...] = ()
     ignored: bool = False
 
 

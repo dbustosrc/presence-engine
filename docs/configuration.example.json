@@ -24,6 +24,7 @@
       },
       "profile_entity_id": "select.camera_one_profile",
       "movement_entity_id": "sensor.camera_one_motion_state",
+      "availability_entity_ids": ["camera.camera_one"],
       "stable_states": ["available"],
       "moving_states": ["moving"]
     }
