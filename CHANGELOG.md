@@ -1,5 +1,16 @@
 # Historial de cambios
 
+## 0.3.0 — Proyecciones públicas candidatas
+
+- Añade proyecciones deshabilitadas por defecto para presencia general,
+  cobertura, trackers por identidad y registros atómicos por identidad.
+- Conserva por separado metadatos de identidad, ubicación e imagen en todas
+  las proyecciones derivadas de una misma revisión.
+- Propaga la clasificación nativa de personas y animales sin perder especies
+  conocidas durante la resolución.
+- Mantiene las nuevas entidades sin efectos externos: no publican MQTT, no
+  llaman servicios y no sustituyen consumidores existentes automáticamente.
+
 ## 0.2.5 — Prevención de realimentación indirecta
 
 - Permite excluir fuentes concretas o prefijos de trackers al adaptar entidades

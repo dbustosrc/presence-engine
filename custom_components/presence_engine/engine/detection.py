@@ -51,6 +51,16 @@ def resolve_detection(
     location: SpatialClaim | None=location_item.location
     kinds=[item.target_kind for item in items if item.target_kind is not TargetKind.DEVICE]
     kind=kinds[0] if kinds else items[0].target_kind
+    classified_items = tuple(
+        item
+        for item in items
+        if item.target_kind is not TargetKind.DEVICE and item.classification
+    )
+    classification = (
+        max(classified_items, key=lambda item: (item.detected_at, item.received_at)).classification
+        if classified_items
+        else kind.value
+    )
     ended=all(item.status is ObservationStatus.ENDED for item in items)
     status="ended" if ended else "resolved"
     reasons=[]
@@ -75,4 +85,5 @@ def resolve_detection(
         processed_at=processed_at,
         evidence_ids=tuple(sorted({item.observation_id for item in items})),
         reasons=tuple(reasons),
+        classification=classification,
     )

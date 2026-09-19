@@ -124,6 +124,8 @@ class ResolverTests(unittest.TestCase):
         result = self.resolve(device, current_count)
 
         self.assertEqual((result.count_minimum, result.count_maximum), (1, 1))
+        person = next(item for item in result.presences if item.identity == "person_a")
+        self.assertEqual(person.identity_quality, Quality.HIGH)
 
     def test_home_scope_person_is_refined_by_registered_device_and_room_count(self) -> None:
         home = observation(
@@ -329,12 +331,19 @@ class ResolverTests(unittest.TestCase):
         self.assertEqual((result.count_minimum,result.count_maximum),(1,1))
 
     def test_same_animal_target_across_areas_is_one_trajectory(self) -> None:
-        first=observation("animal-a1",kind=TargetKind.ANIMAL,target_id="animal-a",location=area("alpha",-4))
-        second=observation("animal-a2",kind=TargetKind.ANIMAL,target_id="animal-a",location=area("beta",0))
+        first=observation(
+            "animal-a1",kind=TargetKind.ANIMAL,classification="dog",
+            target_id="animal-a",location=area("alpha",-4),
+        )
+        second=observation(
+            "animal-a2",kind=TargetKind.ANIMAL,classification="dog",
+            target_id="animal-a",location=area("beta",0),
+        )
         result=self.resolve(first,second)
         self.assertEqual((result.count_minimum,result.count_maximum),(1,1))
         self.assertEqual(result.presences[0].location.area,"beta")
         self.assertIsNone(result.presences[0].identity)
+        self.assertEqual(result.presences[0].classification,"dog")
 
     def test_two_animal_aggregates_with_overlapping_coverage_remain_ambiguous(self) -> None:
         first=observation(
@@ -346,6 +355,24 @@ class ResolverTests(unittest.TestCase):
         result=self.resolve(first,second)
         self.assertEqual((result.count_minimum,result.count_maximum),(1,2))
         self.assertTrue(all(item.identity is None for item in result.presences))
+
+    def test_different_animal_classifications_are_not_deduplicated(self) -> None:
+        dog = observation(
+            "dog-count", kind=TargetKind.ANIMAL, classification="dog",
+            location=area("alpha", -1), coverage_group="shared-view",
+        )
+        cat = observation(
+            "cat-count", kind=TargetKind.ANIMAL, classification="cat",
+            location=area("alpha", 0), coverage_group="shared-view",
+        )
+
+        result = self.resolve(dog, cat)
+
+        self.assertEqual((result.count_minimum, result.count_maximum), (2, 2))
+        self.assertEqual(
+            {item.classification for item in result.presences},
+            {"dog", "cat"},
+        )
 
     def test_person_and_animal_are_never_merged(self) -> None:
         person=observation(

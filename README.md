@@ -21,10 +21,13 @@ automatizaciones consumidoras.
 - Última imagen identificada persistente e independiente de la ubicación
   actual.
 - Entidades diagnósticas, eventos y acciones con respuesta para consumidores.
+- Proyecciones públicas candidatas deshabilitadas por defecto para migraciones
+  con un solo escritor por salida.
 
 ## Límites
 
-- No mueve cámaras ni publica trackers operativos.
+- No mueve cámaras ni publica trackers mediante MQTT. Los trackers candidatos
+  permanecen deshabilitados hasta una migración explícita.
 - No envía notificaciones.
 - No modifica Home Assistant, Frigate ni integraciones instaladas.
 - No deduce geometría desconocida ni asocia dispositivos a personas por el
@@ -33,10 +36,9 @@ automatizaciones consumidoras.
 
 ## Estado de la versión
 
-La versión `0.2.0` es una candidata para comparación paralela. Debe instalarse
-con `comparison_mode` activo y no debe conectarse todavía a automatizaciones
-operativas. El sistema anterior continúa siendo el único responsable de
-trackers, notificaciones y movimiento PTZ durante N4.
+La versión `0.3.0` incorpora entidades candidatas para una migración
+controlada. Se crean deshabilitadas por defecto y no sustituyen trackers,
+notificaciones ni controles existentes automáticamente.
 
 ## Pruebas
 
@@ -59,5 +61,6 @@ Las pruebas usan exclusivamente nombres y geometrías sintéticas.
 - `docs/regression-matrix.md`: invariantes y su prueba ejecutable.
 - `docs/installation.md`: publicación e instalación por HACS.
 - `docs/comparison.md`: protocolo de comparación sin efectos.
+- `docs/public-projections.md`: contrato de las entidades candidatas.
 - `docs/rollback.md`: reversión soportada de la candidata.
 - `CHANGELOG.md`: notas de la versión candidata.

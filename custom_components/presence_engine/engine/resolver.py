@@ -66,6 +66,12 @@ class _PersonCandidate:
     identity: str
     location: SpatialClaim | None
     certainty: Quality
+    identity_quality: Quality
+    identity_method: str
+    identity_observed_at: datetime
+    identity_score: float | None
+    identity_sources: set[str]
+    location_sources: set[str]
     sources: set[str]
     direct_person: bool
     from_device: bool
@@ -77,6 +83,7 @@ class _PersonCandidate:
 class _EvidenceGroup:
     key: str
     kind: TargetKind
+    classification: str | None
     location: SpatialClaim | None
     minimum: int
     maximum: int
@@ -202,16 +209,36 @@ class PresenceResolver:
                     identity=identity,
                     location=item.location,
                     certainty=item.identity.quality,
+                    identity_quality=item.identity.quality,
+                    identity_method=item.identity.method,
+                    identity_observed_at=item.identity.observed_at,
+                    identity_score=item.identity.score,
+                    identity_sources={item.source.source_id},
+                    location_sources={item.source.source_id} if item.location else set(),
                     sources={item.source.source_id},
                     direct_person=True,
                     from_device=False,
                 )
             else:
                 candidate.sources.add(item.source.source_id)
+                candidate.identity_sources.add(item.source.source_id)
                 if self._location_rank(item.location,True) > self._location_rank(candidate.location,True):
                     candidate.location=item.location
-                if item.identity.quality.rank > candidate.certainty.rank:
+                    candidate.location_sources={item.source.source_id}
+                elif item.location == candidate.location and item.location is not None:
+                    candidate.location_sources.add(item.source.source_id)
+                if (
+                    item.identity.quality.rank,
+                    item.identity.observed_at,
+                ) > (
+                    candidate.identity_quality.rank,
+                    candidate.identity_observed_at,
+                ):
                     candidate.certainty=item.identity.quality
+                    candidate.identity_quality=item.identity.quality
+                    candidate.identity_method=item.identity.method
+                    candidate.identity_observed_at=item.identity.observed_at
+                    candidate.identity_score=item.identity.score
 
         for item in observations:
             if item.target_kind is not TargetKind.DEVICE or item.identity is None:
@@ -220,10 +247,22 @@ class PresenceResolver:
             if identity in people:
                 candidate=people[identity]
                 candidate.sources.add(item.source.source_id)
-                if item.identity.quality.rank > candidate.certainty.rank:
+                candidate.identity_sources.add(item.source.source_id)
+                if (
+                    item.identity.quality.rank,
+                    item.identity.observed_at,
+                ) > (
+                    candidate.identity_quality.rank,
+                    candidate.identity_observed_at,
+                ):
                     candidate.certainty=item.identity.quality
+                    candidate.identity_quality=item.identity.quality
+                    candidate.identity_method=item.identity.method
+                    candidate.identity_observed_at=item.identity.observed_at
+                    candidate.identity_score=item.identity.score
                 if self._device_refines_home_scope(candidate.location,item.location):
                     candidate.location=item.location
+                    candidate.location_sources={item.source.source_id}
                     candidate.from_device=True
                     candidate.status="refined_by_device"
                 continue
@@ -231,6 +270,12 @@ class PresenceResolver:
                 identity=identity,
                 location=item.location,
                 certainty=Quality.MEDIUM if item.identity.quality is Quality.HIGH else Quality.LOW,
+                identity_quality=item.identity.quality,
+                identity_method=item.identity.method,
+                identity_observed_at=item.identity.observed_at,
+                identity_score=item.identity.score,
+                identity_sources={item.source.source_id},
+                location_sources={item.source.source_id} if item.location else set(),
                 sources={item.source.source_id},
                 direct_person=False,
                 from_device=True,
@@ -253,6 +298,7 @@ class PresenceResolver:
                         if current.location.area:
                             current.candidate_areas.add(current.location.area)
                         current.location=prior.location
+                        current.location_sources=set(prior.location_source_ids)
                         current.status="continued"
                         current.from_device=False
                         current.sources.update(prior.source_ids)
@@ -261,6 +307,12 @@ class PresenceResolver:
                     identity=prior.identity,
                     location=prior.location,
                     certainty=Quality.LOW,
+                    identity_quality=prior.identity_quality,
+                    identity_method=prior.identity_method or "continued",
+                    identity_observed_at=prior.identity_observed_at or prior.location.observed_at,
+                    identity_score=prior.identity_score,
+                    identity_sources=set(prior.identity_source_ids),
+                    location_sources=set(prior.location_source_ids),
                     sources=set(prior.source_ids),
                     direct_person=False,
                     from_device=False,
@@ -292,6 +344,7 @@ class PresenceResolver:
             results.append(_EvidenceGroup(
                 key=key,
                 kind=representative.target_kind,
+                classification=representative.classification,
                 location=representative.location,
                 minimum=minimum,
                 maximum=maximum,
@@ -420,6 +473,7 @@ class PresenceResolver:
         if group.location.area:
             person.candidate_areas.add(group.location.area)
         person.location=group.location
+        person.location_sources=set(group.source_ids)
         person.sources.update(group.source_ids)
         person.status="correlated_movement" if exact else "ambiguous_movement"
 
@@ -430,11 +484,14 @@ class PresenceResolver:
         animal_groups=[group for group in groups if group.kind is TargetKind.ANIMAL]
         if not animal_groups:
             return ((),0,0)
-        by_coverage: dict[str,list[_EvidenceGroup]]={}
+        by_coverage: dict[tuple[str, str | None],list[_EvidenceGroup]]={}
         independent=[]
         for group in animal_groups:
             if group.coverage_group:
-                by_coverage.setdefault(group.coverage_group,[]).append(group)
+                by_coverage.setdefault(
+                    (group.coverage_group, group.classification),
+                    [],
+                ).append(group)
             else:
                 independent.append(group)
         hypotheses=[]
@@ -447,14 +504,23 @@ class PresenceResolver:
                 hypotheses.append(self._anonymous_hypothesis(group,index,"resolved",Quality.MEDIUM))
             if group.maximum > group.minimum:
                 hypotheses.append(self._anonymous_hypothesis(group,group.minimum,"possible",Quality.LOW))
-        for coverage,items in sorted(by_coverage.items()):
+        for (coverage, classification),items in sorted(
+            by_coverage.items(),
+            key=lambda item: (item[0][0], item[0][1] or ""),
+        ):
             group_min=max(item.minimum for item in items)
             group_max=sum(item.maximum for item in items)
             minimum+=group_min
             maximum+=group_max
             representative=max(items,key=lambda item:item.location.observed_at if item.location else datetime.min.replace(tzinfo=self._clock.now().tzinfo))
             sources=tuple(sorted({source for item in items for source in item.source_ids}))
-            combined=replace(representative,key=f"coverage:{coverage}",source_ids=sources,minimum=group_min,maximum=group_max)
+            combined=replace(
+                representative,
+                key=f"coverage:{coverage}:{classification or 'animal'}",
+                source_ids=sources,
+                minimum=group_min,
+                maximum=group_max,
+            )
             for index in range(group_min):
                 hypotheses.append(self._anonymous_hypothesis(combined,index,"resolved",Quality.MEDIUM))
             if group_max > group_min:
@@ -477,6 +543,8 @@ class PresenceResolver:
             certainty=certainty,
             source_ids=group.source_ids,
             candidate_areas=group.location.candidates if group.location else (),
+            classification=group.classification,
+            location_source_ids=group.source_ids if group.location else (),
         )
 
     @staticmethod
@@ -493,6 +561,13 @@ class PresenceResolver:
             certainty=candidate.certainty,
             source_ids=tuple(sorted(candidate.sources)),
             candidate_areas=tuple(sorted(areas)),
+            classification="person",
+            identity_quality=candidate.identity_quality,
+            identity_method=candidate.identity_method,
+            identity_observed_at=candidate.identity_observed_at,
+            identity_score=candidate.identity_score,
+            identity_source_ids=tuple(sorted(candidate.identity_sources)),
+            location_source_ids=tuple(sorted(candidate.location_sources)),
         )
 
     @staticmethod

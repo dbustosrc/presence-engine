@@ -11,6 +11,7 @@ from . import PresenceEngineConfigEntry
 from .const import CONF_COMPARISON_MODE, DEFAULT_COMPARISON_MODE
 from .entity import PresenceEngineEntity
 from .projection import snapshot_payload
+from .public_projection import identity_projection, public_presence_projection
 
 
 async def async_setup_entry(
@@ -23,6 +24,11 @@ async def async_setup_entry(
         (
             PresenceSnapshotSensor(runtime),
             PresenceRevisionSensor(runtime),
+            PresenceCandidateSensor(runtime),
+            *(
+                PresenceIdentityRecordCandidateSensor(runtime, identity)
+                for identity in runtime.engine.configuration.identity_ids
+            ),
         )
     )
 
@@ -77,3 +83,68 @@ class PresenceRevisionSensor(PresenceEngineEntity, SensorEntity):
                 for failure in self.runtime.engine.failures
             ],
         }
+
+
+class PresenceCandidateSensor(PresenceEngineEntity, SensorEntity):
+    """Disabled-by-default public projection candidate."""
+
+    _attr_name = "Presence candidate"
+    _attr_icon = "mdi:radar"
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, runtime) -> None:
+        super().__init__(runtime)
+        self._attr_unique_id = f"{runtime.entry.entry_id}_presence_candidate"
+
+    @property
+    def native_value(self):
+        return self._projection["state"]
+
+    @property
+    def extra_state_attributes(self):
+        return {key: value for key, value in self._projection.items() if key != "state"}
+
+    @property
+    def _projection(self):
+        return public_presence_projection(
+            self.coordinator.data,
+            self.runtime.engine.latest_images,
+        )
+
+
+class PresenceIdentityRecordCandidateSensor(PresenceEngineEntity, SensorEntity):
+    """Atomic diagnostic record candidate for one configured identity."""
+
+    _attr_icon = "mdi:account-details-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, runtime, identity: str) -> None:
+        super().__init__(runtime)
+        self.identity = identity
+        self._attr_unique_id = f"{runtime.entry.entry_id}_{identity}_record_candidate"
+        self._attr_name = f"{identity.replace('_', ' ').title()} record candidate"
+
+    @property
+    def native_value(self):
+        return self._projection["state"] or "unknown"
+
+    @property
+    def entity_picture(self):
+        return self._projection["entity_picture"]
+
+    @property
+    def extra_state_attributes(self):
+        return {
+            key: value
+            for key, value in self._projection.items()
+            if key not in {"state", "entity_picture"}
+        }
+
+    @property
+    def _projection(self):
+        return identity_projection(
+            self.coordinator.data,
+            self.identity,
+            self.runtime.engine.latest_images,
+        )

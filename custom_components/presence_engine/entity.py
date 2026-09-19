@@ -5,7 +5,7 @@ from __future__ import annotations
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import DOMAIN, INTEGRATION_VERSION
 from .ha_runtime import HomeAssistantPresenceRuntime, PresenceCoordinator
 
 
@@ -22,5 +22,5 @@ class PresenceEngineEntity(CoordinatorEntity[PresenceCoordinator]):
             name="Presence Engine",
             manufacturer="Presence Engine",
             model="Deterministic evidence engine",
-            sw_version="0.2.0",
+            sw_version=INTEGRATION_VERSION,
         )

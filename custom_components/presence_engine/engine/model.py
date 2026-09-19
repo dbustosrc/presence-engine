@@ -217,6 +217,17 @@ class PresenceHypothesis:
     certainty: Quality
     source_ids: tuple[str, ...]
     candidate_areas: tuple[str, ...] = ()
+    classification: str | None = None
+    identity_quality: Quality = Quality.UNKNOWN
+    identity_method: str | None = None
+    identity_observed_at: datetime | None = None
+    identity_score: float | None = None
+    identity_source_ids: tuple[str, ...] = ()
+    location_source_ids: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.identity_observed_at is not None:
+            require_aware(self.identity_observed_at, "identity_observed_at")
 
 
 @dataclass(frozen=True, slots=True)
@@ -256,6 +267,7 @@ class DetectionResult:
     processed_at: datetime
     evidence_ids: tuple[str, ...]
     reasons: tuple[str, ...] = ()
+    classification: str | None = None
 
     def __post_init__(self) -> None:
         require_aware(self.detected_at, "detected_at")

@@ -282,6 +282,22 @@ class EngineConfiguration:
             )
         )
 
+    @property
+    def identity_ids(self) -> tuple[str, ...]:
+        """Return canonical identities that may receive public projections."""
+        return tuple(
+            sorted(
+                {
+                    identity
+                    for identity in (
+                        *self.identities.values(),
+                        *(source.identity for source in self.sources),
+                    )
+                    if identity is not None
+                }
+            )
+        )
+
 
 def parse_configuration(raw: Mapping[str, Any]) -> EngineConfiguration:
     """Validate JSON-compatible input and return immutable configuration."""

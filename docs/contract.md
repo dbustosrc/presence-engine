@@ -51,6 +51,20 @@ solely because their time and area match.
 `coverage_degraded`. An unavailable source never means that its target is away
 or that the covered area is empty.
 
+Known native classification is preserved separately from the broad target
+kind. Identity and location metadata retain their own quality, observation
+time, method and source identifiers; consumers do not infer one dimension
+from the other.
+
+## Public projections
+
+Public candidate entities are deterministic views of one `PresenceSnapshot`
+revision. The general sensor, coverage sensor, identity tracker and identity
+record therefore expose the same snapshot identifier and revision. A missing
+identity hypothesis produces an unknown tracker state, never an invented
+`not_home` state. Image metadata is retained independently from current
+location.
+
 ## Geometry
 
 Current object zones take precedence over a PTZ profile. Entered/accumulated

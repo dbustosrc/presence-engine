@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import tomllib
 import unittest
 
 from presence_engine.configuration import parse_configuration
-from presence_engine.const import CONFIG_SCHEMA_VERSION, CONTRACT_VERSION
+from presence_engine.const import (
+    CONFIG_SCHEMA_VERSION,
+    CONTRACT_VERSION,
+    INTEGRATION_VERSION,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +25,7 @@ class PackageContractTests(unittest.TestCase):
         english = json.loads(
             (COMPONENT / "translations" / "en.json").read_text(encoding="utf-8")
         )
+        project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
         self.assertEqual(manifest["domain"], "presence_engine")
         self.assertTrue(manifest["config_flow"])
@@ -35,6 +41,8 @@ class PackageContractTests(unittest.TestCase):
         self.assertEqual(hacs["name"], manifest["name"])
         self.assertEqual(hacs["homeassistant"], "2026.9.2")
         self.assertEqual(strings, english)
+        self.assertEqual(manifest["version"], INTEGRATION_VERSION)
+        self.assertEqual(project["project"]["version"], INTEGRATION_VERSION)
 
     def test_neutral_example_is_accepted_by_current_schema(self) -> None:
         raw = json.loads(
@@ -92,6 +100,7 @@ class PackageContractTests(unittest.TestCase):
             "docs/installation.md",
             "docs/comparison.md",
             "docs/rollback.md",
+            "docs/public-projections.md",
         ):
             with self.subTest(relative_path=relative_path):
                 self.assertTrue((ROOT / relative_path).is_file())

@@ -3,7 +3,13 @@ from __future__ import annotations
 import unittest
 from dataclasses import replace
 
-from presence_engine.engine import EvidenceStore, RevisionDimension, RevisionStamp, resolve_detection
+from presence_engine.engine import (
+    EvidenceStore,
+    RevisionDimension,
+    RevisionStamp,
+    TargetKind,
+    resolve_detection,
+)
 
 from helpers import area, at, identity, observation
 
@@ -50,6 +56,27 @@ class DetectionTests(unittest.TestCase):
         self.assertEqual(result.detected_at,at(0))
         self.assertEqual(result.location.area,"beta")
         self.assertEqual(result.spatial_observed_at,at(12))
+
+    def test_detection_preserves_native_classification(self) -> None:
+        dog = observation(
+            "animal-a",
+            event_id="event-animal",
+            kind=TargetKind.ANIMAL,
+            classification="dog",
+            detected=3,
+            received=4,
+            location=area("alpha", 3),
+        )
+
+        result = resolve_detection(
+            "event-animal",
+            (dog,),
+            processed_at=at(5),
+            revision=1,
+        )
+
+        self.assertEqual(result.classification, "dog")
+        self.assertEqual(result.kind, TargetKind.ANIMAL)
 
 
 if __name__ == "__main__":

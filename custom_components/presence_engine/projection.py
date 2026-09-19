@@ -31,8 +31,19 @@ def snapshot_payload(
             {
                 "hypothesis_id": presence.hypothesis_id,
                 "kind": presence.kind.value,
+                "classification": presence.classification,
                 "identity": presence.identity,
+                "identity_quality": presence.identity_quality.value,
+                "identity_method": presence.identity_method,
+                "identity_observed_at": (
+                    presence.identity_observed_at.isoformat()
+                    if presence.identity_observed_at
+                    else None
+                ),
+                "identity_score": presence.identity_score,
+                "identity_source_ids": list(presence.identity_source_ids),
                 "location": _location(presence.location),
+                "location_source_ids": list(presence.location_source_ids),
                 "location_status": presence.location_status,
                 "certainty": presence.certainty.value,
                 "candidate_areas": list(presence.candidate_areas),
@@ -60,6 +71,7 @@ def detection_payload(detection: DetectionResult) -> dict[str, Any]:
         "revision": detection.revision,
         "status": detection.status,
         "kind": detection.kind.value,
+        "classification": detection.classification,
         "identity": detection.identity,
         "identity_quality": detection.identity_quality.value,
         "location": _location(detection.location),
