@@ -30,9 +30,10 @@ own confidence fields.
 - Identity confidence never substitutes for location confidence.
 - The last image remains available when a newer non-visual source changes the
   location.
-- An image reference becomes `entity_picture` only when it is already a
-  browser-usable path or URL. Opaque references remain available as metadata
-  until an image-serving adapter resolves them.
+- Las referencias de eventos de Frigate se publican como `entity_picture`
+  mediante su proxy autenticado de Home Assistant. Las rutas y URL ya
+  navegables se conservan; otras referencias opacas permanecen únicamente
+  como metadatos.
 
 ## Cutover rule
 

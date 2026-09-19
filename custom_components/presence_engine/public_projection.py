@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any, Mapping
+from urllib.parse import quote
 
 from .engine import PresenceHypothesis, PresenceSnapshot, Quality, SpatialLevel, TargetKind
 
@@ -315,6 +316,13 @@ def _browser_image_reference(record: ImageRecord | None) -> str | None:
     reference = record.image.reference
     if reference.startswith(("/", "http://", "https://")):
         return reference
+    if reference.startswith("frigate:event:"):
+        event_id = reference.removeprefix("frigate:event:")
+        if event_id:
+            return (
+                "/api/frigate/notifications/"
+                f"{quote(event_id, safe='')}/snapshot.jpg"
+            )
     return None
 
 

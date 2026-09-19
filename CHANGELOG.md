@@ -1,5 +1,14 @@
 # Historial de cambios
 
+## 0.3.2 — Imágenes de eventos accesibles
+
+- Expone las referencias de instantáneas de eventos mediante la ruta
+  autenticada proporcionada por la integración de Frigate.
+- Mantiene la última imagen confirmada aunque cambie la ubicación o deje de
+  existir una hipótesis activa para la identidad.
+- Conserva la referencia original y sus metadatos para no confundir la imagen
+  histórica con evidencia espacial actual.
+
 ## 0.3.1 — Contrato uniforme sin ubicación
 
 - Mantiene el mismo conjunto de atributos en las proyecciones por identidad

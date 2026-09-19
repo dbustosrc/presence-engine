@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "presence-engine"
-version = "0.3.1"
+version = "0.3.2"
 description = "Home Assistant presence evidence integration with a deterministic core"
 readme = "README.md"
 requires-python = ">=3.13"

@@ -112,6 +112,54 @@ class PublicProjectionTests(unittest.TestCase):
         self.assertEqual(result["identity_sources"], [])
         self.assertNotEqual(result["state"], "not_home")
 
+    def test_frigate_event_reference_becomes_authenticated_proxy_picture(self) -> None:
+        images = {
+            "person_a": ImageRecord(
+                identity="person_a",
+                image=ImageReference(
+                    reference="frigate:event:event/a b",
+                    observed_at=at(8),
+                    area="gamma",
+                    event_id="event/a b",
+                ),
+                detection_id="event/a b",
+            )
+        }
+
+        result = identity_projection(self.snapshot, "person_a", images)
+
+        self.assertEqual(
+            result["entity_picture"],
+            "/api/frigate/notifications/event%2Fa%20b/snapshot.jpg",
+        )
+        self.assertEqual(
+            result["last_image"]["reference"],
+            "frigate:event:event/a b",
+        )
+
+    def test_missing_identity_keeps_last_frigate_picture(self) -> None:
+        images = {
+            "person_b": ImageRecord(
+                identity="person_b",
+                image=ImageReference(
+                    reference="frigate:event:event-b",
+                    observed_at=at(8),
+                    area="gamma",
+                    event_id="event-b",
+                ),
+                detection_id="event-b",
+            )
+        }
+
+        result = identity_projection(self.snapshot, "person_b", images)
+
+        self.assertIsNone(result["state"])
+        self.assertEqual(
+            result["entity_picture"],
+            "/api/frigate/notifications/event-b/snapshot.jpg",
+        )
+        self.assertEqual(result["last_image"]["area"], "gamma")
+
     def test_area_presence_exposes_its_floor_as_scope(self) -> None:
         result = public_presence_projection(self.snapshot, self.images)
 

@@ -36,7 +36,7 @@ automatizaciones consumidoras.
 
 ## Estado de la versión
 
-La versión `0.3.1` incorpora entidades candidatas para una migración
+La versión `0.3.2` incorpora entidades candidatas para una migración
 controlada. Se crean deshabilitadas por defecto y no sustituyen trackers,
 notificaciones ni controles existentes automáticamente.
 
