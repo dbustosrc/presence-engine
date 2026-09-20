@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from typing import Any, Mapping
+from urllib.parse import quote
 
-from .engine import DetectionResult, PresenceSnapshot, SpatialClaim
+from .engine import DetectionResult, ImageReference, PresenceSnapshot, SpatialClaim
 from .runtime import ImageRecord
 
 
@@ -74,6 +75,8 @@ def detection_payload(detection: DetectionResult) -> dict[str, Any]:
         "classification": detection.classification,
         "identity": detection.identity,
         "identity_quality": detection.identity_quality.value,
+        "identity_method": detection.identity_method,
+        "identity_score": detection.identity_score,
         "location": _location(detection.location),
         "detected_at": detection.detected_at.isoformat(),
         "recognized_at": (
@@ -86,6 +89,8 @@ def detection_payload(detection: DetectionResult) -> dict[str, Any]:
         ),
         "processed_at": detection.processed_at.isoformat(),
         "evidence_ids": list(detection.evidence_ids),
+        "source_ids": list(detection.source_ids),
+        "image": _detection_image(detection.image),
         "reasons": list(detection.reasons),
     }
 
@@ -115,3 +120,28 @@ def _image(record: ImageRecord | None) -> dict[str, Any] | None:
         "event_id": record.image.event_id,
         "detection_id": record.detection_id,
     }
+
+
+def _detection_image(image: ImageReference | None) -> dict[str, Any] | None:
+    if image is None:
+        return None
+    return {
+        "reference": image.reference,
+        "url": _browser_image_reference(image.reference),
+        "observed_at": image.observed_at.isoformat(),
+        "area": image.area,
+        "event_id": image.event_id,
+    }
+
+
+def _browser_image_reference(reference: str) -> str | None:
+    if reference.startswith(("/", "http://", "https://")):
+        return reference
+    if reference.startswith("frigate:event:"):
+        event_id = reference.removeprefix("frigate:event:")
+        if event_id:
+            return (
+                "/api/frigate/notifications/"
+                f"{quote(event_id, safe='')}/snapshot.jpg"
+            )
+    return None

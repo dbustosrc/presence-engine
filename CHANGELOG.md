@@ -1,5 +1,14 @@
 # Historial de cambios
 
+## 0.4.4 — Resultados de detección autocontenidos
+
+- Incluye método y puntuación de identidad, fuentes contribuyentes e imagen del
+  propio evento en cada resultado de detección.
+- Proyecta referencias visuales compatibles a una ruta autenticada consumible
+  sin exponer detalles de almacenamiento a la capa de presentación.
+- Mantiene separados los instantes de detección, reconocimiento, ubicación e
+  imagen durante las revisiones de un mismo evento.
+
 ## 0.4.3 — Salud de infraestructura configurable
 
 - Añade fuentes de salud que reflejan la disponibilidad de infraestructura sin

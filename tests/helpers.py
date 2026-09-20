@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from presence_engine.engine import (
     CountClaim,
     IdentityClaim,
+    ImageReference,
     Observation,
     ObservationStatus,
     Quality,
@@ -60,6 +61,7 @@ def observation(
     classification: str | None=None,
     location: SpatialClaim | None=None,
     identity_claim: IdentityClaim | None=None,
+    image: ImageReference | None=None,
     count: CountClaim | None=None,
     detected: float=0,
     received: float=0,
@@ -88,6 +90,7 @@ def observation(
         target_id=target_id,
         event_id=event_id,
         identity=identity_claim,
+        image=image,
         location=location,
         count=count,
         active_since=at(active_since) if active_since is not None else None,

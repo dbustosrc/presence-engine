@@ -35,6 +35,13 @@ changing `detected_at`. Identity and spatial observation times stay separate.
 Its monotonically increasing revision lets a consumer distinguish an exact
 duplicate from a useful refinement of the same event.
 
+The projection also carries the identity method and score, contributing source
+IDs, and the image belonging to that detection when one exists. The image keeps
+its own observation time and area; consumers must not treat either as the
+current location of an identified person. Supported opaque image references are
+projected to a browser-ready authenticated URL so presentation code does not
+depend on a camera integration's storage convention.
+
 ## PresenceSnapshot
 
 A snapshot is a current, deterministic projection of active observations plus

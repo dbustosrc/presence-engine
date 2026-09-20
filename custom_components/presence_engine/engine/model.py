@@ -268,6 +268,10 @@ class DetectionResult:
     evidence_ids: tuple[str, ...]
     reasons: tuple[str, ...] = ()
     classification: str | None = None
+    identity_method: str | None = None
+    identity_score: float | None = None
+    source_ids: tuple[str, ...] = ()
+    image: ImageReference | None = None
 
     def __post_init__(self) -> None:
         require_aware(self.detected_at, "detected_at")
@@ -276,3 +280,5 @@ class DetectionResult:
             require_aware(self.recognized_at, "recognized_at")
         if self.spatial_observed_at is not None:
             require_aware(self.spatial_observed_at, "spatial_observed_at")
+        if self.identity_score is not None and not 0 <= self.identity_score <= 1:
+            raise ValueError("identity score must be between zero and one")

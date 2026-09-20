@@ -49,6 +49,8 @@ def resolve_detection(
     identity=identity_item.identity
     location_item=max(items,key=_location_score)
     location: SpatialClaim | None=location_item.location
+    images = tuple(item.image for item in items if item.image is not None)
+    image = max(images, key=lambda item: item.observed_at) if images else None
     kinds=[item.target_kind for item in items if item.target_kind is not TargetKind.DEVICE]
     kind=kinds[0] if kinds else items[0].target_kind
     classified_items = tuple(
@@ -86,4 +88,8 @@ def resolve_detection(
         evidence_ids=tuple(sorted({item.observation_id for item in items})),
         reasons=tuple(reasons),
         classification=classification,
+        identity_method=identity.method if identity else None,
+        identity_score=identity.score if identity else None,
+        source_ids=tuple(sorted({item.source.source_id for item in items})),
+        image=image,
     )

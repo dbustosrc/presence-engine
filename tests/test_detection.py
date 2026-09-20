@@ -5,6 +5,9 @@ from dataclasses import replace
 
 from presence_engine.engine import (
     EvidenceStore,
+    IdentityClaim,
+    ImageReference,
+    Quality,
     RevisionDimension,
     RevisionStamp,
     TargetKind,
@@ -77,6 +80,48 @@ class DetectionTests(unittest.TestCase):
 
         self.assertEqual(result.classification, "dog")
         self.assertEqual(result.kind, TargetKind.ANIMAL)
+
+    def test_detection_exposes_event_image_identity_details_and_sources(self) -> None:
+        visual = observation(
+            "event-a",
+            source_id="camera_events",
+            event_id="event-a",
+            detected=0,
+            received=1,
+            location=area("alpha", 0),
+            image=ImageReference(
+                reference="frigate:event:event-a",
+                observed_at=at(1),
+                area="alpha",
+                event_id="event-a",
+            ),
+        )
+        face = observation(
+            "event-a:face",
+            source_id="camera_faces",
+            event_id="event-a",
+            detected=8,
+            received=8,
+            identity_claim=IdentityClaim(
+                "person_a",
+                at(8),
+                "frigate_face_recognition",
+                Quality.HIGH,
+                0.94,
+            ),
+        )
+
+        result = resolve_detection(
+            "event-a",
+            (visual, face),
+            processed_at=at(9),
+            revision=2,
+        )
+
+        self.assertEqual(result.identity_method, "frigate_face_recognition")
+        self.assertEqual(result.identity_score, 0.94)
+        self.assertEqual(result.source_ids, ("camera_events", "camera_faces"))
+        self.assertEqual(result.image, visual.image)
 
 
 if __name__ == "__main__":
