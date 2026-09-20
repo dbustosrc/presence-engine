@@ -76,6 +76,10 @@ class PresenceRuntime:
     ) -> None:
         self.configuration = configuration
         self._now = now
+        self._resolver_config = PresenceConfig(
+            area_floors=configuration.areas,
+            adjacency=configuration.adjacency,
+        )
         self._store = EvidenceStore(max_records=max_records)
         self._contexts = TemporalCameraRegistry(dict(configuration.cameras))
         self._adapters = self._build_adapters()
@@ -246,10 +250,22 @@ class PresenceRuntime:
         """Re-evaluate time-bounded evidence without polling any source."""
         now = self._now()
         signature = self._current_freshness_signature(now)
-        changed = signature != self._freshness_signature
+        source_expired = signature != self._freshness_signature
+        continuity_expired = any(
+            presence.location is not None
+            and presence.location_status == "continued"
+            and now >= (
+                presence.location.observed_at
+                + self._resolver_config.previous_continuity_window
+            )
+            for presence in self.snapshot.presences
+        )
+        changed = source_expired or continuity_expired
         if changed:
             self._store.advance_revision()
-            self._snapshot = self._resolve_snapshot(allow_previous=False)
+            self._snapshot = self._resolve_snapshot(
+                allow_previous=not source_expired
+            )
         return RuntimeUpdate(self.snapshot, (), self.failures, changed)
 
     def next_expiration(self) -> datetime | None:
@@ -262,6 +278,16 @@ class PresenceRuntime:
             is not None
             and observation.received_at + lifetime > now
         ]
+        expirations.extend(
+            deadline
+            for presence in self.snapshot.presences
+            if presence.location is not None
+            and presence.location_status == "continued"
+            and (
+                deadline := presence.location.observed_at
+                + self._resolver_config.previous_continuity_window
+            ) > now
+        )
         return min(expirations, default=None)
 
     def mark_channel_unavailable(self, source_ids: Iterable[str]) -> RuntimeUpdate:
@@ -494,13 +520,7 @@ class PresenceRuntime:
     def _resolve_snapshot(self, *, allow_previous: bool = True) -> PresenceSnapshot:
         now = self._now()
         self._freshness_signature = self._current_freshness_signature(now)
-        resolver = PresenceResolver(
-            PresenceConfig(
-                area_floors=self.configuration.areas,
-                adjacency=self.configuration.adjacency,
-            ),
-            FrozenClock(now),
-        )
+        resolver = PresenceResolver(self._resolver_config, FrozenClock(now))
         return resolver.resolve(
             self._presence_observations(now),
             revision=self._store.revision,

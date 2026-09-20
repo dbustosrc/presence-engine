@@ -1,5 +1,12 @@
 # Historial de cambios
 
+## 0.4.8 — Vencimiento autónomo de continuidad
+
+- Programa el vencimiento de ubicaciones conservadas por continuidad aunque
+  no se produzcan nuevos eventos de sensores.
+- Reevalúa únicamente la continuidad vencida y mantiene intacta la evidencia
+  activa e independiente.
+
 ## 0.4.7 — Evidencia visual por detección
 
 - Conserva la imagen de cada detección aunque todavía no exista una identidad.

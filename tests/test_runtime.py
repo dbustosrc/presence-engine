@@ -595,6 +595,59 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(runtime.next_expiration(), None)
         self.assertEqual(len(runtime.export_state()["observations"]), 1)
 
+    def test_continued_location_expires_without_another_sensor_event(self) -> None:
+        current = [at(0)]
+        runtime = PresenceRuntime(integration_config(), now=lambda: current[0])
+        runtime.process(
+            AdapterEnvelope(
+                "state",
+                "sensor.device_area",
+                {"state": "Alpha Room"},
+                at(0),
+                at(0),
+            )
+        )
+        located = runtime.process(
+            AdapterEnvelope(
+                "state",
+                "sensor.area_count",
+                {"state": "1"},
+                at(1),
+                at(1),
+            )
+        )
+        self.assertEqual(located.snapshot.presences[0].location.area, "alpha")
+
+        current[0] = at(2)
+        continued = runtime.process(
+            AdapterEnvelope(
+                "state",
+                "sensor.area_count",
+                {"state": "0"},
+                at(2),
+                at(2),
+            )
+        )
+        person = next(
+            item for item in continued.snapshot.presences
+            if item.identity == "person_a"
+        )
+        self.assertEqual(person.location.area, "alpha")
+        self.assertEqual(person.location_status, "continued")
+        self.assertEqual(runtime.next_expiration(), at(181))
+
+        current[0] = at(182)
+        expired = runtime.refresh()
+
+        person = next(
+            item for item in expired.snapshot.presences
+            if item.identity == "person_a"
+        )
+        self.assertTrue(expired.changed)
+        self.assertIsNone(person.location.area)
+        self.assertNotEqual(person.location_status, "continued")
+        self.assertIsNone(runtime.next_expiration())
+
     def test_same_entity_state_and_observation_time_do_not_advance_revision(self) -> None:
         runtime = PresenceRuntime(integration_config(), now=lambda: at(10))
         first = runtime.process(
