@@ -13,7 +13,8 @@ automatizaciones consumidoras.
 
 - Núcleo determinista independiente de Home Assistant.
 - Adaptadores para eventos y rostros de Frigate, contexto PTZ, áreas Bermuda,
-  radares binarios, contadores simples y MTR multizona.
+  radares binarios, contadores simples, MTR multizona y salud de
+  infraestructura.
 - Registro acotado con revisiones por dimensión y recuperación mediante
   `Store`.
 - Caducidad selectiva programada al próximo vencimiento, sin polling global.
@@ -36,7 +37,7 @@ automatizaciones consumidoras.
 
 ## Estado de la versión
 
-La versión `0.4.2` estabiliza los contratos públicos ya comparados. No
+La versión `0.4.3` estabiliza los contratos públicos ya comparados. No
 sustituye trackers, notificaciones ni controles existentes automáticamente.
 
 ## Pruebas

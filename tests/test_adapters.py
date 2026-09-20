@@ -149,6 +149,84 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(result.remove_source_ids, ("device_area",))
         self.assertEqual(result.observations, ())
 
+    def test_source_health_reports_availability_without_presence(self) -> None:
+        definition = parse_configuration(
+            {
+                "schema_version": 1,
+                "areas": {},
+                "adjacency": {},
+                "sources": [
+                    {
+                        "source_id": "scanner_health",
+                        "adapter": "source_health",
+                        "entity_ids": ["binary_sensor.scanner_online"],
+                        "options": {"healthy_states": ["on"]},
+                    }
+                ],
+            }
+        ).sources[0]
+        adapter = EntityStateAdapter(definition)
+
+        healthy = adapter.parse(
+            AdapterEnvelope(
+                "state",
+                "binary_sensor.scanner_online",
+                {"state": "on"},
+                at(2),
+                at(2),
+            )
+        )
+        unhealthy = adapter.parse(
+            AdapterEnvelope(
+                "state",
+                "binary_sensor.scanner_online",
+                {"state": "off"},
+                at(3),
+                at(3),
+            )
+        )
+
+        self.assertEqual(healthy.observations, ())
+        self.assertEqual(healthy.source_availability[0].available, True)
+        self.assertEqual(unhealthy.observations, ())
+        self.assertEqual(unhealthy.source_availability[0].available, False)
+        self.assertEqual(unhealthy.remove_source_ids, ("scanner_health",))
+
+    def test_source_health_can_treat_any_non_failure_state_as_healthy(self) -> None:
+        definition = parse_configuration(
+            {
+                "schema_version": 1,
+                "areas": {},
+                "adjacency": {},
+                "sources": [
+                    {
+                        "source_id": "scanner_health",
+                        "adapter": "source_health",
+                        "entity_ids": ["media_player.scanner"],
+                    }
+                ],
+            }
+        ).sources[0]
+        adapter = EntityStateAdapter(definition)
+
+        idle = adapter.parse(
+            AdapterEnvelope(
+                "state", "media_player.scanner", {"state": "idle"}, at(2), at(2)
+            )
+        )
+        unavailable = adapter.parse(
+            AdapterEnvelope(
+                "state",
+                "media_player.scanner",
+                {"state": "unavailable"},
+                at(3),
+                at(3),
+            )
+        )
+
+        self.assertTrue(idle.source_availability[0].available)
+        self.assertFalse(unavailable.source_availability[0].available)
+
     def test_person_home_ignores_a_configured_tracker_prefix(self) -> None:
         definition = parse_configuration(
             {

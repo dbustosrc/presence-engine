@@ -110,6 +110,8 @@ class EntityStateAdapter:
     def parse(self, envelope: AdapterEnvelope) -> AdapterResult:
         state = str(envelope.payload.get("state", ""))
         normalized = state.casefold()
+        if self._definition.adapter is AdapterType.SOURCE_HEALTH:
+            return self._source_health(normalized)
         if normalized in INVALID_STATES:
             return AdapterResult(
                 remove_source_ids=(self.source_id,),
@@ -126,6 +128,25 @@ class EntityStateAdapter:
         if self._definition.adapter is AdapterType.AUXILIARY_ACTIVITY:
             return AdapterResult(ignored=True)
         raise ValueError(f"unsupported entity adapter: {self._definition.adapter.value}")
+
+    def _source_health(self, state: str) -> AdapterResult:
+        """Translate one infrastructure channel without creating presence."""
+        configured_healthy = self._definition.options.get("healthy_states")
+        if configured_healthy is not None:
+            available = state in {
+                str(value).casefold() for value in configured_healthy
+            }
+        else:
+            configured_unhealthy = self._definition.options.get(
+                "unhealthy_states", tuple(INVALID_STATES)
+            )
+            available = state not in {
+                str(value).casefold() for value in configured_unhealthy
+            }
+        return AdapterResult(
+            remove_source_ids=() if available else (self.source_id,),
+            source_availability=(SourceAvailability(self.source_id, available),),
+        )
 
     def _bermuda(self, envelope: AdapterEnvelope, state: str) -> AdapterResult:
         if state.casefold() in ABSENT_AREA_STATES:

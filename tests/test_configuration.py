@@ -224,6 +224,51 @@ class ConfigurationTests(unittest.TestCase):
         self.assertFalse(config.sources[0].degrades_coverage_when_unavailable)
         self.assertTrue(config.sources[1].degrades_coverage_when_unavailable)
 
+    def test_source_health_requires_one_entity_and_unambiguous_states(self) -> None:
+        base = {
+            "schema_version": 1,
+            "areas": {},
+            "adjacency": {},
+        }
+        for source in (
+            {
+                "source_id": "scanner_health",
+                "adapter": "source_health",
+                "entity_ids": ["binary_sensor.scanner_a", "binary_sensor.scanner_b"],
+            },
+            {
+                "source_id": "scanner_health",
+                "adapter": "source_health",
+                "entity_ids": ["binary_sensor.scanner_a"],
+                "options": {
+                    "healthy_states": ["on"],
+                    "unhealthy_states": ["off"],
+                },
+            },
+        ):
+            with self.subTest(source=source):
+                with self.assertRaises(ConfigurationError):
+                    parse_configuration({**base, "sources": [source]})
+
+    def test_source_health_is_coverage_by_default(self) -> None:
+        config = parse_configuration(
+            {
+                "schema_version": 1,
+                "areas": {},
+                "adjacency": {},
+                "sources": [
+                    {
+                        "source_id": "scanner_health",
+                        "adapter": "source_health",
+                        "entity_ids": ["binary_sensor.scanner_online"],
+                        "options": {"healthy_states": ["on"]},
+                    }
+                ],
+            }
+        )
+
+        self.assertTrue(config.sources[0].degrades_coverage_when_unavailable)
+
 
 if __name__ == "__main__":
     unittest.main()

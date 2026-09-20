@@ -54,7 +54,7 @@ class PackageContractTests(unittest.TestCase):
 
         self.assertEqual(configuration.schema_version, CONFIG_SCHEMA_VERSION)
         self.assertEqual(CONTRACT_VERSION, 1)
-        self.assertEqual(len(configuration.sources), 5)
+        self.assertEqual(len(configuration.sources), 6)
 
     def test_component_does_not_use_internal_or_global_state_listeners(self) -> None:
         python_source = "\n".join(

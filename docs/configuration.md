@@ -52,6 +52,15 @@ ausencia de su propietario. Los receptores deben configurarse como fuentes de
 salud separadas cuando la instalación expone una entidad fiable para esa
 capacidad.
 
+El adaptador `source_health` acepta exactamente una entidad y nunca produce
+presencia. Con `options.healthy_states` solo esos estados representan una
+fuente operativa; cualquier otro estado degrada esa capacidad. Como
+alternativa, `options.unhealthy_states` enumera únicamente los estados de fallo
+y cualquier otro valor se considera saludable. Si no se configura ninguna de
+las dos listas, `unknown`, `unavailable`, `none` y el estado vacío son fallos.
+No se pueden combinar ambas listas. Debe crearse una fuente independiente por
+dispositivo para que una reconexión no oculte la caída de otro.
+
 ## Descubrimiento
 
 El descubrimiento lee los registros oficiales de Home Assistant al cargar o

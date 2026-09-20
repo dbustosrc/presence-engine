@@ -31,6 +31,8 @@ asíncrono.
   cobertura de los receptores.
 - `mtr_count`: trata total y zonas como una fuente compuesta. Publica cada zona
   una vez y solo el remanente no cubierto por ellas.
+- `source_health`: traduce un canal de conectividad o disponibilidad en salud
+  de cobertura. No crea actividad, objetivos ni conteos.
 - `binary_presence`, `count` y `person_home`: fuentes simples con semántica
   declarada en configuración.
 

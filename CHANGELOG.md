@@ -1,5 +1,14 @@
 # Historial de cambios
 
+## 0.4.3 — Salud de infraestructura configurable
+
+- Añade fuentes de salud que reflejan la disponibilidad de infraestructura sin
+  crear observaciones de presencia.
+- Permite declarar estados saludables o estados de fallo para distintos
+  contratos de conectividad.
+- Valida una entidad por fuente de salud para evitar recuperaciones parciales
+  ambiguas.
+
 ## 0.4.2 — Evidencia de dispositivos y salud de cobertura
 
 - Distingue la ausencia de un objetivo rastreado de la pérdida de una fuente

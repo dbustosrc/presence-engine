@@ -91,6 +91,14 @@
       "target_kind": "unknown_living",
       "spatial_quality": "high",
       "availability_role": "coverage"
+    },
+    {
+      "source_id": "room_scanner_health",
+      "adapter": "source_health",
+      "entity_ids": ["binary_sensor.room_scanner_online"],
+      "options": {
+        "healthy_states": ["on"]
+      }
     }
   ]
 }

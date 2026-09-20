@@ -33,6 +33,7 @@ class AdapterType(str, Enum):
     BINARY_PRESENCE = "binary_presence"
     PERSON_HOME = "person_home"
     AUXILIARY_ACTIVITY = "auxiliary_activity"
+    SOURCE_HEALTH = "source_health"
 
 
 class AvailabilityRole(str, Enum):
@@ -244,6 +245,32 @@ class SourceDefinition:
                             f"source {self.source_id} {option_name} must contain strings"
                         )
                     _require_entity_id(value)
+        if self.adapter is AdapterType.SOURCE_HEALTH:
+            if len(self.entity_ids) != 1:
+                raise ConfigurationError(
+                    f"source {self.source_id} requires exactly one health entity"
+                )
+            healthy_states = self.options.get("healthy_states")
+            unhealthy_states = self.options.get("unhealthy_states")
+            if healthy_states is not None and unhealthy_states is not None:
+                raise ConfigurationError(
+                    f"source {self.source_id} cannot combine healthy_states and "
+                    "unhealthy_states"
+                )
+            for option_name, values in (
+                ("healthy_states", healthy_states),
+                ("unhealthy_states", unhealthy_states),
+            ):
+                if values is None:
+                    continue
+                if not isinstance(values, (list, tuple)) or not values:
+                    raise ConfigurationError(
+                        f"source {self.source_id} {option_name} must be a non-empty list"
+                    )
+                if any(not isinstance(value, str) for value in values):
+                    raise ConfigurationError(
+                        f"source {self.source_id} {option_name} must contain strings"
+                    )
         if self.expires_after_seconds is not None and self.expires_after_seconds < 1:
             raise ConfigurationError(
                 f"source {self.source_id} expires_after_seconds must be positive"

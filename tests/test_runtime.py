@@ -326,6 +326,55 @@ class RuntimeTests(unittest.TestCase):
         self.assertTrue(update.snapshot.coverage_degraded)
         self.assertEqual(update.snapshot.unavailable_source_ids, ("area_count",))
 
+    def test_health_source_degrades_and_recovers_without_creating_presence(self) -> None:
+        from presence_engine.configuration import parse_configuration
+
+        runtime = PresenceRuntime(
+            parse_configuration(
+                {
+                    "schema_version": 1,
+                    "areas": {},
+                    "adjacency": {},
+                    "sources": [
+                        {
+                            "source_id": "scanner_health",
+                            "adapter": "source_health",
+                            "entity_ids": ["binary_sensor.scanner_online"],
+                            "options": {"healthy_states": ["on"]},
+                        }
+                    ],
+                }
+            ),
+            now=lambda: at(3),
+        )
+
+        degraded = runtime.process(
+            AdapterEnvelope(
+                "state",
+                "binary_sensor.scanner_online",
+                {"state": "off"},
+                at(1),
+                at(1),
+            )
+        )
+        recovered = runtime.process(
+            AdapterEnvelope(
+                "state",
+                "binary_sensor.scanner_online",
+                {"state": "on"},
+                at(2),
+                at(2),
+            )
+        )
+
+        self.assertTrue(degraded.snapshot.coverage_degraded)
+        self.assertEqual(
+            degraded.snapshot.unavailable_source_ids, ("scanner_health",)
+        )
+        self.assertEqual(degraded.snapshot.count_maximum, 0)
+        self.assertFalse(recovered.snapshot.coverage_degraded)
+        self.assertEqual(recovered.snapshot.count_maximum, 0)
+
     def test_dog_event_is_anonymous_and_ends_with_direct_evidence(self) -> None:
         active = self.runtime.process(
             AdapterEnvelope(
