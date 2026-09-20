@@ -118,6 +118,7 @@ def _image(record: ImageRecord | None) -> dict[str, Any] | None:
         "observed_at": record.image.observed_at.isoformat(),
         "area": record.image.area,
         "event_id": record.image.event_id,
+        "origin_id": record.image.origin_id,
         "detection_id": record.detection_id,
     }
 
@@ -128,9 +129,11 @@ def _detection_image(image: ImageReference | None) -> dict[str, Any] | None:
     return {
         "reference": image.reference,
         "url": _browser_image_reference(image.reference),
+        "clip_url": _browser_clip_reference(image),
         "observed_at": image.observed_at.isoformat(),
         "area": image.area,
         "event_id": image.event_id,
+        "origin_id": image.origin_id,
     }
 
 
@@ -145,3 +148,15 @@ def _browser_image_reference(reference: str) -> str | None:
                 f"{quote(event_id, safe='')}/snapshot.jpg"
             )
     return None
+
+
+def _browser_clip_reference(image: ImageReference) -> str | None:
+    if not image.reference.startswith("frigate:event:") or not image.origin_id:
+        return None
+    event_id = image.reference.removeprefix("frigate:event:")
+    if not event_id:
+        return None
+    return (
+        "/api/frigate/notifications/"
+        f"{quote(event_id, safe='')}/{quote(image.origin_id, safe='')}/clip.mp4"
+    )

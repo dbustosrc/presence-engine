@@ -147,6 +147,7 @@ class ImageReference:
     observed_at: datetime
     area: str | None = None
     event_id: str | None = None
+    origin_id: str | None = None
 
     def __post_init__(self) -> None:
         require_aware(self.observed_at, "image observed_at")

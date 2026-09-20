@@ -306,6 +306,7 @@ def _image_payload(record: ImageRecord | None) -> dict[str, Any] | None:
         "observed_at": record.image.observed_at.isoformat(),
         "area": record.image.area,
         "event_id": record.image.event_id,
+        "origin_id": record.image.origin_id,
         "detection_id": record.detection_id,
     }
 

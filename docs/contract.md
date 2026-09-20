@@ -40,7 +40,8 @@ IDs, and the image belonging to that detection when one exists. The image keeps
 its own observation time and area; consumers must not treat either as the
 current location of an identified person. Supported opaque image references are
 projected to a browser-ready authenticated URL so presentation code does not
-depend on a camera integration's storage convention.
+depend on a camera integration's storage convention. When the origin provides
+an event clip, the same image metadata carries its browser-ready clip URL.
 
 ## PresenceSnapshot
 

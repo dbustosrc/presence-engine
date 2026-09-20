@@ -211,6 +211,7 @@ class RuntimeTests(unittest.TestCase):
         record = restored.latest_images["person_a"]
         self.assertEqual(record.detection_id, "event-image")
         self.assertEqual(record.image.reference, "frigate:event:event-image")
+        self.assertEqual(record.image.origin_id, "camera_a")
         self.assertEqual(restored.detection("event-image").revision, 2)
 
     def test_late_ptz_history_revises_cached_event_geometry(self) -> None:

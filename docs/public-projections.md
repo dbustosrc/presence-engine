@@ -1,6 +1,6 @@
 # Public projections
 
-Version 0.4.4 keeps the validated projections as stable public entities.
+Version 0.4.5 keeps the validated projections as stable public entities.
 Every projection is derived from the same canonical snapshot revision. An
 entity does not publish MQTT, call a Home Assistant service or replace another
 entity automatically.

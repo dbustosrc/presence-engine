@@ -176,6 +176,7 @@ def encode_image_reference(value: ImageReference | None) -> dict[str, Any] | Non
         "observed_at": value.observed_at.isoformat(),
         "area": value.area,
         "event_id": value.event_id,
+        "origin_id": value.origin_id,
     }
 
 
@@ -188,6 +189,7 @@ def decode_image_reference(raw: object) -> ImageReference | None:
         observed_at=_datetime(raw["observed_at"]),
         area=_optional_text(raw.get("area")),
         event_id=_optional_text(raw.get("event_id")),
+        origin_id=_optional_text(raw.get("origin_id")),
     )
 
 

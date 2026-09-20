@@ -38,6 +38,7 @@ class DetectionProjectionTests(unittest.TestCase):
                 observed_at=at(2),
                 area="alpha",
                 event_id="event/a b",
+                origin_id="camera/a b",
             ),
         )
 
@@ -49,6 +50,10 @@ class DetectionProjectionTests(unittest.TestCase):
         self.assertEqual(
             payload["image"]["url"],
             "/api/frigate/notifications/event%2Fa%20b/snapshot.jpg",
+        )
+        self.assertEqual(
+            payload["image"]["clip_url"],
+            "/api/frigate/notifications/event%2Fa%20b/camera%2Fa%20b/clip.mp4",
         )
         self.assertEqual(payload["detected_at"], at(0).isoformat())
         self.assertEqual(payload["recognized_at"], at(7).isoformat())

@@ -98,6 +98,7 @@ class FrigateEventAdapter:
                 observed_at=spatial_at,
                 area=location.area if location else None,
                 event_id=event_id,
+                origin_id=camera_id,
             ),
             active_since=detected_at,
             ended_at=ended_at,

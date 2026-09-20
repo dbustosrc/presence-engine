@@ -1,5 +1,13 @@
 # Historial de cambios
 
+## 0.4.5 — Acciones visuales por detección
+
+- Conserva el origen genérico de una imagen junto con sus demás metadatos.
+- Proyecta, cuando la fuente lo permite, un enlace autenticado al clip del
+  mismo evento sin exigir que el consumidor conozca la convención del origen.
+- Mantiene compatibilidad al restaurar referencias visuales guardadas por
+  versiones anteriores.
+
 ## 0.4.4 — Resultados de detección autocontenidos
 
 - Incluye método y puntuación de identidad, fuentes contribuyentes e imagen del
