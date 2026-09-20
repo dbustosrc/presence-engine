@@ -76,7 +76,9 @@ revision. The general sensor, coverage sensor, identity tracker and identity
 record therefore expose the same snapshot identifier and revision. A missing
 identity hypothesis produces an unknown tracker state, never an invented
 `not_home` state. Image metadata is retained independently from current
-location.
+location. Presence items expose identity method/time and a browser-ready image
+URL so presentation consumers do not reconstruct either dimension from source
+entities.
 
 ## Geometry
 

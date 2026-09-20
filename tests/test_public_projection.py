@@ -99,6 +99,7 @@ class PublicProjectionTests(unittest.TestCase):
         self.assertEqual(result["identity_source"], "registered_device_owner")
         self.assertEqual(result["entity_picture"], "/api/example/image.jpg")
         self.assertEqual(result["last_image"]["area"], "gamma")
+        self.assertEqual(result["last_image"]["url"], "/api/example/image.jpg")
 
     def test_missing_identity_is_unknown_not_away_and_keeps_image_metadata(self) -> None:
         result = identity_projection(self.snapshot, "person_b", {})
@@ -135,6 +136,35 @@ class PublicProjectionTests(unittest.TestCase):
         self.assertEqual(
             result["last_image"]["reference"],
             "frigate:event:event/a b",
+        )
+
+    def test_presence_item_is_self_contained_for_presenters(self) -> None:
+        images = {
+            "person_a": ImageRecord(
+                identity="person_a",
+                image=ImageReference(
+                    reference="frigate:event:event/a b",
+                    observed_at=at(8),
+                    area="gamma",
+                    event_id="event/a b",
+                ),
+                detection_id="event/a b",
+            )
+        }
+
+        result = public_presence_projection(self.snapshot, images)
+        person = next(item for item in result["presences"] if item["identity"])
+
+        self.assertEqual(person["identity_method"], "registered_device_owner")
+        self.assertEqual(person["identity_observed_at"], at(9).isoformat())
+        self.assertEqual(
+            person["entity_picture"],
+            "/api/frigate/notifications/event%2Fa%20b/snapshot.jpg",
+        )
+        self.assertEqual(person["last_image"]["area"], "gamma")
+        self.assertEqual(
+            person["last_image"]["url"],
+            "/api/frigate/notifications/event%2Fa%20b/snapshot.jpg",
         )
 
     def test_missing_identity_keeps_last_frigate_picture(self) -> None:

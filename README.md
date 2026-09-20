@@ -37,7 +37,7 @@ automatizaciones consumidoras.
 
 ## Estado de la versión
 
-La versión `0.4.5` estabiliza los contratos públicos ya comparados. No
+La versión `0.4.6` estabiliza los contratos públicos ya comparados. No
 sustituye trackers, notificaciones ni controles existentes automáticamente.
 
 ## Pruebas

@@ -1,6 +1,6 @@
 # Public projections
 
-Version 0.4.5 keeps the validated projections as stable public entities.
+Version 0.4.6 keeps the validated projections as stable public entities.
 Every projection is derived from the same canonical snapshot revision. An
 entity does not publish MQTT, call a Home Assistant service or replace another
 entity automatically.
@@ -11,6 +11,11 @@ The sensor reports `on` when the snapshot maximum is greater than zero and
 `off` otherwise. Its attributes expose the exact count interval, classified
 presences, active areas, conservative confidence, coverage, conflicts,
 snapshot identifier and revision.
+
+Each presence item carries its resolved identity method and observation time,
+plus a presentation-ready authenticated image URL when visual evidence exists.
+The image retains its own event, area and timestamp, so consumers do not infer
+the current room from historical visual metadata or rescan source entities.
 
 ## Coverage
 

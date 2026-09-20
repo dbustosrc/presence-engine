@@ -177,11 +177,18 @@ def _presence_payload(
         "location_sources": list(presence.location_source_ids),
         "location_methods": [location.method] if location else [],
         "identity_confidence": presence.identity_quality.value,
+        "identity_method": presence.identity_method,
+        "identity_observed_at": (
+            presence.identity_observed_at.isoformat()
+            if presence.identity_observed_at
+            else None
+        ),
         "identity_score": presence.identity_score,
         "identity_sources": list(presence.identity_source_ids),
         "last_seen": _observed_at(presence),
         "location_observed_at": location.observed_at.isoformat() if location else None,
         "sources": list(presence.source_ids),
+        "entity_picture": _browser_image_reference(image_record),
         "last_image": _image_payload(image_record),
     }
 
@@ -303,6 +310,7 @@ def _image_payload(record: ImageRecord | None) -> dict[str, Any] | None:
         return None
     return {
         "reference": record.image.reference,
+        "url": _browser_image_reference(record),
         "observed_at": record.image.observed_at.isoformat(),
         "area": record.image.area,
         "event_id": record.image.event_id,

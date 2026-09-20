@@ -1,5 +1,12 @@
 # Historial de cambios
 
+## 0.4.6 — Proyección autocontenida para presentación
+
+- Expone en cada presencia el método y el instante de identidad ya resueltos.
+- Incluye una URL autenticada de imagen junto con sus metadatos históricos.
+- Permite que tarjetas y otros consumidores presenten el resultado común sin
+  volver a consultar ni correlacionar fuentes de detección.
+
 ## 0.4.5 — Acciones visuales por detección
 
 - Conserva el origen genérico de una imagen junto con sus demás metadatos.
