@@ -27,7 +27,7 @@ def public_presence_projection(
     """Return one coherent public-state candidate from a snapshot revision."""
     image_map = images or {}
     presences = [
-        _presence_payload(presence, image_map.get(presence.identity or ""))
+        _presence_payload(presence, _presence_image(presence, image_map))
         for presence in snapshot.presences
     ]
     active_areas = _active_areas(snapshot.presences)
@@ -317,6 +317,22 @@ def _image_payload(record: ImageRecord | None) -> dict[str, Any] | None:
         "origin_id": record.image.origin_id,
         "detection_id": record.detection_id,
     }
+
+
+def _presence_image(
+    presence: PresenceHypothesis,
+    images: Mapping[str, ImageRecord],
+) -> ImageRecord | None:
+    """Return only visual evidence belonging to this exact presence."""
+    if presence.identity:
+        return images.get(presence.identity)
+    if not presence.hypothesis_id.startswith("target:"):
+        return None
+    target_and_index = presence.hypothesis_id.removeprefix("target:")
+    target_id, separator, index = target_and_index.rpartition(":")
+    if not separator or not target_id or not index.isdigit():
+        return None
+    return images.get(f"event:{target_id}")
 
 
 def _browser_image_reference(record: ImageRecord | None) -> str | None:

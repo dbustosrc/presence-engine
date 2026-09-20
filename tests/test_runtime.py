@@ -102,6 +102,124 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(duplicate.detections, ())
         self.assertFalse(duplicate.changed)
 
+    def test_interleaved_events_keep_independent_detection_revisions(self) -> None:
+        def event(event_id: str, second: int) -> AdapterEnvelope:
+            return AdapterEnvelope(
+                "mqtt",
+                "frigate/events",
+                {
+                    "type": "update",
+                    "after": {
+                        "id": event_id,
+                        "camera": "camera_a",
+                        "label": "person",
+                        "start_time": at(second).timestamp(),
+                        "frame_time": at(second + 1).timestamp(),
+                        "end_time": None,
+                        "current_zones": ["zone_alpha"],
+                    },
+                },
+                at(second + 1),
+                at(second + 1),
+            )
+
+        event_a = event("event-a", 0)
+        event_b = event("event-b", 2)
+        first_a = self.runtime.process(event_a)
+        first_b = self.runtime.process(event_b)
+        face_a = self.runtime.process(
+            AdapterEnvelope(
+                "mqtt",
+                "frigate/tracked_object_update",
+                {
+                    "type": "face",
+                    "id": "event-a",
+                    "camera": "camera_a",
+                    "name": "person_a",
+                    "score": 0.92,
+                    "timestamp": at(7).timestamp(),
+                },
+                at(7),
+                at(8),
+            )
+        )
+        duplicate_b = self.runtime.process(event_b)
+
+        self.assertEqual(first_a.detections[0].revision, 1)
+        self.assertEqual(first_b.detections[0].revision, 1)
+        self.assertEqual(face_a.detections[0].detection_id, "event-a")
+        self.assertEqual(face_a.detections[0].revision, 2)
+        self.assertEqual(duplicate_b.detections, ())
+
+    def test_face_after_end_and_restore_revises_original_detection(self) -> None:
+        self.runtime.process(
+            AdapterEnvelope(
+                "mqtt",
+                "frigate/events",
+                {
+                    "type": "update",
+                    "after": {
+                        "id": "event-late-face",
+                        "camera": "camera_a",
+                        "label": "person",
+                        "start_time": at(0).timestamp(),
+                        "frame_time": at(1).timestamp(),
+                        "end_time": None,
+                        "current_zones": ["zone_alpha"],
+                    },
+                },
+                at(1),
+                at(1),
+            )
+        )
+        ended = self.runtime.process(
+            AdapterEnvelope(
+                "mqtt",
+                "frigate/events",
+                {
+                    "type": "end",
+                    "after": {
+                        "id": "event-late-face",
+                        "camera": "camera_a",
+                        "label": "person",
+                        "start_time": at(0).timestamp(),
+                        "frame_time": at(3).timestamp(),
+                        "end_time": at(3).timestamp(),
+                        "current_zones": [],
+                    },
+                },
+                at(3),
+                at(3),
+            )
+        )
+        self.assertEqual(ended.detections[0].status, "ended_unidentified")
+
+        restored = PresenceRuntime(integration_config(), now=lambda: at(10))
+        restored.restore_state(self.runtime.export_state())
+        late_face = restored.process(
+            AdapterEnvelope(
+                "mqtt",
+                "frigate/tracked_object_update",
+                {
+                    "type": "face",
+                    "id": "event-late-face",
+                    "camera": "camera_a",
+                    "name": "person_a",
+                    "score": 0.93,
+                    "timestamp": at(7).timestamp(),
+                },
+                at(7),
+                at(8),
+            )
+        )
+
+        result = late_face.detections[0]
+        self.assertEqual(result.detection_id, "event-late-face")
+        self.assertEqual(result.revision, 3)
+        self.assertEqual(result.detected_at, at(0))
+        self.assertEqual(result.recognized_at, at(7))
+        self.assertEqual(result.identity, "person_a")
+
     def test_bad_payload_isolated_without_losing_other_sources(self) -> None:
         device = AdapterEnvelope(
             "state",
@@ -401,6 +519,17 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual((active.snapshot.count_minimum, active.snapshot.count_maximum), (1, 1))
         self.assertIsNone(active.snapshot.presences[0].identity)
         self.assertEqual(active.snapshot.presences[0].classification, "dog")
+        self.assertEqual(
+            self.runtime.latest_images["event:event-dog"].detection_id,
+            "event-dog",
+        )
+        self.assertNotIn("dog", self.runtime.latest_images)
+        restored = PresenceRuntime(integration_config(), now=lambda: at(2))
+        restored.restore_state(self.runtime.export_state())
+        self.assertEqual(
+            restored.latest_images["event:event-dog"].image.event_id,
+            "event-dog",
+        )
 
         ended = self.runtime.process(
             AdapterEnvelope(
@@ -426,6 +555,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual((ended.snapshot.count_minimum, ended.snapshot.count_maximum), (0, 0))
         self.assertEqual(ended.detections[0].classification, "dog")
         self.assertIsNotNone(self.runtime.detection("event-dog"))
+        self.assertNotIn("event:event-dog", self.runtime.latest_images)
 
     def test_expiration_revises_current_snapshot_without_deleting_history(self) -> None:
         config = integration_config()

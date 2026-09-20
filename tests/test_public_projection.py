@@ -197,6 +197,60 @@ class PublicProjectionTests(unittest.TestCase):
         self.assertEqual(person["area"], "alpha")
         self.assertEqual(person["scope"], "floor_alpha")
 
+    def test_anonymous_animal_uses_only_its_own_event_image(self) -> None:
+        dog = PresenceHypothesis(
+            hypothesis_id="target:event-dog:1",
+            kind=TargetKind.ANIMAL,
+            identity=None,
+            location=area("beta", 11),
+            location_status="resolved",
+            certainty=Quality.MEDIUM,
+            source_ids=("frigate_events",),
+            classification="dog",
+            location_source_ids=("frigate_events",),
+        )
+        snapshot = PresenceSnapshot(
+            contract_version=1,
+            snapshot_id="snapshot-dog",
+            revision=8,
+            evaluated_at=at(12),
+            presences=(dog,),
+            devices=(),
+            count_minimum=1,
+            count_maximum=1,
+            coverage_degraded=False,
+        )
+        images = {
+            "event:event-dog": ImageRecord(
+                identity="",
+                image=ImageReference(
+                    reference="frigate:event:event-dog",
+                    observed_at=at(11),
+                    area="beta",
+                    event_id="event-dog",
+                ),
+                detection_id="event-dog",
+            ),
+            "event:another-dog": ImageRecord(
+                identity="",
+                image=ImageReference(
+                    reference="frigate:event:another-dog",
+                    observed_at=at(12),
+                    area="gamma",
+                    event_id="another-dog",
+                ),
+                detection_id="another-dog",
+            ),
+        }
+
+        result = public_presence_projection(snapshot, images)
+        projected = result["presences"][0]
+
+        self.assertIsNone(projected["identity"])
+        self.assertEqual(projected["type"], "dog")
+        self.assertEqual(projected["last_image"]["event_id"], "event-dog")
+        self.assertEqual(projected["last_image"]["area"], "beta")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -599,8 +599,9 @@ class PresenceRuntime:
         )
 
     def _remember_image(self, detection: DetectionResult) -> None:
-        if not detection.identity:
-            return
+        event_key = f"event:{detection.detection_id}"
+        if detection.status.startswith("ended"):
+            self._latest_images.pop(event_key, None)
         images = [
             item.image
             for item in self._store.by_event(detection.detection_id)
@@ -609,8 +610,22 @@ class PresenceRuntime:
         if not images:
             return
         image = max(images, key=lambda value: value.observed_at)
-        current = self._latest_images.get(detection.identity)
-        if current is None or image.observed_at > current.image.observed_at:
-            self._latest_images[detection.identity] = ImageRecord(
-                detection.identity, image, detection.detection_id
-            )
+        record = ImageRecord(
+            detection.identity or "",
+            image,
+            detection.detection_id,
+        )
+        if not detection.status.startswith("ended"):
+            current_event = self._latest_images.get(event_key)
+            if (
+                current_event is None
+                or image.observed_at > current_event.image.observed_at
+            ):
+                self._latest_images[event_key] = record
+        if detection.identity:
+            current_identity = self._latest_images.get(detection.identity)
+            if (
+                current_identity is None
+                or image.observed_at > current_identity.image.observed_at
+            ):
+                self._latest_images[detection.identity] = record

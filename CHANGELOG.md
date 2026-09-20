@@ -1,5 +1,12 @@
 # Historial de cambios
 
+## 0.4.7 — Evidencia visual por detección
+
+- Conserva la imagen de cada detección aunque todavía no exista una identidad.
+- Proyecta imágenes de presencias anónimas y animales únicamente desde su
+  propio evento, evitando asociaciones visuales entre detecciones diferentes.
+- Mantiene la evidencia visual al restaurar el estado después de un reinicio.
+
 ## 0.4.6 — Proyección autocontenida para presentación
 
 - Expone en cada presencia el método y el instante de identidad ya resueltos.
