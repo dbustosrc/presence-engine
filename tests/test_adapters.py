@@ -55,6 +55,59 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(result.observations[0].detected_at, at(-5))
         self.assertEqual(result.observations[0].location.observed_at, at(0))
 
+    def test_strict_camera_ends_admitted_event_outside_mapped_zone(self) -> None:
+        raw = {
+            "schema_version": 1,
+            "areas": {"alpha": "floor_alpha"},
+            "adjacency": {"alpha": []},
+            "cameras": {
+                "camera_a": {
+                    "floor": "floor_alpha",
+                    "admission_mode": "mapped_current_zone",
+                    "zone_to_area": {"zone_alpha": "alpha"},
+                }
+            },
+            "sources": [
+                {
+                    "source_id": "frigate_events",
+                    "adapter": "frigate_events",
+                    "topics": ["frigate/events"],
+                }
+            ],
+        }
+        config = parse_configuration(raw)
+        definition = config.sources[0]
+        adapter = FrigateEventAdapter(
+            definition,
+            config.cameras,
+            TemporalCameraRegistry(dict(config.cameras)),
+        )
+
+        result = adapter.parse(
+            AdapterEnvelope(
+                "mqtt",
+                "frigate/events",
+                {
+                    "type": "update",
+                    "after": {
+                        "id": "event-boundary",
+                        "camera": "camera_a",
+                        "label": "dog",
+                        "start_time": at(0).timestamp(),
+                        "frame_time": at(1).timestamp(),
+                        "end_time": None,
+                        "current_zones": [],
+                    },
+                },
+                at(1),
+                at(1),
+            )
+        )
+
+        self.assertTrue(result.ignored)
+        self.assertEqual(result.observations, ())
+        self.assertEqual(result.end_observation_ids, ("event-boundary",))
+
     def test_zero_count_ends_source_observation(self) -> None:
         definition = next(
             source for source in self.config.sources if source.source_id == "area_count"

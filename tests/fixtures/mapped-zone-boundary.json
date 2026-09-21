@@ -1,0 +1,150 @@
+{
+  "name": "mapped zone boundary admission",
+  "configuration": {
+    "schema_version": 1,
+    "areas": {
+      "protected_area": "floor_one"
+    },
+    "adjacency": {
+      "protected_area": []
+    },
+    "cameras": {
+      "boundary_camera": {
+        "floor": "floor_one",
+        "admission_mode": "mapped_current_zone",
+        "zone_to_area": {
+          "protected_zone": "protected_area"
+        }
+      }
+    },
+    "sources": [
+      {
+        "source_id": "camera_events",
+        "adapter": "frigate_events",
+        "topics": ["vision/events"],
+        "options": {
+          "labels": ["person", "dog", "cat"]
+        }
+      },
+      {
+        "source_id": "camera_faces",
+        "adapter": "frigate_face",
+        "topics": ["vision/object_updates"],
+        "options": {
+          "recognition_threshold": 0.8
+        }
+      }
+    ]
+  },
+  "steps": [
+    {
+      "at": 0,
+      "channel_type": "state",
+      "channel": "binary_sensor.approach_radar",
+      "payload": {"state": "on"},
+      "expect": {"count": [0, 0], "detections": 0}
+    },
+    {
+      "at": 1,
+      "channel_type": "mqtt",
+      "channel": "vision/events",
+      "payload": {
+        "type": "update",
+        "after": {
+          "id": "outside-person",
+          "camera": "boundary_camera",
+          "label": "person",
+          "start_offset": 1,
+          "frame_offset": 1,
+          "end_time": null,
+          "current_zones": []
+        }
+      },
+      "expect": {"count": [0, 0], "detections": 0}
+    },
+    {
+      "at": 2,
+      "channel_type": "mqtt",
+      "channel": "vision/object_updates",
+      "payload": {
+        "type": "face",
+        "id": "outside-person",
+        "camera": "boundary_camera",
+        "name": "Outside Person",
+        "score": 0.99,
+        "timestamp_offset": 2
+      },
+      "expect": {"count": [0, 0], "detections": 0}
+    },
+    {
+      "at": 3,
+      "channel_type": "mqtt",
+      "channel": "vision/events",
+      "payload": {
+        "type": "update",
+        "after": {
+          "id": "animal-one",
+          "camera": "boundary_camera",
+          "label": "dog",
+          "start_offset": 3,
+          "frame_offset": 3,
+          "end_time": null,
+          "current_zones": ["protected_zone"]
+        }
+      },
+      "expect": {
+        "count": [1, 1],
+        "detections": 1,
+        "presence": {
+          "kind": "animal",
+          "classification": "dog",
+          "area": "protected_area"
+        }
+      }
+    },
+    {
+      "at": 4,
+      "channel_type": "mqtt",
+      "channel": "vision/events",
+      "payload": {
+        "type": "update",
+        "after": {
+          "id": "animal-one",
+          "camera": "boundary_camera",
+          "label": "dog",
+          "start_offset": 3,
+          "frame_offset": 4,
+          "end_time": null,
+          "current_zones": []
+        }
+      },
+      "expect": {"count": [0, 0], "detections": 1, "status": "ended_unidentified"}
+    },
+    {
+      "at": 5,
+      "channel_type": "mqtt",
+      "channel": "vision/events",
+      "payload": {
+        "type": "update",
+        "after": {
+          "id": "animal-two",
+          "camera": "boundary_camera",
+          "label": "cat",
+          "start_offset": 5,
+          "frame_offset": 5,
+          "end_time": null,
+          "current_zones": ["protected_zone"]
+        }
+      },
+      "expect": {
+        "count": [1, 1],
+        "detections": 1,
+        "presence": {
+          "kind": "animal",
+          "classification": "cat",
+          "area": "protected_area"
+        }
+      }
+    }
+  ]
+}

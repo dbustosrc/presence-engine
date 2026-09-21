@@ -1,0 +1,135 @@
+{
+  "name": "synchronized multi-source evidence",
+  "configuration": {
+    "schema_version": 1,
+    "areas": {
+      "room_alpha": "floor_one",
+      "room_beta": "floor_one"
+    },
+    "adjacency": {
+      "room_alpha": ["room_beta"],
+      "room_beta": ["room_alpha"]
+    },
+    "identities": {},
+    "cameras": {
+      "interior_camera": {
+        "floor": "floor_one",
+        "zone_to_area": {
+          "zone_alpha": "room_alpha"
+        }
+      }
+    },
+    "sources": [
+      {
+        "source_id": "camera_events",
+        "adapter": "frigate_events",
+        "topics": ["vision/events"],
+        "options": {"labels": ["person"]}
+      },
+      {
+        "source_id": "camera_faces",
+        "adapter": "frigate_face",
+        "topics": ["vision/object_updates"],
+        "options": {
+          "recognition_threshold": 0.8,
+          "identity_map": {"Resident One": "resident_one"}
+        }
+      },
+      {
+        "source_id": "resident_device",
+        "adapter": "bermuda_area",
+        "entity_ids": ["sensor.resident_device_area"],
+        "floor": "floor_one",
+        "identity": "resident_one",
+        "target_kind": "device",
+        "spatial_quality": "medium",
+        "options": {
+          "area_map": {"Beta Room": "room_beta"}
+        }
+      },
+      {
+        "source_id": "room_counter",
+        "adapter": "mtr_count",
+        "entity_ids": ["sensor.room_total", "sensor.room_alpha", "sensor.room_beta"],
+        "floor": "floor_one",
+        "options": {
+          "total_entity_id": "sensor.room_total",
+          "zone_areas": {
+            "sensor.room_alpha": "room_alpha",
+            "sensor.room_beta": "room_beta"
+          }
+        }
+      }
+    ]
+  },
+  "steps": [
+    {
+      "at": 0,
+      "channel_type": "state",
+      "channel": "sensor.resident_device_area",
+      "payload": {"state": "Beta Room"}
+    },
+    {
+      "at": 1,
+      "channel_type": "state",
+      "channel": "sensor.room_alpha",
+      "payload": {"state": "1"}
+    },
+    {
+      "at": 2,
+      "channel_type": "state",
+      "channel": "sensor.room_beta",
+      "payload": {"state": "0"}
+    },
+    {
+      "at": 3,
+      "channel_type": "state",
+      "channel": "sensor.room_total",
+      "payload": {"state": "1"}
+    },
+    {
+      "at": 4,
+      "channel_type": "mqtt",
+      "channel": "vision/events",
+      "payload": {
+        "type": "update",
+        "after": {
+          "id": "person-event",
+          "camera": "interior_camera",
+          "label": "person",
+          "start_offset": 4,
+          "frame_offset": 4,
+          "end_time": null,
+          "current_zones": ["zone_alpha"]
+        }
+      }
+    },
+    {
+      "at": 5,
+      "channel_type": "mqtt",
+      "channel": "vision/object_updates",
+      "payload": {
+        "type": "face",
+        "id": "person-event",
+        "camera": "interior_camera",
+        "name": "Resident One",
+        "score": 0.94,
+        "timestamp_offset": 5
+      },
+      "expect": {
+        "count": [1, 1],
+        "detections": 1,
+        "presence": {
+          "kind": "person",
+          "identity": "resident_one",
+          "classification": "person",
+          "area": "room_alpha"
+        },
+        "device": {
+          "identity": "resident_one",
+          "area": "room_beta"
+        }
+      }
+    }
+  ]
+}

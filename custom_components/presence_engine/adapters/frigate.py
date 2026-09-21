@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any, Mapping
 
 from .base import AdapterEnvelope, AdapterResult
-from ..configuration import CameraDefinition, SourceDefinition
+from ..configuration import CameraAdmissionMode, CameraDefinition, SourceDefinition
 from ..engine import (
     CameraGeometry,
     CountClaim,
@@ -74,6 +74,19 @@ class FrigateEventAdapter:
             else TargetKind.UNKNOWN_LIVING
         )
         location = self._location(camera_id, after, spatial_at)
+        camera = self._cameras.get(camera_id)
+        if (
+            camera is not None
+            and camera.admission_mode is CameraAdmissionMode.MAPPED_CURRENT_ZONE
+            and (
+                location is None
+                or location.method != "frigate_current_zone"
+            )
+        ):
+            return AdapterResult(
+                end_observation_ids=(event_id,),
+                ignored=True,
+            )
         sequence = _sequence(spatial_at)
         observation = Observation(
             observation_id=event_id,

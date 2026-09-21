@@ -5,7 +5,11 @@ from dataclasses import replace
 
 from presence_engine.adapters import AdapterEnvelope
 from presence_engine.runtime import PresenceRuntime
-from presence_engine.configuration import EngineConfiguration, parse_configuration
+from presence_engine.configuration import (
+    CameraAdmissionMode,
+    EngineConfiguration,
+    parse_configuration,
+)
 
 from helpers import at
 from integration_helpers import integration_config
@@ -406,6 +410,66 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(restored.snapshot.count_maximum, 0)
         self.assertFalse(restored.snapshot.coverage_degraded)
         self.assertNotIn("device_area", restored.snapshot.unavailable_source_ids)
+
+    def test_restore_reapplies_strict_camera_admission(self) -> None:
+        permissive = PresenceRuntime(integration_config(), now=lambda: at(10))
+        permissive.process(
+            AdapterEnvelope(
+                "mqtt",
+                "frigate/events",
+                {
+                    "type": "update",
+                    "after": {
+                        "id": "outside-event",
+                        "camera": "camera_a",
+                        "label": "person",
+                        "start_time": at(0).timestamp(),
+                        "frame_time": at(1).timestamp(),
+                        "end_time": None,
+                        "current_zones": [],
+                    },
+                },
+                at(1),
+                at(1),
+            )
+        )
+        permissive.process(
+            AdapterEnvelope(
+                "mqtt",
+                "frigate/tracked_object_update",
+                {
+                    "type": "face",
+                    "id": "outside-event",
+                    "camera": "camera_a",
+                    "name": "person_a",
+                    "score": 0.95,
+                    "timestamp": at(2).timestamp(),
+                },
+                at(2),
+                at(2),
+            )
+        )
+        config = integration_config()
+        strict = EngineConfiguration(
+            schema_version=config.schema_version,
+            areas=config.areas,
+            adjacency=config.adjacency,
+            identities=config.identities,
+            cameras={
+                camera_id: replace(
+                    camera,
+                    admission_mode=CameraAdmissionMode.MAPPED_CURRENT_ZONE,
+                )
+                for camera_id, camera in config.cameras.items()
+            },
+            sources=config.sources,
+        )
+        restored = PresenceRuntime(strict, now=lambda: at(10))
+
+        restored.restore_state(permissive.export_state())
+
+        self.assertEqual(restored.snapshot.count_maximum, 0)
+        self.assertIsNone(restored.detection("outside-event"))
 
     def test_tracked_endpoint_unavailable_is_absence_not_degraded_coverage(self) -> None:
         self.runtime.process(

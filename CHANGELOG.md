@@ -1,5 +1,14 @@
 # Historial de cambios
 
+## 0.4.9 — Admisión espacial y replay reproducible
+
+- Añade una política opcional para admitir eventos de cámara únicamente cuando
+  una zona actual configurada demuestra que pertenecen al área vigilada.
+- Finaliza la evidencia admitida cuando el objetivo abandona esas zonas e
+  ignora reconocimientos aislados que no tienen un evento visual admitido.
+- Incorpora escenarios de replay deterministas con evidencia sincronizada de
+  varias fuentes y conserva las clasificaciones nativas de animales.
+
 ## 0.4.8 — Vencimiento autónomo de continuidad
 
 - Programa el vencimiento de ubicaciones conservadas por continuidad aunque

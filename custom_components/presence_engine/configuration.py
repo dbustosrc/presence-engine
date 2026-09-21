@@ -44,12 +44,20 @@ class AvailabilityRole(str, Enum):
     OBSERVATION = "observation"
 
 
+class CameraAdmissionMode(str, Enum):
+    """Policy deciding whether a camera event belongs to the presence domain."""
+
+    ANY_DETECTION = "any_detection"
+    MAPPED_CURRENT_ZONE = "mapped_current_zone"
+
+
 @dataclass(frozen=True, slots=True)
 class CameraDefinition:
     """Geometry and telemetry inputs for one logical camera."""
 
     camera_id: str
     floor: str
+    admission_mode: CameraAdmissionMode = CameraAdmissionMode.ANY_DETECTION
     fixed_area: str | None = None
     zone_to_area: Mapping[str, str] = field(default_factory=dict)
     profile_to_area: Mapping[str, str] = field(default_factory=dict)
@@ -76,10 +84,22 @@ class CameraDefinition:
     def __post_init__(self) -> None:
         _require_slug(self.camera_id, "camera_id")
         _require_slug(self.floor, "camera floor")
+        if not isinstance(self.admission_mode, CameraAdmissionMode):
+            raise ConfigurationError(
+                f"camera {self.camera_id} has invalid admission_mode"
+            )
         if self.fixed_area is not None:
             _require_slug(self.fixed_area, "camera fixed_area")
         _validate_area_mapping(self.zone_to_area, "zone_to_area")
         _validate_area_mapping(self.profile_to_area, "profile_to_area")
+        if (
+            self.admission_mode is CameraAdmissionMode.MAPPED_CURRENT_ZONE
+            and not self.zone_to_area
+        ):
+            raise ConfigurationError(
+                f"camera {self.camera_id} requires zone_to_area for "
+                "mapped_current_zone admission"
+            )
         for value in (
             self.profile_entity_id,
             self.preset_entity_id,
@@ -422,6 +442,9 @@ def parse_configuration(raw: Mapping[str, Any]) -> EngineConfiguration:
             camera_id: CameraDefinition(
                 camera_id=camera_id,
                 floor=value["floor"],
+                admission_mode=CameraAdmissionMode(
+                    value.get("admission_mode", CameraAdmissionMode.ANY_DETECTION.value)
+                ),
                 fixed_area=value.get("fixed_area"),
                 zone_to_area=value.get("zone_to_area", {}),
                 profile_to_area=value.get("profile_to_area", {}),

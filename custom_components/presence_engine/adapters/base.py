@@ -51,6 +51,7 @@ class SourceAvailability:
 class AdapterResult:
     observations: tuple[Observation, ...] = ()
     remove_source_ids: tuple[str, ...] = ()
+    end_observation_ids: tuple[str, ...] = ()
     context_changed: bool = False
     camera_availability: tuple[CameraAvailability, ...] = ()
     source_availability: tuple[SourceAvailability, ...] = ()

@@ -4,6 +4,7 @@ import unittest
 
 from presence_engine.configuration import (
     AvailabilityRole,
+    CameraAdmissionMode,
     ConfigurationError,
     parse_configuration,
 )
@@ -124,6 +125,43 @@ class ConfigurationTests(unittest.TestCase):
 
         with self.assertRaises(ConfigurationError):
             parse_configuration(raw)
+
+    def test_camera_can_require_a_mapped_current_zone(self) -> None:
+        config = parse_configuration(
+            {
+                "schema_version": 1,
+                "areas": {"alpha": "floor_alpha"},
+                "adjacency": {"alpha": []},
+                "cameras": {
+                    "camera_a": {
+                        "floor": "floor_alpha",
+                        "admission_mode": "mapped_current_zone",
+                        "zone_to_area": {"zone_alpha": "alpha"},
+                    }
+                },
+            }
+        )
+
+        self.assertEqual(
+            config.cameras["camera_a"].admission_mode,
+            CameraAdmissionMode.MAPPED_CURRENT_ZONE,
+        )
+
+    def test_mapped_zone_admission_requires_zone_geometry(self) -> None:
+        with self.assertRaises(ConfigurationError):
+            parse_configuration(
+                {
+                    "schema_version": 1,
+                    "areas": {},
+                    "adjacency": {},
+                    "cameras": {
+                        "camera_a": {
+                            "floor": "floor_alpha",
+                            "admission_mode": "mapped_current_zone",
+                        }
+                    },
+                }
+            )
 
     def test_rejects_non_positive_source_expiration(self) -> None:
         raw = {

@@ -24,7 +24,7 @@ from .codec import (
     encode_image_reference,
     encode_observation,
 )
-from .configuration import AdapterType, EngineConfiguration
+from .configuration import AdapterType, CameraAdmissionMode, EngineConfiguration
 from .engine import (
     CONTRACT_VERSION,
     CountClaim,
@@ -140,6 +140,12 @@ class PresenceRuntime:
                 and isinstance(adapter, (FrigateEventAdapter, FrigateFaceAdapter))
             ):
                 continue
+            if (
+                isinstance(adapter, FrigateFaceAdapter)
+                and self._requires_admitted_camera_event(camera_id)
+                and not self._has_admitted_camera_event(envelope)
+            ):
+                continue
             try:
                 result = adapter.parse(envelope)
             except (KeyError, TypeError, ValueError) as err:
@@ -204,6 +210,15 @@ class PresenceRuntime:
             removed = False
             for source_id in result.remove_source_ids:
                 removed = bool(self._store.remove_source(source_id)) or removed
+            for observation_id in result.end_observation_ids:
+                ended, detection_id = self._end_observation(
+                    adapter.source_id,
+                    observation_id,
+                    envelope,
+                )
+                removed = ended or removed
+                if detection_id is not None:
+                    detection_ids.add(detection_id)
             if availability_changed and not removed:
                 self._store.advance_revision()
             changed = availability_changed or removed or changed
@@ -351,9 +366,12 @@ class PresenceRuntime:
                 observation = decode_observation(item)
                 if observation.source.source_id not in configured_source_ids:
                     continue
+                if not self._observation_matches_camera_admission(observation):
+                    continue
                 self._store.upsert(observation)
             except (KeyError, TypeError, ValueError):
                 continue
+        self._store.remove_where(self._is_orphaned_strict_face)
         contexts = raw.get("camera_contexts")
         if isinstance(contexts, dict):
             try:
@@ -438,6 +456,44 @@ class PresenceRuntime:
             camera_id = envelope.payload.get("camera")
         return camera_id if isinstance(camera_id, str) and camera_id else None
 
+    def _requires_admitted_camera_event(self, camera_id: str | None) -> bool:
+        camera = self.configuration.cameras.get(camera_id) if camera_id else None
+        return bool(
+            camera is not None
+            and camera.admission_mode is CameraAdmissionMode.MAPPED_CURRENT_ZONE
+        )
+
+    def _has_admitted_camera_event(self, envelope: AdapterEnvelope) -> bool:
+        event_id = envelope.payload.get("id")
+        if not isinstance(event_id, str) or not event_id:
+            return False
+        return any(
+            observation.source.family == "frigate_event"
+            for observation in self._store.by_event(event_id)
+        )
+
+    def _observation_matches_camera_admission(self, observation: Observation) -> bool:
+        if (
+            observation.source.family != "frigate_event"
+            or not self._requires_admitted_camera_event(observation.source.native_id)
+        ):
+            return True
+        return bool(
+            observation.location is not None
+            and observation.location.method == "frigate_current_zone"
+        )
+
+    def _is_orphaned_strict_face(self, observation: Observation) -> bool:
+        return bool(
+            observation.source.family == "frigate_face"
+            and self._requires_admitted_camera_event(observation.source.native_id)
+            and observation.event_id is not None
+            and not any(
+                item.source.family == "frigate_event"
+                for item in self._store.by_event(observation.event_id)
+            )
+        )
+
     def _apply_camera_availability(self, camera_id: str, available: bool) -> bool:
         coverage_id = self._camera_coverage_id(camera_id)
         if available:
@@ -495,6 +551,15 @@ class PresenceRuntime:
                     result = adapter.parse(envelope)
                 except (KeyError, TypeError, ValueError):
                     continue
+                for observation_id in result.end_observation_ids:
+                    ended, detection_id = self._end_observation(
+                        adapter.source_id,
+                        observation_id,
+                        envelope,
+                    )
+                    changed = ended or changed
+                    if detection_id is not None:
+                        detection_ids.add(detection_id)
                 for observation in result.observations:
                     stored = self._store.get(
                         observation.source.source_id,
@@ -516,6 +581,40 @@ class PresenceRuntime:
                     if observation.event_id and update.changed:
                         detection_ids.add(observation.event_id)
         return changed, detection_ids
+
+    def _end_observation(
+        self,
+        source_id: str,
+        observation_id: str,
+        envelope: AdapterEnvelope,
+    ) -> tuple[bool, str | None]:
+        """End previously admitted evidence when it leaves an adapter domain."""
+        stored = self._store.get(source_id, observation_id)
+        if (
+            stored is None
+            or stored.observation.status is ObservationStatus.ENDED
+        ):
+            return False, None
+        current = stored.observation
+        ended_at = envelope.observed_at
+        sequence = max(
+            stored.dimension_revisions[RevisionDimension.COUNT].sequence,
+            stored.dimension_revisions[RevisionDimension.LIFECYCLE].sequence,
+        ) + 1
+        update = self._store.upsert(
+            replace(
+                current,
+                received_at=envelope.received_at,
+                status=ObservationStatus.ENDED,
+                ended_at=ended_at,
+                count=CountClaim(0, 0, ended_at, True, Quality.HIGH),
+                revisions={
+                    RevisionDimension.COUNT: RevisionStamp(sequence, ended_at),
+                    RevisionDimension.LIFECYCLE: RevisionStamp(sequence, ended_at),
+                },
+            )
+        )
+        return update.changed, current.event_id if update.changed else None
 
     def _resolve_snapshot(self, *, allow_previous: bool = True) -> PresenceSnapshot:
         now = self._now()

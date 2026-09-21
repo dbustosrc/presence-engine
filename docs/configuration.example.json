@@ -14,6 +14,7 @@
   "cameras": {
     "camera_one": {
       "floor": "floor_one",
+      "admission_mode": "mapped_current_zone",
       "zone_to_area": {
         "zone_alpha": "room_alpha",
         "zone_beta": "room_beta"

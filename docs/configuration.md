@@ -36,6 +36,15 @@ estar disponible, el motor retira únicamente la evidencia visual de esa
 cámara, marca la cobertura degradada y conserva las demás fuentes. La última
 imagen confirmada se mantiene separada de la evidencia activa.
 
+`admission_mode` controla qué detecciones de una cámara pertenecen al dominio
+de presencia. El valor predeterminado `any_detection` conserva toda detección
+y resuelve su ubicación con zonas, perfil, área fija o alcance de cámara.
+`mapped_current_zone` exige exactamente una zona actual incluida en
+`zone_to_area`: una detección fuera de esas zonas no crea presencia ni un
+resultado aislado de reconocimiento. Si un evento admitido abandona la zona,
+su evidencia se finaliza; puede reactivarse si el mismo objetivo vuelve a una
+zona válida. Este modo requiere un `zone_to_area` no vacío.
+
 `availability_registry_ids` puede emparejarse uno a uno con esas entidades para
 resolver renombres mediante el registro soportado de Home Assistant.
 `availability_unavailable_states` permite ampliar los estados no fiables para
