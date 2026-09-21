@@ -91,7 +91,7 @@ class AdapterTests(unittest.TestCase):
                     "type": "update",
                     "after": {
                         "id": "event-boundary",
-                        "camera": "camera_a",
+                        "camera": "_replay_camera_a",
                         "label": "dog",
                         "start_time": at(0).timestamp(),
                         "frame_time": at(1).timestamp(),
@@ -130,7 +130,7 @@ class AdapterTests(unittest.TestCase):
         definition = next(
             source for source in self.config.sources if source.adapter is AdapterType.FRIGATE_FACE
         )
-        adapter = FrigateFaceAdapter(definition)
+        adapter = FrigateFaceAdapter(definition, self.config.cameras)
 
         result = adapter.parse(
             AdapterEnvelope(
@@ -163,7 +163,8 @@ class AdapterTests(unittest.TestCase):
                     "recognition_threshold": 0.8,
                     "identity_map": {"Person A Display": "person_a"},
                 },
-            )
+            ),
+            self.config.cameras,
         )
 
         result = adapter.parse(
@@ -184,6 +185,111 @@ class AdapterTests(unittest.TestCase):
         )
 
         self.assertEqual(result.observations[0].identity.value, "person_a")
+
+    def test_replay_camera_inherits_geometry_and_preserves_visual_origin(self) -> None:
+        contexts = TemporalCameraRegistry(dict(self.config.cameras))
+        contexts.update(
+            "camera_a",
+            role="profile",
+            state="profile_alpha",
+            observed_at=at(-2),
+        )
+        contexts.update(
+            "camera_a",
+            role="movement",
+            state="Available",
+            observed_at=at(-1),
+        )
+        definition = next(
+            source for source in self.config.sources if source.adapter is AdapterType.FRIGATE_EVENTS
+        )
+        adapter = FrigateEventAdapter(definition, self.config.cameras, contexts)
+
+        result = adapter.parse(
+            AdapterEnvelope(
+                "mqtt",
+                "frigate/events",
+                {
+                    "type": "update",
+                    "after": {
+                        "id": "replay-event",
+                        "camera": "_replay_camera_a",
+                        "label": "dog",
+                        "start_time": at(0).timestamp(),
+                        "frame_time": at(1).timestamp(),
+                        "end_time": None,
+                        "current_zones": ["zone_beta"],
+                    },
+                },
+                at(1),
+                at(1),
+            )
+        )
+
+        observation = result.observations[0]
+        self.assertEqual(observation.location.area, "beta")
+        self.assertTrue(observation.location.geometry_context_id.startswith("camera_a:"))
+        self.assertEqual(observation.source.native_id, "camera_a")
+        self.assertEqual(observation.source.coverage_group, "camera:camera_a")
+        self.assertEqual(observation.image.origin_id, "_replay_camera_a")
+
+    def test_replay_face_uses_canonical_camera_identity(self) -> None:
+        definition = next(
+            source for source in self.config.sources if source.adapter is AdapterType.FRIGATE_FACE
+        )
+        adapter = FrigateFaceAdapter(definition, self.config.cameras)
+
+        result = adapter.parse(
+            AdapterEnvelope(
+                "mqtt",
+                "frigate/tracked_object_update",
+                {
+                    "type": "face",
+                    "id": "replay-event",
+                    "camera": "_replay_camera_a",
+                    "name": "person_a",
+                    "score": 0.91,
+                    "timestamp": at(2).timestamp(),
+                },
+                at(2),
+                at(2),
+            )
+        )
+
+        self.assertEqual(result.observations[0].source.native_id, "camera_a")
+
+    def test_unknown_replay_camera_does_not_inherit_configuration(self) -> None:
+        contexts = TemporalCameraRegistry(dict(self.config.cameras))
+        definition = next(
+            source for source in self.config.sources if source.adapter is AdapterType.FRIGATE_EVENTS
+        )
+        adapter = FrigateEventAdapter(definition, self.config.cameras, contexts)
+
+        result = adapter.parse(
+            AdapterEnvelope(
+                "mqtt",
+                "frigate/events",
+                {
+                    "type": "update",
+                    "after": {
+                        "id": "unknown-replay-event",
+                        "camera": "_replay_unknown_camera",
+                        "label": "dog",
+                        "start_time": at(0).timestamp(),
+                        "frame_time": at(1).timestamp(),
+                        "end_time": None,
+                        "current_zones": ["zone_beta"],
+                    },
+                },
+                at(1),
+                at(1),
+            )
+        )
+
+        observation = result.observations[0]
+        self.assertIsNone(observation.location)
+        self.assertEqual(observation.source.native_id, "_replay_unknown_camera")
+        self.assertEqual(observation.image.origin_id, "_replay_unknown_camera")
 
     def test_bermuda_not_home_removes_location_instead_of_creating_area(self) -> None:
         definition = next(

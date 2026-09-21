@@ -959,6 +959,12 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(ignored.snapshot.count_minimum, 1)
         self.assertIsNone(runtime.detection("event-a-while-down"))
 
+        replay_ignored = runtime.process(
+            event("replay-event-a-while-down", "_replay_camera_a", 4)
+        )
+        self.assertEqual(replay_ignored.snapshot.count_minimum, 1)
+        self.assertIsNone(runtime.detection("replay-event-a-while-down"))
+
         still_degraded = runtime.process(
             AdapterEnvelope(
                 "state",

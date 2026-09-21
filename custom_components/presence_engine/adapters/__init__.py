@@ -9,7 +9,11 @@ from .base import (
     SourceAdapter,
 )
 from .entity import CameraAvailabilityAdapter, EntityStateAdapter, PTZContextAdapter
-from .frigate import FrigateEventAdapter, FrigateFaceAdapter
+from .frigate import (
+    FrigateEventAdapter,
+    FrigateFaceAdapter,
+    canonical_frigate_camera_id,
+)
 from .mtr import MTRCountAdapter
 
 __all__ = [
@@ -21,6 +25,7 @@ __all__ = [
     "EntityStateAdapter",
     "FrigateEventAdapter",
     "FrigateFaceAdapter",
+    "canonical_frigate_camera_id",
     "MTRCountAdapter",
     "PTZContextAdapter",
     "SourceAvailability",

@@ -1,5 +1,13 @@
 # Historial de cambios
 
+## 0.4.10 — Alias de cámaras de reproducción
+
+- Reconoce los identificadores temporales de Frigate Replay como alias de la
+  cámara configurada correspondiente.
+- Reutiliza geometría, zonas, disponibilidad y políticas de admisión sin crear
+  configuración ni entidades duplicadas.
+- Conserva el identificador de origen para imágenes, clips y diagnóstico.
+
 ## 0.4.9 — Admisión espacial y replay reproducible
 
 - Añade una política opcional para admitir eventos de cámara únicamente cuando

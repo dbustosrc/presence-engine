@@ -17,6 +17,7 @@ from .adapters import (
     MTRCountAdapter,
     PTZContextAdapter,
     SourceAdapter,
+    canonical_frigate_camera_id,
 )
 from .codec import (
     decode_image_reference,
@@ -434,7 +435,9 @@ class PresenceRuntime:
                     FrigateEventAdapter(definition, self.configuration.cameras, self._contexts)
                 )
             elif definition.adapter is AdapterType.FRIGATE_FACE:
-                adapters.append(FrigateFaceAdapter(definition))
+                adapters.append(
+                    FrigateFaceAdapter(definition, self.configuration.cameras)
+                )
             elif definition.adapter is AdapterType.MTR_COUNT:
                 adapters.append(MTRCountAdapter(definition))
             elif definition.adapter is not AdapterType.PTZ_CONTEXT:
@@ -445,8 +448,7 @@ class PresenceRuntime:
     def _camera_coverage_id(camera_id: str) -> str:
         return f"camera:{camera_id}"
 
-    @staticmethod
-    def _camera_id_from_envelope(envelope: AdapterEnvelope) -> str | None:
+    def _camera_id_from_envelope(self, envelope: AdapterEnvelope) -> str | None:
         if envelope.channel_type != "mqtt":
             return None
         after = envelope.payload.get("after")
@@ -454,7 +456,9 @@ class PresenceRuntime:
             camera_id = after.get("camera")
         else:
             camera_id = envelope.payload.get("camera")
-        return camera_id if isinstance(camera_id, str) and camera_id else None
+        if not isinstance(camera_id, str) or not camera_id:
+            return None
+        return canonical_frigate_camera_id(camera_id, self.configuration.cameras)
 
     def _requires_admitted_camera_event(self, camera_id: str | None) -> bool:
         camera = self.configuration.cameras.get(camera_id) if camera_id else None

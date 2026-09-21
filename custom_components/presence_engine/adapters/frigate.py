@@ -26,6 +26,19 @@ from ..temporal import TemporalCameraRegistry
 
 
 ANIMAL_LABELS = frozenset({"bird", "cat", "dog", "horse"})
+REPLAY_CAMERA_PREFIX = "_replay_"
+
+
+def canonical_frigate_camera_id(
+    camera_id: str,
+    cameras: Mapping[str, CameraDefinition],
+) -> str:
+    """Resolve a Frigate Replay camera to its configured physical camera."""
+    if camera_id.startswith(REPLAY_CAMERA_PREFIX):
+        candidate = camera_id[len(REPLAY_CAMERA_PREFIX) :]
+        if candidate in cameras:
+            return candidate
+    return camera_id
 
 
 class FrigateEventAdapter:
@@ -52,7 +65,8 @@ class FrigateEventAdapter:
         if not isinstance(after, Mapping):
             return AdapterResult(ignored=True)
         event_id = _required_text(after, "id")
-        camera_id = _required_text(after, "camera")
+        origin_camera_id = _required_text(after, "camera")
+        camera_id = canonical_frigate_camera_id(origin_camera_id, self._cameras)
         label = _required_text(after, "label").casefold()
         allowed_labels = tuple(self._definition.options.get("labels", ()))
         if allowed_labels and label not in allowed_labels:
@@ -111,7 +125,7 @@ class FrigateEventAdapter:
                 observed_at=spatial_at,
                 area=location.area if location else None,
                 event_id=event_id,
-                origin_id=camera_id,
+                origin_id=origin_camera_id,
             ),
             active_since=detected_at,
             ended_at=ended_at,
@@ -169,9 +183,14 @@ class FrigateEventAdapter:
 class FrigateFaceAdapter:
     """Normalize documented face updates while enforcing configured threshold."""
 
-    def __init__(self, definition: SourceDefinition) -> None:
+    def __init__(
+        self,
+        definition: SourceDefinition,
+        cameras: Mapping[str, CameraDefinition],
+    ) -> None:
         self.source_id = definition.source_id
         self._topics = frozenset(definition.topics)
+        self._cameras = dict(cameras)
         if "recognition_threshold" not in definition.options:
             raise ValueError(f"source {self.source_id} requires recognition_threshold")
         self._threshold = float(definition.options["recognition_threshold"])
@@ -190,7 +209,8 @@ class FrigateFaceAdapter:
         if payload.get("type") != "face":
             return AdapterResult(ignored=True)
         event_id = _required_text(payload, "id")
-        camera_id = _required_text(payload, "camera")
+        origin_camera_id = _required_text(payload, "camera")
+        camera_id = canonical_frigate_camera_id(origin_camera_id, self._cameras)
         observed_at = _timestamp(payload.get("timestamp"), envelope.observed_at)
         raw_name = payload.get("name")
         score = float(payload.get("score") or 0)
