@@ -166,6 +166,53 @@ class DiscoveryTests(unittest.TestCase):
             plan.configuration.entity_ids,
         )
 
+    def test_disabled_explicit_source_suppresses_auto_discovery(self) -> None:
+        configured = integration_config()
+        configured = type(configured)(
+            schema_version=configured.schema_version,
+            areas=configured.areas,
+            adjacency=configured.adjacency,
+            identities=configured.identities,
+            cameras=configured.cameras,
+            sources=(
+                *configured.sources,
+                SourceDefinition(
+                    source_id="garage_radar",
+                    adapter=AdapterType.BINARY_PRESENCE,
+                    entity_ids=("binary_sensor.garage_radar_target",),
+                    entity_registry_ids=("entry-garage-radar",),
+                    area="alpha",
+                    enabled=False,
+                ),
+            ),
+        )
+        descriptors = (
+            EntityDescriptor(
+                registry_id="entry-garage-radar",
+                entity_id="binary_sensor.garage_radar_target",
+                platform="esphome",
+                unique_id="garage_ld2450_radar_target",
+                domain="binary_sensor",
+                area_id="alpha",
+                device_model="MSR-2",
+                device_id="device-garage-radar",
+            ),
+        )
+
+        plan = apply_discovery(configured, descriptors)
+
+        self.assertEqual(plan.activated, ())
+        self.assertNotIn(
+            "binary_sensor.garage_radar_target",
+            plan.configuration.entity_ids,
+        )
+        explicit = next(
+            source
+            for source in plan.configuration.sources
+            if source.source_id == "garage_radar"
+        )
+        self.assertFalse(explicit.enabled)
+
     def test_raw_registry_binding_survives_rename(self) -> None:
         raw = {
             "sources": [
