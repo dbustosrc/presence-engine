@@ -20,6 +20,7 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     runtime = entry.runtime_data
+    known_identities = set(runtime.identity_ids)
     async_add_entities(
         (
             PresenceSnapshotSensor(runtime),
@@ -27,10 +28,15 @@ async def async_setup_entry(
             PresenceSensor(runtime),
             *(
                 PresenceIdentityRecordSensor(runtime, identity)
-                for identity in runtime.engine.configuration.identity_ids
+                for identity in known_identities
             ),
         )
     )
+    def add_identity(identity):
+        if identity not in known_identities:
+            known_identities.add(identity)
+            async_add_entities([PresenceIdentityRecordSensor(runtime, identity)])
+    entry.async_on_unload(runtime.async_add_identity_listener(add_identity))
 
 
 class PresenceSnapshotSensor(PresenceEngineEntity, SensorEntity):

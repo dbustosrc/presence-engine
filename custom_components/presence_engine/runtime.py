@@ -62,6 +62,7 @@ class RuntimeUpdate:
     detections: tuple[DetectionResult, ...]
     failures: tuple[AdapterFailure, ...]
     changed: bool
+    accepted_faces: tuple[tuple[str, str], ...] = ()
 
 
 class PresenceRuntime:
@@ -131,6 +132,7 @@ class PresenceRuntime:
         changed = False
         detection_ids: set[str] = set()
         matched = False
+        accepted_faces: set[tuple[str, str]] = set()
         for adapter in self._adapters:
             if not adapter.accepts(envelope):
                 continue
@@ -224,6 +226,8 @@ class PresenceRuntime:
                 self._store.advance_revision()
             changed = availability_changed or removed or changed
             for observation in result.observations:
+                if isinstance(adapter, FrigateFaceAdapter) and observation.identity:
+                    accepted_faces.add((str(envelope.payload["name"]).strip(), observation.identity.value))
                 update = self._store.upsert(observation)
                 changed = update.changed or changed
                 if observation.event_id and update.changed:
@@ -260,6 +264,7 @@ class PresenceRuntime:
             detections=detections,
             failures=self.failures,
             changed=changed or matched and bool(detections),
+            accepted_faces=tuple(sorted(accepted_faces)),
         )
 
     def refresh(self) -> RuntimeUpdate:

@@ -37,8 +37,10 @@ automatizaciones consumidoras.
 
 ## Estado de la versión
 
-La versión `0.4.11` estabiliza los contratos públicos ya comparados. No
-sustituye trackers, notificaciones ni controles existentes automáticamente.
+La versión `0.5.0` incorpora configuración guiada nativa, JSON avanzado opcional
+y descubrimiento de identidades por reconocimientos Frigate aceptados. Conserva
+los contratos públicos y no sustituye trackers, notificaciones ni controles
+existentes automáticamente.
 
 ## Pruebas
 
@@ -51,6 +53,8 @@ python -m compileall -q custom_components tests
 ```
 
 Las pruebas usan exclusivamente nombres y geometrías sintéticas.
+Las comprobaciones de formularios y ciclo de vida requieren Home Assistant:
+se omiten si no está instalado y CI las ejecuta en su contenedor oficial.
 
 ## Documentación
 

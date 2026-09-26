@@ -21,8 +21,10 @@ validación.
 3. Descargar la última versión estable de `Presence Engine`.
 4. Reiniciar Home Assistant mediante su mecanismo normal.
 5. Agregar la integración desde **Settings > Devices & services**.
-6. Pegar la configuración privada validada para la instalación y conservar
-   `comparison_mode: true` en las opciones.
+6. Configurar áreas, identidades, cámaras y fuentes con los formularios nativos.
+   También se puede importar una configuración JSON validada desde el menú
+   avanzado. Confirmar con «Guardar» y conservar `comparison_mode: true` en las
+   opciones.
 
 No copiar archivos manualmente a `custom_components` ni editar la copia
 instalada. Toda corrección se publica como una nueva versión y se actualiza por

@@ -1,5 +1,14 @@
 # Historial de cambios
 
+## 0.5.0 — Configuración guiada y descubrimiento de rostros
+
+- Añade formularios nativos para áreas, identidades, cámaras y fuentes,
+  conservando la configuración existente y el JSON avanzado opcional.
+- Crea registros de identidad al primer reconocimiento Frigate aceptado,
+  sin duplicados y con persistencia entre reinicios.
+- Permite consultar opcionalmente el catálogo facial al iniciar o por eventos
+  MQTT, sin consultas periódicas ni convertir el catálogo en presencia.
+
 ## 0.4.11 — Diagnóstico y ciclo de vida de medios
 
 - Conserva indicadores de retención y movimiento de eventos Frigate para diagnóstico.

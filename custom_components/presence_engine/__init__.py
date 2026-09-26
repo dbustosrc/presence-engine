@@ -78,6 +78,7 @@ async def async_setup_entry(
     try:
         from .discovery import apply_discovery, resolve_raw_registry_bindings
         from .ha_discovery import collect_entity_descriptors
+        from .configuration_ui import validate_frigate_settings
 
         descriptors = collect_entity_descriptors(hass)
         raw_configuration = resolve_raw_registry_bindings(
@@ -85,6 +86,7 @@ async def async_setup_entry(
             descriptors,
         )
         configured = parse_configuration(raw_configuration)
+        validate_frigate_settings(raw_configuration.get("frigate", {}))
         discovery_plan = apply_discovery(configured, descriptors)
         configuration = discovery_plan.configuration
     except (KeyError, ConfigurationError) as err:

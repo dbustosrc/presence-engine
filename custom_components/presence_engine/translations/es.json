@@ -2,20 +2,182 @@
   "title": "Motor de presencia",
   "config": {
     "step": {
-      "user": {
-        "title": "Configurar el motor de presencia",
-        "description": "Pega la configuración validada de la instalación. La integración inicia en modo comparación y no opera dispositivos.",
-        "data": {"configuration": "Configuración JSON"},
-        "data_description": {"configuration": "Áreas, geometría, identidades y fuentes versionadas."}
+      "menu": {
+        "title": "Configuración",
+        "description": "Los cambios permanecen en borrador hasta Revisar y guardar. JSON es opcional.",
+        "menu_options": {
+          "areas": "Áreas",
+          "identities": "Personas",
+          "cameras": "Cámaras",
+          "sources": "Fuentes y receptores",
+          "discovery": "Descubrimiento y exclusiones",
+          "frigate": "Frigate y descubrimiento de rostros",
+          "advanced": "Importar / exportar JSON avanzado",
+          "save": "Revisar y guardar"
+        }
       },
-      "reconfigure": {
-        "title": "Reconfigurar el motor de presencia",
-        "description": "Actualiza la configuración versionada de la instalación.",
-        "data": {"configuration": "Configuración JSON"}
+      "areas": {
+        "title": "Áreas",
+        "data": {
+          "item": "Componente"
+        }
+      },
+      "identities": {
+        "title": "Personas",
+        "data": {
+          "item": "Componente"
+        }
+      },
+      "cameras": {
+        "title": "Cámaras",
+        "data": {
+          "item": "Componente"
+        }
+      },
+      "sources": {
+        "title": "Fuentes y receptores",
+        "data": {
+          "item": "Componente"
+        }
+      },
+      "discovery": {
+        "title": "Descubrimiento y exclusiones",
+        "data": {
+          "item": "Componente"
+        },
+        "description": "Los candidatos activos se pueden editar o deshabilitar. Los pendientes requieren las asociaciones o calibración indicadas. Las fuentes explícitas, incluidas las deshabilitadas, se mantienen en Fuentes."
+      },
+      "frigate": {
+        "title": "Frigate y descubrimiento de rostros",
+        "data": {
+          "discover_faces": "Descubrir rostros reconocidos automáticamente",
+          "url": "URL base de Frigate (opcional)",
+          "username": "Usuario (opcional)",
+          "password": "Contraseña (opcional)",
+          "availability_topic": "Topic de disponibilidad de Frigate",
+          "cookie_name": "Nombre de cookie de autenticación",
+          "refresh_catalogue": "Actualizar el catálogo de rostros activo"
+        },
+        "description": "El reconocimiento MQTT crea registros; la API opcional solo actualiza el catálogo al cargar, aparecer un nombre nuevo o reconectarse. Sin polling periódico. Las credenciales requieren HTTPS. Actualizar usa la conexión guardada; guarda primero los cambios de conexión. {detail}"
+      },
+      "advanced": {
+        "title": "Importar / exportar JSON avanzado",
+        "data": {
+          "configuration": "Configuración JSON"
+        },
+        "description": "Copia para exportar o pega para importar. Se omiten contraseñas; una conexión sin cambios conserva la guardada. Se admiten todos los campos. Importar solo cambia el borrador. {detail}"
+      },
+      "save": {
+        "title": "Revisar y guardar",
+        "data": {},
+        "description": "Guardar {areas} áreas, {cameras} cámaras y {sources} fuentes explícitas. Una entrada existente solo se recarga si cambia la configuración. {detail}"
+      },
+      "area_edit": {
+        "title": "Área física",
+        "data": {
+          "id": "ID estable",
+          "ha_area": "Área de Home Assistant",
+          "floor": "Planta",
+          "neighbours": "Áreas contiguas",
+          "remove": "Eliminar (se bloquea si tiene referencias)"
+        },
+        "description": "Usa un ID estable o selecciona un área de Home Assistant. La contigüidad es física, no cobertura del sensor. {detail}"
+      },
+      "identity_edit": {
+        "title": "Persona y asociaciones",
+        "data": {
+          "id": "ID estable",
+          "entities": "Entidades person y Bermuda asociadas",
+          "face_names": "Nombres de rostros en Frigate",
+          "bindings": "Asociaciones estables de identidad"
+        },
+        "description": "Asocia dispositivos explícitamente. Un rostro registrado por sí solo no demuestra presencia. Los IDs estables no se renombran. {detail}"
+      },
+      "camera_edit": {
+        "title": "Geometría de cámara",
+        "data": {
+          "id": "ID estable",
+          "floor": "Planta",
+          "fixed_area": "Área fija",
+          "admission_mode": "Admisión de detecciones",
+          "zone_to_area": "Zonas y sus áreas",
+          "remove": "Eliminar (se bloquea si tiene referencias)"
+        },
+        "description": "Usa el ID de cámara de Frigate. Los alias Replay heredan su geometría automáticamente. Los IDs existentes son estables. {detail}",
+        "sections": {
+          "ptz": {
+            "name": "PTZ",
+            "data": {
+              "profile_to_area": "Perfiles y sus áreas",
+              "profile_entity_id": "Entidad de perfil",
+              "preset_entity_id": "Entidad de preset",
+              "movement_entity_id": "Entidad de movimiento",
+              "stable_states": "Estados de movimiento estable",
+              "moving_states": "Estados de movimiento"
+            }
+          },
+          "health": {
+            "name": "Disponibilidad",
+            "data": {
+              "availability_entity_ids": "Entidades de disponibilidad",
+              "availability_unavailable_states": "Estados no disponibles"
+            }
+          }
+        }
+      },
+      "source_edit": {
+        "title": "Fuente de detección",
+        "data": {
+          "id": "ID estable",
+          "enabled": "Habilitada",
+          "topics": "Topics MQTT",
+          "entity_ids": "Entidades de entrada",
+          "area": "Área física",
+          "floor": "Planta",
+          "identity": "Identidad canónica",
+          "camera_id": "Cámara",
+          "labels": "Clases de objeto (vacío = todas)",
+          "recognition_threshold": "Umbral de reconocimiento",
+          "identity_map": "Nombres de rostros e identidades",
+          "area_map": "Nombres Bermuda y áreas",
+          "total_entity_id": "Entidad de conteo total",
+          "zone_areas": "Entidades de zona y áreas calibradas",
+          "ignored_source_ids": "Trackers de persona ignorados",
+          "ignored_source_prefixes": "Prefijos de trackers ignorados",
+          "healthy_states": "Estados saludables (usar una sola lista)",
+          "unhealthy_states": "Estados de fallo (usar una sola lista)"
+        },
+        "description": "Configura entradas originales, nunca salidas de Presence Engine. Deshabilitar una fuente la excluye del descubrimiento sin cambiar su dispositivo. {detail}",
+        "sections": {
+          "advanced_source": {
+            "name": "Detalles avanzados",
+            "data": {
+              "target_kind": "Tipo de objetivo",
+              "spatial_quality": "Confianza de ubicación",
+              "availability_role": "Función de disponibilidad",
+              "dependency_group": "Grupo de observación compartida",
+              "coverage_group": "Grupo de cobertura",
+              "expires_after_seconds": "Vigencia de evidencia (segundos)",
+              "location_method": "Método de ubicación",
+              "target_id": "ID del objetivo"
+            }
+          }
+        }
+      },
+      "source_type": {
+        "title": "Tipo de fuente",
+        "data": {
+          "adapter": "Tipo de fuente"
+        }
       }
     },
-    "error": {"invalid_configuration": "La configuración no es válida."},
-    "abort": {"single_instance_allowed": "Solo se admite una instancia del motor de presencia."}
+    "error": {
+      "invalid_configuration": "La configuración no es válida."
+    },
+    "abort": {
+      "single_instance_allowed": "Solo se admite una instancia del motor de presencia.",
+      "no_changes": "No hay cambios de configuración."
+    }
   },
   "options": {
     "step": {
@@ -31,14 +193,53 @@
   },
   "entity": {
     "sensor": {
-      "snapshot": {"name": "Resultado"},
-      "revision": {"name": "Revisión"}
+      "snapshot": {
+        "name": "Resultado"
+      },
+      "revision": {
+        "name": "Revisión"
+      }
     },
     "binary_sensor": {
-      "coverage_degraded": {"name": "Cobertura degradada"}
+      "coverage_degraded": {
+        "name": "Cobertura degradada"
+      }
     },
     "event": {
-      "detection": {"name": "Detección"}
+      "detection": {
+        "name": "Detección"
+      }
+    }
+  },
+  "selector": {
+    "choices": {
+      "options": {
+        "__add__": "Agregar nuevo",
+        "__back__": "Volver",
+        "any_detection": "Cualquier detección",
+        "mapped_current_zone": "Solo zonas actuales asignadas",
+        "person": "Persona",
+        "animal": "Animal",
+        "device": "Dispositivo",
+        "unknown_living": "Presencia sin clasificar",
+        "unknown": "Desconocida",
+        "low": "Baja",
+        "medium": "Media",
+        "high": "Alta",
+        "auto": "Automática",
+        "coverage": "Infraestructura",
+        "observation": "Objetivo observado",
+        "frigate_events": "Eventos Frigate",
+        "frigate_face": "Reconocimiento facial Frigate",
+        "ptz_context": "Contexto PTZ",
+        "bermuda_area": "Área Bermuda",
+        "mtr_count": "Radar multizona",
+        "count": "Contador",
+        "binary_presence": "Presencia binaria",
+        "person_home": "Persona en casa",
+        "auxiliary_activity": "Actividad auxiliar",
+        "source_health": "Salud de infraestructura"
+      }
     }
   }
 }

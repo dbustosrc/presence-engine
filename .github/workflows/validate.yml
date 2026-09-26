@@ -31,3 +31,17 @@ jobs:
         run: |
           python -m unittest discover -s tests -v
           python -m compileall -q custom_components tests
+
+  test-home-assistant:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate native flows and facial discovery
+        run: >-
+          docker run --rm
+          -v "$GITHUB_WORKSPACE:/workspace:ro" -w /workspace
+          -e PYTHONPATH=/workspace/custom_components:/workspace/tests
+          -e PYTHONDONTWRITEBYTECODE=1
+          --entrypoint python3
+          ghcr.io/home-assistant/home-assistant:2026.9.3
+          -m unittest discover -s tests -p test_ha_configuration.py -v

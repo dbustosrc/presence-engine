@@ -56,6 +56,9 @@ async def async_get_config_entry_diagnostics(
             for failure in runtime.engine.failures
         ],
         "discovery": {
+            "face_catalogue_status": runtime.face_catalogue_status,
+            "registered_face_count": len(runtime.faces.catalogue),
+            "observed_face_count": len(runtime.faces.observed),
             "activated": [
                 {
                     "stable_key": candidate.descriptor.stable_key,

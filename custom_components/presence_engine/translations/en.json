@@ -2,20 +2,182 @@
   "title": "Presence Engine",
   "config": {
     "step": {
-      "user": {
-        "title": "Configure Presence Engine",
-        "description": "Paste the validated installation configuration. The integration starts in comparison mode and does not operate devices.",
-        "data": {"configuration": "Configuration JSON"},
-        "data_description": {"configuration": "Versioned areas, geometry, identities and sources."}
+      "menu": {
+        "title": "Configuration",
+        "description": "Changes are kept in a draft until Review and save. JSON is optional.",
+        "menu_options": {
+          "areas": "Areas",
+          "identities": "People",
+          "cameras": "Cameras",
+          "sources": "Sources and receivers",
+          "discovery": "Discovery and exclusions",
+          "frigate": "Frigate and face discovery",
+          "advanced": "Advanced JSON import / export",
+          "save": "Review and save"
+        }
       },
-      "reconfigure": {
-        "title": "Reconfigure Presence Engine",
-        "description": "Update the versioned installation configuration.",
-        "data": {"configuration": "Configuration JSON"}
+      "areas": {
+        "title": "Areas",
+        "data": {
+          "item": "Component"
+        }
+      },
+      "identities": {
+        "title": "People",
+        "data": {
+          "item": "Component"
+        }
+      },
+      "cameras": {
+        "title": "Cameras",
+        "data": {
+          "item": "Component"
+        }
+      },
+      "sources": {
+        "title": "Sources and receivers",
+        "data": {
+          "item": "Component"
+        }
+      },
+      "discovery": {
+        "title": "Discovery and exclusions",
+        "data": {
+          "item": "Component"
+        },
+        "description": "Active candidates can be edited or disabled. Pending candidates require the listed associations or physical calibration. Explicit sources, including disabled ones, remain in Sources."
+      },
+      "frigate": {
+        "title": "Frigate and face discovery",
+        "data": {
+          "discover_faces": "Discover recognized faces automatically",
+          "url": "Frigate base URL (optional)",
+          "username": "Username (optional)",
+          "password": "Password (optional)",
+          "availability_topic": "Frigate availability topic",
+          "cookie_name": "Authentication cookie name",
+          "refresh_catalogue": "Refresh the active face catalogue"
+        },
+        "description": "MQTT recognition creates records; the optional API only updates the catalogue at startup, on a new name or after reconnection. No periodic polling. Credentials require HTTPS. Refresh uses the saved connection; save connection changes first. {detail}"
+      },
+      "advanced": {
+        "title": "Advanced JSON import / export",
+        "data": {
+          "configuration": "Configuration JSON"
+        },
+        "description": "Copy to export or paste to import. Passwords are omitted; unchanged connections retain their saved password. All fields remain supported. Import only changes the draft. {detail}"
+      },
+      "save": {
+        "title": "Review and save",
+        "data": {},
+        "description": "Save {areas} areas, {cameras} cameras and {sources} explicit sources. Existing entries reload only if configuration changes. {detail}"
+      },
+      "area_edit": {
+        "title": "Physical area",
+        "data": {
+          "id": "Stable ID",
+          "ha_area": "Home Assistant area",
+          "floor": "Floor",
+          "neighbours": "Adjacent areas",
+          "remove": "Remove (blocked if referenced)"
+        },
+        "description": "Use a stable ID or select an existing Home Assistant area. Adjacency is physical, not sensor coverage. {detail}"
+      },
+      "identity_edit": {
+        "title": "Person and associations",
+        "data": {
+          "id": "Stable ID",
+          "entities": "Associated person and Bermuda entities",
+          "face_names": "Frigate face names",
+          "bindings": "Stable identity associations"
+        },
+        "description": "Associate devices explicitly. A registered face alone does not prove presence. Stable IDs are not renamed. {detail}"
+      },
+      "camera_edit": {
+        "title": "Camera geometry",
+        "data": {
+          "id": "Stable ID",
+          "floor": "Floor",
+          "fixed_area": "Fixed area",
+          "admission_mode": "Detection admission",
+          "zone_to_area": "Zones and their areas",
+          "remove": "Remove (blocked if referenced)"
+        },
+        "description": "Use the Frigate camera ID. Replay aliases inherit this geometry automatically. Existing IDs are stable. {detail}",
+        "sections": {
+          "ptz": {
+            "name": "PTZ",
+            "data": {
+              "profile_to_area": "Profiles and their areas",
+              "profile_entity_id": "Profile entity",
+              "preset_entity_id": "Preset entity",
+              "movement_entity_id": "Movement entity",
+              "stable_states": "Stable movement states",
+              "moving_states": "Moving states"
+            }
+          },
+          "health": {
+            "name": "Availability",
+            "data": {
+              "availability_entity_ids": "Availability entities",
+              "availability_unavailable_states": "Unavailable states"
+            }
+          }
+        }
+      },
+      "source_edit": {
+        "title": "Detection source",
+        "data": {
+          "id": "Stable ID",
+          "enabled": "Enabled",
+          "topics": "MQTT topics",
+          "entity_ids": "Input entities",
+          "area": "Physical area",
+          "floor": "Floor",
+          "identity": "Canonical identity",
+          "camera_id": "Camera",
+          "labels": "Object classes (empty = all)",
+          "recognition_threshold": "Recognition threshold",
+          "identity_map": "Face names and identities",
+          "area_map": "Bermuda names and areas",
+          "total_entity_id": "Total count entity",
+          "zone_areas": "Zone entities and calibrated areas",
+          "ignored_source_ids": "Ignored person trackers",
+          "ignored_source_prefixes": "Ignored tracker prefixes",
+          "healthy_states": "Healthy states (choose one list)",
+          "unhealthy_states": "Unhealthy states (choose one list)"
+        },
+        "description": "Configure original inputs, never Presence Engine outputs. Disable a source to exclude it from discovery without changing its device. {detail}",
+        "sections": {
+          "advanced_source": {
+            "name": "Advanced details",
+            "data": {
+              "target_kind": "Target type",
+              "spatial_quality": "Location confidence",
+              "availability_role": "Availability role",
+              "dependency_group": "Shared observation group",
+              "coverage_group": "Coverage group",
+              "expires_after_seconds": "Evidence lifetime (seconds)",
+              "location_method": "Location method",
+              "target_id": "Target ID"
+            }
+          }
+        }
+      },
+      "source_type": {
+        "title": "Source type",
+        "data": {
+          "adapter": "Source type"
+        }
       }
     },
-    "error": {"invalid_configuration": "The configuration is not valid."},
-    "abort": {"single_instance_allowed": "Only one Presence Engine instance is supported."}
+    "error": {
+      "invalid_configuration": "The configuration is not valid."
+    },
+    "abort": {
+      "single_instance_allowed": "Only one Presence Engine instance is supported.",
+      "no_changes": "No configuration changes."
+    }
   },
   "options": {
     "step": {
@@ -31,14 +193,53 @@
   },
   "entity": {
     "sensor": {
-      "snapshot": {"name": "Snapshot"},
-      "revision": {"name": "Revision"}
+      "snapshot": {
+        "name": "Snapshot"
+      },
+      "revision": {
+        "name": "Revision"
+      }
     },
     "binary_sensor": {
-      "coverage_degraded": {"name": "Coverage degraded"}
+      "coverage_degraded": {
+        "name": "Coverage degraded"
+      }
     },
     "event": {
-      "detection": {"name": "Detection"}
+      "detection": {
+        "name": "Detection"
+      }
+    }
+  },
+  "selector": {
+    "choices": {
+      "options": {
+        "__add__": "Add new",
+        "__back__": "Back",
+        "any_detection": "Any detection",
+        "mapped_current_zone": "Mapped current zones only",
+        "person": "Person",
+        "animal": "Animal",
+        "device": "Device",
+        "unknown_living": "Unclassified presence",
+        "unknown": "Unknown",
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High",
+        "auto": "Automatic",
+        "coverage": "Infrastructure",
+        "observation": "Observed target",
+        "frigate_events": "Frigate events",
+        "frigate_face": "Frigate face recognition",
+        "ptz_context": "PTZ context",
+        "bermuda_area": "Bermuda area",
+        "mtr_count": "Multizone radar",
+        "count": "Counter",
+        "binary_presence": "Binary presence",
+        "person_home": "Person at home",
+        "auxiliary_activity": "Auxiliary activity",
+        "source_health": "Infrastructure health"
+      }
     }
   }
 }
