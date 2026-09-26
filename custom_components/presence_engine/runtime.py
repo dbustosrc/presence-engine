@@ -733,6 +733,11 @@ class PresenceRuntime:
         if not images:
             return
         image = max(images, key=lambda value: value.observed_at)
+        if image.snapshot_status == "unavailable":
+            current_identity = self._latest_images.get(detection.identity or "")
+            if current_identity and current_identity.detection_id == detection.detection_id:
+                self._latest_images.pop(detection.identity, None)
+            return
         record = ImageRecord(
             detection.identity or "",
             image,
@@ -743,12 +748,17 @@ class PresenceRuntime:
             if (
                 current_event is None
                 or image.observed_at > current_event.image.observed_at
+                or current_event.detection_id == detection.detection_id
             ):
                 self._latest_images[event_key] = record
         if detection.identity:
             current_identity = self._latest_images.get(detection.identity)
+            # A temporary preview must not replace a previous historical photo.
+            if current_identity and image.snapshot_status == "temporary":
+                return
             if (
                 current_identity is None
                 or image.observed_at > current_identity.image.observed_at
+                or current_identity.detection_id == detection.detection_id
             ):
                 self._latest_images[detection.identity] = record

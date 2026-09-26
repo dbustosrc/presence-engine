@@ -43,6 +43,7 @@ def encode_observation(value: Observation) -> dict[str, Any]:
         "location": _encode_location(value.location),
         "count": _encode_count(value.count),
         "image": encode_image_reference(value.image),
+        "source_diagnostics": dict(value.source_diagnostics),
         "active_since": _time(value.active_since),
         "ended_at": _time(value.ended_at),
         "revisions": {
@@ -78,6 +79,7 @@ def decode_observation(raw: Mapping[str, Any]) -> Observation:
         location=_decode_location(raw.get("location")),
         count=_decode_count(raw.get("count")),
         image=decode_image_reference(raw.get("image")),
+        source_diagnostics=raw.get("source_diagnostics", {}),
         active_since=_optional_datetime(raw.get("active_since")),
         ended_at=_optional_datetime(raw.get("ended_at")),
         revisions={
@@ -177,6 +179,8 @@ def encode_image_reference(value: ImageReference | None) -> dict[str, Any] | Non
         "area": value.area,
         "event_id": value.event_id,
         "origin_id": value.origin_id,
+        "snapshot_status": value.snapshot_status,
+        "clip_status": value.clip_status,
     }
 
 
@@ -190,6 +194,8 @@ def decode_image_reference(raw: object) -> ImageReference | None:
         area=_optional_text(raw.get("area")),
         event_id=_optional_text(raw.get("event_id")),
         origin_id=_optional_text(raw.get("origin_id")),
+        snapshot_status=str(raw.get("snapshot_status", "unknown")),
+        clip_status=str(raw.get("clip_status", "unknown")),
     )
 
 

@@ -90,7 +90,10 @@ def detection_payload(detection: DetectionResult) -> dict[str, Any]:
         "processed_at": detection.processed_at.isoformat(),
         "evidence_ids": list(detection.evidence_ids),
         "source_ids": list(detection.source_ids),
-        "image": _detection_image(detection.image),
+        "image": image_payload(detection.image),
+        "source_diagnostics": {
+            source_id: dict(facts) for source_id, facts in detection.source_diagnostics.items()
+        },
         "reasons": list(detection.reasons),
     }
 
@@ -113,23 +116,25 @@ def _location(location: SpatialClaim | None) -> dict[str, Any] | None:
 def _image(record: ImageRecord | None) -> dict[str, Any] | None:
     if record is None:
         return None
-    return {
-        "reference": record.image.reference,
-        "observed_at": record.image.observed_at.isoformat(),
-        "area": record.image.area,
-        "event_id": record.image.event_id,
-        "origin_id": record.image.origin_id,
-        "detection_id": record.detection_id,
-    }
+    return {**image_payload(record.image), "detection_id": record.detection_id}
 
 
-def _detection_image(image: ImageReference | None) -> dict[str, Any] | None:
+def image_payload(image: ImageReference | None) -> dict[str, Any] | None:
+    """Project media references consistently without claiming HTTP availability."""
     if image is None:
         return None
     return {
         "reference": image.reference,
-        "url": _browser_image_reference(image.reference),
-        "clip_url": _browser_clip_reference(image),
+        "url": (
+            _browser_image_reference(image.reference)
+            if image.snapshot_status != "unavailable" else None
+        ),
+        "clip_url": (
+            _browser_clip_reference(image)
+            if image.clip_status not in {"unavailable", "pending"} else None
+        ),
+        "snapshot_status": image.snapshot_status,
+        "clip_status": image.clip_status,
         "observed_at": image.observed_at.isoformat(),
         "area": image.area,
         "event_id": image.event_id,

@@ -92,4 +92,8 @@ def resolve_detection(
         identity_score=identity.score if identity else None,
         source_ids=tuple(sorted({item.source.source_id for item in items})),
         image=image,
+        source_diagnostics={
+            item.source.source_id: dict(item.source_diagnostics)
+            for item in items if item.source_diagnostics
+        },
     )

@@ -102,6 +102,8 @@ class FrigateEventAdapter:
                 ignored=True,
             )
         sequence = _sequence(spatial_at)
+        diagnostics = _event_diagnostics(after)
+        media_revision = RevisionStamp(_sequence(ended_at or spatial_at), envelope.observed_at)
         observation = Observation(
             observation_id=event_id,
             source=SourceRef(
@@ -126,7 +128,10 @@ class FrigateEventAdapter:
                 area=location.area if location else None,
                 event_id=event_id,
                 origin_id=origin_camera_id,
+                snapshot_status=_media_status(diagnostics.get("has_snapshot"), ended_at, snapshot=True),
+                clip_status=_media_status(diagnostics.get("has_clip"), ended_at, snapshot=False),
             ),
+            source_diagnostics=diagnostics,
             active_since=detected_at,
             ended_at=ended_at,
             revisions={
@@ -137,7 +142,8 @@ class FrigateEventAdapter:
                 RevisionDimension.LIFECYCLE: RevisionStamp(
                     _sequence(ended_at or spatial_at), ended_at or spatial_at
                 ),
-                RevisionDimension.IMAGE: RevisionStamp(sequence, spatial_at),
+                RevisionDimension.IMAGE: media_revision,
+                RevisionDimension.DIAGNOSTICS: media_revision,
             },
         )
         return AdapterResult(observations=(observation,))
@@ -252,6 +258,29 @@ def _required_text(payload: Mapping[str, Any], key: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"missing Frigate field: {key}")
     return value.strip()
+
+
+def _event_diagnostics(after: Mapping[str, Any]) -> dict[str, bool | int]:
+    """Keep only bounded native facts; invalid optional facts never reject a detection."""
+    result = {
+        key: after[key]
+        for key in ("has_snapshot", "has_clip", "false_positive")
+        if isinstance(after.get(key), bool)
+    }
+    changes = after.get("position_changes")
+    if type(changes) is int and changes >= 0:
+        result["position_changes"] = changes
+    return result
+
+
+def _media_status(flag: object, ended_at: datetime | None, *, snapshot: bool) -> str:
+    # Snapshot retention is decided before the final file is written. While
+    # tracking, the image may be served from memory; no HTTP availability is asserted.
+    if ended_at is None:
+        if snapshot:
+            return "temporary"
+        return "pending" if flag is True else "unavailable" if flag is False else "unknown"
+    return "retained" if flag is True else "unavailable" if flag is False else "unknown"
 
 
 def _timestamp(value: object, fallback: datetime) -> datetime:

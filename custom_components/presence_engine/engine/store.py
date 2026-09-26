@@ -199,6 +199,7 @@ class EvidenceStore:
                 RevisionDimension.COUNT: observation.count.observed_at if observation.count else observation.received_at,
                 RevisionDimension.LIFECYCLE: observation.ended_at or observation.active_since or observation.received_at,
                 RevisionDimension.IMAGE: observation.image.observed_at if observation.image else observation.received_at,
+                RevisionDimension.DIAGNOSTICS: observation.received_at,
             }[dimension]
             revisions[dimension]=RevisionStamp(0,observed_at)
         return revisions
@@ -231,6 +232,8 @@ class EvidenceStore:
             dimensions.append(RevisionDimension.COUNT)
         if observation.image is not None:
             dimensions.append(RevisionDimension.IMAGE)
+        if observation.source_diagnostics:
+            dimensions.append(RevisionDimension.DIAGNOSTICS)
         return tuple(dimensions)
 
     @staticmethod
@@ -243,6 +246,7 @@ class EvidenceStore:
             RevisionDimension.COUNT: observation.count,
             RevisionDimension.LIFECYCLE: (observation.status,observation.active_since,observation.ended_at),
             RevisionDimension.IMAGE: observation.image,
+            RevisionDimension.DIAGNOSTICS: observation.source_diagnostics,
         }[dimension]
 
     @staticmethod
@@ -271,6 +275,8 @@ class EvidenceStore:
             }
         if dimension is RevisionDimension.IMAGE:
             return {"image": incoming.image}
+        if dimension is RevisionDimension.DIAGNOSTICS:
+            return {"source_diagnostics": incoming.source_diagnostics}
         raise AssertionError(f"unsupported dimension: {dimension}")
 
     def _evict_if_needed(self) -> None:

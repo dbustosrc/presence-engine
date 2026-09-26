@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any, Mapping
-from urllib.parse import quote
 
 from .engine import PresenceHypothesis, PresenceSnapshot, Quality, SpatialLevel, TargetKind
+from .projection import image_payload
 
 if TYPE_CHECKING:
     from .runtime import ImageRecord
@@ -308,15 +308,7 @@ def _aggregate_quality(
 def _image_payload(record: ImageRecord | None) -> dict[str, Any] | None:
     if record is None:
         return None
-    return {
-        "reference": record.image.reference,
-        "url": _browser_image_reference(record),
-        "observed_at": record.image.observed_at.isoformat(),
-        "area": record.image.area,
-        "event_id": record.image.event_id,
-        "origin_id": record.image.origin_id,
-        "detection_id": record.detection_id,
-    }
+    return {**image_payload(record.image), "detection_id": record.detection_id}
 
 
 def _presence_image(
@@ -338,17 +330,7 @@ def _presence_image(
 def _browser_image_reference(record: ImageRecord | None) -> str | None:
     if record is None:
         return None
-    reference = record.image.reference
-    if reference.startswith(("/", "http://", "https://")):
-        return reference
-    if reference.startswith("frigate:event:"):
-        event_id = reference.removeprefix("frigate:event:")
-        if event_id:
-            return (
-                "/api/frigate/notifications/"
-                f"{quote(event_id, safe='')}/snapshot.jpg"
-            )
-    return None
+    return image_payload(record.image)["url"]
 
 
 def _first(values: tuple[str, ...]) -> str | None:

@@ -43,6 +43,28 @@ projected to a browser-ready authenticated URL so presentation code does not
 depend on a camera integration's storage convention. When the origin provides
 an event clip, the same image metadata carries its browser-ready clip URL.
 
+Media metadata includes `snapshot_status` and `clip_status`: `temporary` is a
+snapshot reference served during tracking, `pending` is an unfinished clip,
+`retained` means the source reported retention at the end, `unavailable` means
+the source explicitly reported no retained medium, and `unknown` means the
+source (or an older stored record) supplied no usable flag. A reference is not
+an HTTP availability check; retained media can later expire or become unreachable.
+Snapshot URLs remain usable as temporary previews while tracking. Unavailable
+URLs and pending clip URLs are omitted, but the opaque reference is retained.
+
+`source_diagnostics`, keyed by source ID, preserves the native Frigate facts
+`has_snapshot`, `has_clip`, `position_changes` and `false_positive` when supplied
+with valid types. Missing or malformed optional facts remain unknown, not false.
+These facts do not gate detections or change identity, class, location or counts.
+Their independent revision and media revision can advance with an unchanged
+frame timestamp; a final event's facts survive late recognition and recovery.
+The existing bounded evidence store also supplies them to downloaded diagnostics;
+no image bytes, raw MQTT archive, polling or additional storage is introduced.
+
+A temporary preview does not replace an existing identity's historical photo.
+At finalization, a retained snapshot can update that photo; an explicitly absent
+snapshot removes only a preview of that same event, never a previous photo.
+
 ## PresenceSnapshot
 
 A snapshot is a current, deterministic projection of active observations plus

@@ -1,5 +1,13 @@
 # Historial de cambios
 
+## 0.4.11 — Diagnóstico y ciclo de vida de medios
+
+- Conserva indicadores de retención y movimiento de eventos Frigate para diagnóstico.
+- Distingue imágenes temporales, medios retenidos y referencias no disponibles,
+  sin cambiar la aceptación ni la clasificación de las detecciones.
+- Unifica los enlaces visuales de eventos y registros, y conserva la foto histórica
+  anterior cuando una detección nueva termina sin captura retenida.
+
 ## 0.4.10 — Alias de cámaras de reproducción
 
 - Reconoce los identificadores temporales de Frigate Replay como alias de la

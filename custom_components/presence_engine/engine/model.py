@@ -63,6 +63,7 @@ class RevisionDimension(str, Enum):
     COUNT = "count"
     LIFECYCLE = "lifecycle"
     IMAGE = "image"
+    DIAGNOSTICS = "diagnostics"
 
 
 @dataclass(frozen=True, order=True, slots=True)
@@ -148,11 +149,16 @@ class ImageReference:
     area: str | None = None
     event_id: str | None = None
     origin_id: str | None = None
+    snapshot_status: str = "unknown"
+    clip_status: str = "unknown"
 
     def __post_init__(self) -> None:
         require_aware(self.observed_at, "image observed_at")
         if not self.reference.strip():
             raise ValueError("image reference is required")
+        for status in (self.snapshot_status, self.clip_status):
+            if status not in {"unknown", "temporary", "pending", "retained", "unavailable"}:
+                raise ValueError("invalid media status")
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,6 +185,7 @@ class Observation:
     active_since: datetime | None = None
     ended_at: datetime | None = None
     revisions: Mapping[RevisionDimension, RevisionStamp] = field(default_factory=dict)
+    source_diagnostics: Mapping[str, bool | int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.observation_id.strip():
@@ -194,6 +201,14 @@ class Observation:
         if self.count is not None and self.count.maximum == 0 and self.status is ObservationStatus.ACTIVE:
             raise ValueError("an active observation cannot assert a zero maximum")
         object.__setattr__(self, "revisions", MappingProxyType(dict(self.revisions)))
+        if not isinstance(self.source_diagnostics, Mapping) or any(
+            not isinstance(key, str)
+            or not key
+            or not (isinstance(value, bool) or (type(value) is int and value >= 0))
+            for key, value in self.source_diagnostics.items()
+        ):
+            raise ValueError("source diagnostics require named boolean or nonnegative integer facts")
+        object.__setattr__(self, "source_diagnostics", MappingProxyType(dict(self.source_diagnostics)))
 
     @property
     def key(self) -> tuple[str, str]:
@@ -273,6 +288,7 @@ class DetectionResult:
     identity_score: float | None = None
     source_ids: tuple[str, ...] = ()
     image: ImageReference | None = None
+    source_diagnostics: Mapping[str, Mapping[str, bool | int]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         require_aware(self.detected_at, "detected_at")
