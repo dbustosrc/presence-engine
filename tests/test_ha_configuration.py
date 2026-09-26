@@ -116,6 +116,11 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.get("errors"), result)
         self.assertEqual(self.flow._draft["identities"][descriptor.stable_key], "person_a")
         self.assertEqual(self.flow._draft["sources"][0]["identity"], "person_a")
+        self.flow._reconfiguring = True
+        self.flow._get_reconfigure_entry = lambda: SimpleNamespace(runtime_data=SimpleNamespace(faces=SimpleNamespace(catalogue=[], observed={"New Face": "New Face"})))
+        result = await self.flow.async_step_identity_edit()
+        control = next(control for marker, control in result["data_schema"].schema.items() if marker.schema == "face_names")
+        self.assertIn("New Face", control.config["options"])
 
     async def test_native_reconfigure_does_not_write_before_save(self):
         entry = SimpleNamespace(data={CONF_CONFIGURATION: deepcopy(self.flow._draft)})

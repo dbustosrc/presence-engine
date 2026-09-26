@@ -221,7 +221,7 @@ class PresenceEngineConfigFlow(ConfigFlow, domain=DOMAIN):
         for source in self._draft["sources"]:
             face_names.update(name for name, identity in source.get("options", {}).get("identity_map", {}).items() if identity == self._key)
         runtime = getattr(self._get_reconfigure_entry(), "runtime_data", None) if self._reconfiguring else None
-        catalogue = list(runtime.faces.catalogue) if runtime else []
+        catalogue = sorted(set(runtime.faces.catalogue) | set(runtime.faces.observed)) if runtime else []
         if runtime:
             face_names.update(name for name, identity in runtime.faces.observed.items() if identity == self._key)
         values = {"id": self._key, "entities": entities, "face_names": sorted(face_names), "bindings": mapping_rows(bindings)}
