@@ -488,6 +488,95 @@ class ResolverTests(unittest.TestCase):
         self.assertEqual((result.count_minimum,result.count_maximum),(2,2))
         self.assertEqual({item.kind for item in result.presences},{TargetKind.PERSON,TargetKind.ANIMAL})
 
+    def test_anonymous_radar_may_be_the_visual_animal(self) -> None:
+        person=observation(
+            "known",kind=TargetKind.PERSON,location=area("delta"),identity_claim=identity(),
+        )
+        dog=observation(
+            "dog",kind=TargetKind.ANIMAL,classification="dog",target_id="dog-1",
+            location=area("alpha"),
+        )
+        radar=observation(
+            "radar",kind=TargetKind.UNKNOWN_LIVING,location=area("alpha"),
+            count=CountClaim(1,1,at(0),True),dependency_group="radar-alpha",
+        )
+
+        result=self.resolve(person,dog,radar)
+
+        self.assertEqual((result.count_minimum,result.count_maximum),(2,3))
+        self.assertEqual(next(p for p in result.presences if p.kind is TargetKind.ANIMAL).classification,"dog")
+        self.assertEqual(next(p for p in result.presences if p.kind is TargetKind.UNKNOWN_LIVING).location_status,"possible")
+
+    def test_floor_radar_can_overlap_person_without_moving_person(self) -> None:
+        person=observation(
+            "known",kind=TargetKind.PERSON,location=area("alpha"),identity_claim=identity(),
+        )
+        radar=observation(
+            "radar",kind=TargetKind.UNKNOWN_LIVING,
+            location=SpatialClaim(
+                level=SpatialLevel.FLOOR,floor="floor_alpha",candidates=(),
+                method="ambiguous_zone",quality=Quality.MEDIUM,observed_at=at(0),
+            ),
+            count=CountClaim(1,1,at(0),True),dependency_group="radar-floor",
+        )
+
+        result=self.resolve(person,radar)
+
+        self.assertEqual((result.count_minimum,result.count_maximum),(1,2))
+        self.assertEqual(next(p for p in result.presences if p.identity).location.area,"alpha")
+
+    def test_two_floor_radars_do_not_prove_two_visitors_near_one_person(self) -> None:
+        person=observation(
+            "known",kind=TargetKind.PERSON,location=area("alpha"),identity_claim=identity(),
+        )
+        radars=(
+            observation(
+                name,kind=TargetKind.UNKNOWN_LIVING,
+                location=SpatialClaim(
+                    level=SpatialLevel.FLOOR,floor="floor_alpha",candidates=(),
+                    method="ambiguous_zone",quality=Quality.MEDIUM,observed_at=at(0),
+                ),
+                count=CountClaim(1,1,at(0),True),dependency_group=name,
+            )
+            for name in ("radar-one","radar-two")
+        )
+
+        result=self.resolve(person,*radars)
+
+        self.assertEqual((result.count_minimum,result.count_maximum),(1,3))
+
+    def test_floor_animal_and_floor_radar_may_describe_one_animal(self) -> None:
+        dog=observation(
+            "dog",kind=TargetKind.ANIMAL,classification="dog",target_id="dog-1",
+            location=floor(0),
+        )
+        radar=observation(
+            "radar",kind=TargetKind.UNKNOWN_LIVING,
+            location=SpatialClaim(
+                level=SpatialLevel.FLOOR,floor="floor_alpha",candidates=(),
+                method="ambiguous_zone",quality=Quality.MEDIUM,observed_at=at(0),
+            ),
+            count=CountClaim(1,1,at(0),True),dependency_group="radar-floor",
+        )
+
+        result=self.resolve(dog,radar)
+
+        self.assertEqual((result.count_minimum,result.count_maximum),(1,2))
+
+    def test_anonymous_radar_on_another_floor_is_not_the_visual_animal(self) -> None:
+        dog=observation(
+            "dog",kind=TargetKind.ANIMAL,classification="dog",target_id="dog-1",
+            location=area("alpha"),
+        )
+        radar=observation(
+            "radar",kind=TargetKind.UNKNOWN_LIVING,location=area("delta"),
+            count=CountClaim(1,1,at(0),True),dependency_group="radar-delta",
+        )
+
+        result=self.resolve(dog,radar)
+
+        self.assertEqual((result.count_minimum,result.count_maximum),(2,2))
+
     def test_missing_source_degrades_coverage_without_asserting_empty(self) -> None:
         result=self.resolve(unavailable=("source.offline",))
         self.assertTrue(result.coverage_degraded)

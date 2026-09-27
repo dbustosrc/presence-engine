@@ -19,11 +19,11 @@ class DiscoveryTests(unittest.TestCase):
         candidate = discover_candidate(
             EntityDescriptor(
                 registry_id="entry-radar",
-                entity_id="binary_sensor.office_radar",
+                entity_id="binary_sensor.alpha_radar",
                 platform="esphome",
-                unique_id="office_ld2450_presence",
+                unique_id="alpha_ld2450_presence",
                 domain="binary_sensor",
-                area_id="office",
+                area_id="alpha",
                 device_model="MSR-2",
             )
         )
@@ -32,17 +32,17 @@ class DiscoveryTests(unittest.TestCase):
         assert candidate is not None
         self.assertEqual(candidate.adapter, AdapterType.BINARY_PRESENCE)
         self.assertTrue(candidate.ready)
-        self.assertEqual(candidate.suggested_area, "office")
+        self.assertEqual(candidate.suggested_area, "alpha")
 
     def test_mtr_zone_is_pending_instead_of_guessing_device_area(self) -> None:
         candidate = discover_candidate(
             EntityDescriptor(
                 registry_id="entry-zone",
-                entity_id="sensor.kitchen_zone_3_all_target_count",
+                entity_id="sensor.beta_zone_3_all_target_count",
                 platform="esphome",
-                unique_id="kitchen_mtr_zone_3_all_target_count",
+                unique_id="beta_mtr_zone_3_all_target_count",
                 domain="sensor",
-                area_id="kitchen",
+                area_id="beta",
                 device_model="MTR-1",
             )
         )
@@ -57,11 +57,11 @@ class DiscoveryTests(unittest.TestCase):
         candidate = discover_candidate(
             EntityDescriptor(
                 registry_id="entry-unknown",
-                entity_id="sensor.office_misc",
+                entity_id="sensor.alpha_misc",
                 platform="example",
                 unique_id="misc",
                 domain="sensor",
-                area_id="office",
+                area_id="alpha",
             )
         )
 
@@ -69,13 +69,13 @@ class DiscoveryTests(unittest.TestCase):
 
     def test_registry_id_reconciles_entity_rename(self) -> None:
         result = reconcile_entity_bindings(
-            {"entry-radar": "binary_sensor.old_office_radar", "removed": "sensor.old"},
+            {"entry-radar": "binary_sensor.old_alpha_radar", "removed": "sensor.old"},
             (
                 EntityDescriptor(
                     registry_id="entry-radar",
-                    entity_id="binary_sensor.office_radar",
+                    entity_id="binary_sensor.alpha_radar",
                     platform="esphome",
-                    unique_id="office_ld2450_presence",
+                    unique_id="alpha_ld2450_presence",
                     domain="binary_sensor",
                 ),
             ),
@@ -83,7 +83,7 @@ class DiscoveryTests(unittest.TestCase):
 
         self.assertEqual(
             result.renamed["entry-radar"],
-            ("binary_sensor.old_office_radar", "binary_sensor.office_radar"),
+            ("binary_sensor.old_alpha_radar", "binary_sensor.alpha_radar"),
         )
         self.assertEqual(result.missing_registry_ids, ("removed",))
 
@@ -127,9 +127,9 @@ class DiscoveryTests(unittest.TestCase):
             sources=(
                 *configured.sources,
                 SourceDefinition(
-                    source_id="office_radar",
+                    source_id="alpha_radar",
                     adapter=AdapterType.BINARY_PRESENCE,
-                    entity_ids=("binary_sensor.office_radar_target",),
+                    entity_ids=("binary_sensor.alpha_radar_target",),
                     entity_registry_ids=("entry-radar-target",),
                     area="alpha",
                 ),
@@ -138,23 +138,23 @@ class DiscoveryTests(unittest.TestCase):
         descriptors = (
             EntityDescriptor(
                 registry_id="entry-radar-target",
-                entity_id="binary_sensor.office_radar_target",
+                entity_id="binary_sensor.alpha_radar_target",
                 platform="esphome",
-                unique_id="office_ld2450_radar_target",
+                unique_id="alpha_ld2450_radar_target",
                 domain="binary_sensor",
                 area_id="alpha",
                 device_model="MSR-2",
-                device_id="device-office-radar",
+                device_id="device-alpha-radar",
             ),
             EntityDescriptor(
                 registry_id="entry-radar-moving",
-                entity_id="binary_sensor.office_radar_moving_target",
+                entity_id="binary_sensor.alpha_radar_moving_target",
                 platform="esphome",
-                unique_id="office_ld2450_radar_moving_target",
+                unique_id="alpha_ld2450_radar_moving_target",
                 domain="binary_sensor",
                 area_id="alpha",
                 device_model="MSR-2",
-                device_id="device-office-radar",
+                device_id="device-alpha-radar",
             ),
         )
 
@@ -162,7 +162,7 @@ class DiscoveryTests(unittest.TestCase):
 
         self.assertEqual(plan.activated, ())
         self.assertNotIn(
-            "binary_sensor.office_radar_moving_target",
+            "binary_sensor.alpha_radar_moving_target",
             plan.configuration.entity_ids,
         )
 
@@ -177,10 +177,10 @@ class DiscoveryTests(unittest.TestCase):
             sources=(
                 *configured.sources,
                 SourceDefinition(
-                    source_id="garage_radar",
+                    source_id="gamma_radar",
                     adapter=AdapterType.BINARY_PRESENCE,
-                    entity_ids=("binary_sensor.garage_radar_target",),
-                    entity_registry_ids=("entry-garage-radar",),
+                    entity_ids=("binary_sensor.gamma_radar_target",),
+                    entity_registry_ids=("entry-gamma-radar",),
                     area="alpha",
                     enabled=False,
                 ),
@@ -188,14 +188,14 @@ class DiscoveryTests(unittest.TestCase):
         )
         descriptors = (
             EntityDescriptor(
-                registry_id="entry-garage-radar",
-                entity_id="binary_sensor.garage_radar_target",
+                registry_id="entry-gamma-radar",
+                entity_id="binary_sensor.gamma_radar_target",
                 platform="esphome",
-                unique_id="garage_ld2450_radar_target",
+                unique_id="gamma_ld2450_radar_target",
                 domain="binary_sensor",
                 area_id="alpha",
                 device_model="MSR-2",
-                device_id="device-garage-radar",
+                device_id="device-gamma-radar",
             ),
         )
 
@@ -203,13 +203,13 @@ class DiscoveryTests(unittest.TestCase):
 
         self.assertEqual(plan.activated, ())
         self.assertNotIn(
-            "binary_sensor.garage_radar_target",
+            "binary_sensor.gamma_radar_target",
             plan.configuration.entity_ids,
         )
         explicit = next(
             source
             for source in plan.configuration.sources
-            if source.source_id == "garage_radar"
+            if source.source_id == "gamma_radar"
         )
         self.assertFalse(explicit.enabled)
 

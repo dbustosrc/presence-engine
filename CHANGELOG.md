@@ -1,5 +1,12 @@
 # Historial de cambios
 
+## 0.5.1 — Recuento de evidencia superpuesta
+
+- Evita afirmar ocupantes adicionales cuando un sensor anónimo podría estar
+  observando una persona o un animal ya detectado.
+- Conserva la evidencia y muestra un intervalo cuando aún es posible otro
+  ocupante, sin cambiar la clasificación ni la ubicación confirmadas.
+
 ## 0.5.0 — Configuración guiada y descubrimiento de rostros
 
 - Añade formularios nativos para áreas, identidades, cámaras y fuentes,

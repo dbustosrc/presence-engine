@@ -224,6 +224,34 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(result.recognized_at, at(7))
         self.assertEqual(result.identity, "person_a")
 
+    def test_end_received_before_older_update_does_not_reopen_presence(self) -> None:
+        def event(event_type: str, frame: int, received: int) -> AdapterEnvelope:
+            return AdapterEnvelope(
+                "mqtt", "frigate/events",
+                {
+                    "type": event_type,
+                    "after": {
+                        "id": "out-of-order-event",
+                        "camera": "camera_a",
+                        "label": "person",
+                        "start_time": at(0).timestamp(),
+                        "frame_time": at(frame).timestamp(),
+                        "end_time": at(3).timestamp() if event_type == "end" else None,
+                        "current_zones": ["zone_alpha"],
+                    },
+                },
+                at(frame), at(received),
+            )
+
+        ended = self.runtime.process(event("end", 3, 5))
+        self.assertEqual(ended.snapshot.count_maximum, 0)
+        self.assertEqual(ended.detections[0].status, "ended_unidentified")
+
+        stale = self.runtime.process(event("update", 1, 6))
+        self.assertEqual(stale.snapshot.count_maximum, 0)
+        self.assertEqual(stale.detections, ())
+        self.assertEqual(self.runtime.detection("out-of-order-event").status, "ended_unidentified")
+
     def test_bad_payload_isolated_without_losing_other_sources(self) -> None:
         device = AdapterEnvelope(
             "state",
@@ -268,6 +296,60 @@ class RuntimeTests(unittest.TestCase):
             )
         )
         self.assertFalse(recovered.snapshot.coverage_degraded)
+
+    def test_visual_family_outage_preserves_independent_count_evidence(self) -> None:
+        def event(event_id: str, second: int) -> AdapterEnvelope:
+            return AdapterEnvelope(
+                "mqtt", "frigate/events",
+                {
+                    "type": "update",
+                    "after": {
+                        "id": event_id,
+                        "camera": "camera_a",
+                        "label": "person",
+                        "start_time": at(second).timestamp(),
+                        "frame_time": at(second).timestamp(),
+                        "current_zones": ["zone_alpha"],
+                    },
+                },
+                at(second), at(second),
+            )
+
+        self.runtime.process(
+            AdapterEnvelope(
+                "state", "sensor.area_count", {"state": "1"}, at(0), at(0)
+            )
+        )
+        self.runtime.process(event("visual-before-outage", 1))
+
+        outage = self.runtime.mark_channel_unavailable(
+            ("frigate_events", "frigate_faces")
+        )
+        self.assertTrue(outage.snapshot.coverage_degraded)
+        self.assertEqual(outage.snapshot.count_minimum, 1)
+        self.assertEqual(outage.snapshot.presences[0].location.area, "alpha")
+        self.assertIsNone(self.runtime.detection("visual-before-outage"))
+
+        partial = self.runtime.process(event("visual-after-outage", 2))
+        self.assertTrue(partial.snapshot.coverage_degraded)
+        self.assertEqual(partial.snapshot.count_minimum, 1)
+
+        recovered = self.runtime.process(
+            AdapterEnvelope(
+                "mqtt", "frigate/tracked_object_update",
+                {
+                    "type": "face",
+                    "id": "visual-after-outage",
+                    "camera": "camera_a",
+                    "name": "person_a",
+                    "score": 0.92,
+                    "timestamp": at(3).timestamp(),
+                },
+                at(3), at(3),
+            )
+        )
+        self.assertFalse(recovered.snapshot.coverage_degraded)
+        self.assertEqual(recovered.snapshot.count_minimum, 1)
 
     def test_export_restore_keeps_observations_and_context(self) -> None:
         self.runtime.process(

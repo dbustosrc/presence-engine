@@ -116,6 +116,7 @@ class PresenceResolver:
         devices=self._resolve_devices(active)
         people=self._known_people(active,previous,now)
         groups=self._reconcile_area_populations(self._evidence_groups(active,now))
+        animals=tuple(group for group in groups if group.kind is TargetKind.ANIMAL)
         conflicts: list[str]=[]
         reasons: list[str]=[]
         extras: list[PresenceHypothesis]=[]
@@ -128,6 +129,13 @@ class PresenceResolver:
             group_min=group.minimum
             group_max=group.maximum
             if group.kind in {TargetKind.PERSON,TargetKind.UNKNOWN_LIVING}:
+                if group.kind is TargetKind.UNKNOWN_LIVING and group.location is not None:
+                    if any(
+                        self._possibly_same_location(group.location, animal.location)
+                        for animal in animals
+                    ):
+                        group_min=max(0,group_min-1)
+                        reasons.append("anonymous_count_may_include_animal")
                 corroborated=self._device_corroboration_match(people,group)
                 if corroborated is not None:
                     self._apply_group_location(corroborated,group,True)
@@ -164,6 +172,16 @@ class PresenceResolver:
                                 group_max=max(0,group_max-1)
                             else:
                                 reasons.append("movement_correlation_kept_visitor_uncertainty")
+                        elif (
+                            group.location is not None
+                            and group.location.area is None
+                            and any(
+                                self._possibly_same_location(group.location, person.location)
+                                for person in people.values()
+                            )
+                        ):
+                            group_min=max(0,group_min-1)
+                            reasons.append("ambiguous_count_may_include_known_person")
             extra_min+=group_min
             extra_max+=group_max
             for index in range(group_min):
@@ -642,6 +660,22 @@ class PresenceResolver:
     @staticmethod
     def _same_area(left: SpatialClaim | None, right: SpatialClaim | None) -> bool:
         return bool(left and right and left.area and left.area == right.area)
+
+    @staticmethod
+    def _possibly_same_location(left: SpatialClaim, right: SpatialClaim | None) -> bool:
+        if right is None:
+            return False
+        if left.area and right.area:
+            return left.area == right.area
+        if not left.floor or left.floor != right.floor:
+            return False
+        if left.area:
+            return not right.candidates or left.area in right.candidates
+        if right.area:
+            return not left.candidates or right.area in left.candidates
+        return not left.candidates or not right.candidates or bool(
+            set(left.candidates) & set(right.candidates)
+        )
 
     def _adjacent(self, left: str, right: str) -> bool:
         return right in self._config.adjacency.get(left,frozenset()) or left in self._config.adjacency.get(right,frozenset())
