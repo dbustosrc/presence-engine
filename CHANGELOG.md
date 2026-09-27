@@ -1,5 +1,12 @@
 # Historial de cambios
 
+## 0.5.2 — Contexto temporal de capturas
+
+- Utiliza la hora propia de la captura de Frigate cuando está disponible,
+  separándola de la hora del seguimiento del objeto.
+- Evita asignar a una captura anterior las zonas observadas en un fotograma
+  posterior; conserva la ubicación indeterminada si falta contexto histórico.
+
 ## 0.5.1 — Recuento de evidencia superpuesta
 
 - Evita afirmar ocupantes adicionales cuando un sensor anónimo podría estar

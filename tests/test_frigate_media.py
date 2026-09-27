@@ -4,10 +4,12 @@ import unittest
 from dataclasses import replace
 
 from presence_engine.adapters import AdapterEnvelope
+from presence_engine.adapters.frigate import FrigateEventAdapter
 from presence_engine.codec import decode_observation, encode_observation
 from presence_engine.projection import detection_payload
 from presence_engine.public_projection import identity_projection
 from presence_engine.runtime import PresenceRuntime
+from presence_engine.temporal import TemporalCameraRegistry
 
 from helpers import at
 from integration_helpers import integration_config
@@ -117,6 +119,33 @@ class FrigateMediaTests(unittest.TestCase):
         self.assertIsNotNone(payload["image"]["url"])
         self.assertIsNone(payload["image"]["clip_url"])
         self.assertEqual(payload["image"]["clip_status"], "unavailable")
+
+    def test_snapshot_uses_its_own_time_without_reusing_later_zones(self):
+        config = integration_config()
+        contexts = TemporalCameraRegistry(dict(config.cameras))
+        contexts.update("camera_a", role="profile", state="profile_alpha", observed_at=at(0))
+        contexts.update("camera_a", role="movement", state="available", observed_at=at(0.5))
+        contexts.update("camera_a", role="movement", state="moving", observed_at=at(2))
+        source = next(item for item in config.sources if item.source_id == "frigate_events")
+        adapter = FrigateEventAdapter(source, config.cameras, contexts)
+        envelope = self.event(
+            4, frame_time=at(3).timestamp(), snapshot={"frame_time": at(1).timestamp()},
+            current_zones=["zone_beta"],
+        )
+        observation = adapter.parse(envelope).observations[0]
+        self.assertEqual(observation.location.method, "ptz_transition")
+        self.assertEqual(observation.location.observed_at, at(3))
+        self.assertEqual(observation.image.observed_at, at(1))
+        self.assertEqual(observation.image.area, "alpha")
+
+        # Without historical physical context, later zones cannot locate the photo.
+        no_context = FrigateEventAdapter(source, config.cameras, TemporalCameraRegistry(dict(config.cameras)))
+        unknown = no_context.parse(envelope).observations[0]
+        self.assertIsNone(unknown.image.area)
+        self.assertEqual(unknown.image.observed_at, at(1))
+
+        missing = no_context.parse(self.event(4, snapshot={"frame_time": "bad"})).observations[0]
+        self.assertIsNone(missing.image.area)
 
 
 if __name__ == "__main__":

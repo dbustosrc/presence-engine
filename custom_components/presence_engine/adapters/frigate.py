@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from math import isfinite
 from typing import Any, Mapping
 
 from .base import AdapterEnvelope, AdapterResult
@@ -88,6 +89,12 @@ class FrigateEventAdapter:
             else TargetKind.UNKNOWN_LIVING
         )
         location = self._location(camera_id, after, spatial_at)
+        snapshot = after.get("snapshot")
+        snapshot_time = _snapshot_time(snapshot, envelope.observed_at)
+        image_at = snapshot_time or spatial_at
+        # Zones in this update describe the tracked frame, not an earlier snapshot.
+        image_facts = after if snapshot_time == spatial_at else {}
+        image_location = self._location(camera_id, image_facts, image_at) if snapshot_time else None
         camera = self._cameras.get(camera_id)
         if (
             camera is not None
@@ -124,8 +131,8 @@ class FrigateEventAdapter:
             count=CountClaim(1, 1, spatial_at, True, Quality.HIGH),
             image=ImageReference(
                 reference=f"frigate:event:{event_id}",
-                observed_at=spatial_at,
-                area=location.area if location else None,
+                observed_at=image_at,
+                area=image_location.area if image_location else None,
                 event_id=event_id,
                 origin_id=origin_camera_id,
                 snapshot_status=_media_status(diagnostics.get("has_snapshot"), ended_at, snapshot=True),
@@ -289,6 +296,18 @@ def _timestamp(value: object, fallback: datetime) -> datetime:
     if isinstance(value, str) and value:
         return datetime.fromisoformat(value)
     return fallback
+
+
+def _snapshot_time(value: object, fallback: datetime) -> datetime | None:
+    if not isinstance(value, Mapping):
+        return None
+    raw = value.get("frame_time")
+    if type(raw) not in (int, float) or not isfinite(raw):
+        return None
+    try:
+        return _timestamp(raw, fallback)
+    except (OverflowError, OSError, ValueError):
+        return None
 
 
 def _sequence(value: datetime) -> int:
