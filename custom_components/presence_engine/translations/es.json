@@ -54,11 +54,10 @@
           "url": "URL base de Frigate (opcional)",
           "username": "Usuario (opcional)",
           "password": "Contraseña (opcional)",
-          "availability_topic": "Topic de disponibilidad de Frigate",
           "cookie_name": "Nombre de cookie de autenticación",
           "refresh_catalogue": "Actualizar el catálogo de rostros activo"
         },
-        "description": "El reconocimiento MQTT crea registros; la API opcional solo actualiza el catálogo al cargar, aparecer un nombre nuevo o reconectarse. Sin polling periódico. Las credenciales requieren HTTPS. Actualizar usa la conexión guardada; guarda primero los cambios de conexión. {detail}"
+        "description": "El reconocimiento MQTT descubre identidades sin depender del catálogo. La API opcional se consulta únicamente al seleccionar Actualizar catálogo. No hay consultas al iniciar, por MQTT ni periódicas. Las credenciales requieren HTTPS. Guarda los cambios de conexión antes de actualizar. {detail}"
       },
       "advanced": {
         "title": "Importar / exportar JSON avanzado",
@@ -172,7 +171,9 @@
       }
     },
     "error": {
-      "invalid_configuration": "La configuración no es válida."
+      "invalid_configuration": "La configuración no es válida.",
+      "cannot_refresh_catalogue": "No se pudo actualizar el catálogo. Revisa la conexión guardada. Se conservan los nombres anteriores.",
+      "save_before_refresh": "Guarda la conexión y vuelve a abrir Frigate para actualizar el catálogo."
     },
     "abort": {
       "single_instance_allowed": "Solo se admite una instancia del motor de presencia.",

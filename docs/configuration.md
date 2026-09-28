@@ -47,15 +47,17 @@ La escucha de reconocimientos MQTT funciona sin URL de API. Configurar una URL
 en «Frigate» permite ofrecer los nombres registrados como opciones del formulario.
 El catálogo por sí solo no crea entidades ni evidencia de presencia.
 
-La consulta ocurre al cargar la integración, al observar un nombre nuevo y al
-recibir disponibilidad `online` tras una reconexión. Las peticiones se agrupan
-y se separan por al menos 60 segundos: no hay polling periódico. También se puede
-solicitar una actualización manual; si cambian los datos de conexión, primero
-guardarlos y volver a abrir Frigate para actualizar el catálogo.
+La consulta ocurre únicamente al marcar «Actualizar el catálogo de rostros»
+en Reconfigurar → Frigate y enviar el formulario. No hay consultas al iniciar,
+ante reconocimientos MQTT, tras reconexiones ni periódicas. Si cambian los datos
+de conexión, primero guardarlos y volver a abrir Frigate para actualizar el
+catálogo. La UI informa de un fallo y conserva los nombres anteriores. Las
+solicitudes manuales simultáneas comparten una consulta.
 
 Se admite la API sin autenticación o inicio de sesión mediante usuario y
 contraseña sobre HTTPS. `cookie_name` permite usar un nombre de cookie distinto
-de `frigate_token`; `availability_topic` permite otro prefijo MQTT. No se siguen
+de `frigate_token`. El antiguo campo `availability_topic` ya no se utiliza para
+sincronizar el catálogo. No se siguen
 redirecciones ni se incluyen credenciales en exportaciones o diagnósticos.
 
 Cada petición tiene un límite de 10 segundos y el catálogo admite hasta 1 MiB.
@@ -63,6 +65,7 @@ Un fallo conserva el catálogo anterior, no impide procesar MQTT ni degrada por
 sí solo la cobertura de los sensores. Se guardan nombres y asociaciones acotados
 por el límite de registros, no imágenes del catálogo. Eliminar un rostro del
 catálogo no borra el registro histórico ni demuestra ausencia de la persona.
+La carpeta de entrenamiento `train` no se presenta como nombre de persona.
 
 ## Secciones
 

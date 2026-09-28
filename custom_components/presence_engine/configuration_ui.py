@@ -27,7 +27,7 @@ def validate_draft(raw: Mapping[str, Any]) -> None:
 def validate_frigate_settings(settings: object) -> None:
     if not isinstance(settings, dict):
         raise ConfigurationError("frigate must be an object")
-    for key in ("url", "username", "password", "availability_topic", "cookie_name"):
+    for key in ("url", "username", "password", "cookie_name"):
         if key in settings and not isinstance(settings[key], str):
             raise ConfigurationError(f"Frigate {key} must be text")
     url = settings.get("url", "")
@@ -43,10 +43,6 @@ def validate_frigate_settings(settings: object) -> None:
         raise ConfigurationError("Frigate username and password must be supplied together")
     if "discover_faces" in settings and not isinstance(settings["discover_faces"], bool):
         raise ConfigurationError("discover_faces must be boolean")
-    topic = settings.get("availability_topic", "frigate/available")
-    from .configuration import TOPIC_PATTERN
-    if not isinstance(topic, str) or not TOPIC_PATTERN.fullmatch(topic):
-        raise ConfigurationError("Frigate availability topic must be exact")
 
 
 def mapping_rows(values: Mapping[str, Any]) -> list[dict[str, Any]]:

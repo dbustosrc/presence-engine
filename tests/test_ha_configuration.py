@@ -177,7 +177,7 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
         runtime._store.async_save = AsyncMock()
         runtime.faces.update_catalogue({"Registered Face": []})
         with patch("presence_engine.ha_runtime.fetch_face_catalogue", side_effect=TimeoutError):
-            self.assertFalse(await runtime.async_refresh_faces(force=True))
+            self.assertFalse(await runtime.async_refresh_faces())
         self.assertEqual(runtime.faces.catalogue, ["Registered Face"])
         self.assertEqual(runtime.engine.snapshot.count_minimum, 0)
         self.assertEqual(runtime.faces.observed, {})
@@ -195,19 +195,20 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
             await release.wait()
             return {"Registered Face": []}
         with patch("presence_engine.ha_runtime.fetch_face_catalogue", side_effect=fetch) as mock_fetch:
-            runtime._schedule_face_refresh()
-            first = runtime._face_task
-            for _ in range(20):
-                runtime._async_frigate_available(SimpleNamespace(payload="online"))
-            self.assertIs(runtime._face_task, first)
+            waiters = [asyncio.create_task(runtime.async_refresh_faces()) for _ in range(20)]
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
             release.set()
-            await first
+            self.assertTrue(all(await asyncio.gather(*waiters)))
             self.assertEqual(mock_fetch.call_count, 1)
             self.assertEqual(runtime.faces.observed, {})
-            runtime._schedule_face_refresh()
+            release.clear()
+            waiter = asyncio.create_task(runtime.async_refresh_faces())
+            await asyncio.sleep(0)
             pending = runtime._face_task
             await runtime.async_shutdown()
             self.assertTrue(pending.cancelled())
+            await asyncio.gather(waiter, return_exceptions=True)
 
     async def test_authenticated_http_catalogue_uses_only_memory_and_complete_chunks(self):
         from http.cookies import SimpleCookie
@@ -243,48 +244,39 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
         factory = Mock(return_value=ManagedSession())
         try:
             with patch("presence_engine.ha_runtime.async_create_clientsession", factory), patch("presence_engine.ha_face_catalogue._fetch", new_callable=AsyncMock, return_value={"Registered Face": []}) as fetch:
-                self.assertTrue(await runtime.async_refresh_faces(force=True))
-                self.assertTrue(await runtime.async_refresh_faces(force=True))
+                self.assertTrue(await runtime.async_refresh_faces())
+                self.assertTrue(await runtime.async_refresh_faces())
                 self.assertEqual(factory.call_count, 1)
                 self.assertFalse(session.closed)
                 self.assertIs(fetch.call_args.args[0], factory.return_value)
         finally:
             await runtime.async_shutdown()
 
-    async def test_catalogue_cancelled_at_stop_during_request_or_debounce(self):
-        from homeassistant.const import EVENT_HOMEASSISTANT_STOP
-        for debounce in (False, True):
-            with self.subTest(debounce=debounce):
-                hass = HomeAssistant("/tmp/presence-engine-no-io")
-                entry = catalogue_entry()
-                runtime = HomeAssistantPresenceRuntime(hass, entry, integration_config(), max_records=2000, save_delay_seconds=15)
-                runtime._store = Mock(async_load=AsyncMock(return_value=None), async_save=AsyncMock())
-                runtime._reschedule_expiration = Mock()
-                blocked = asyncio.Event()
-                async def fetch(*args):
-                    await blocked.wait()
-                    return {"Registered Face": []}
-                try:
-                    with patch("presence_engine.ha_runtime.fetch_face_catalogue", side_effect=fetch) as mock_fetch:
-                        if debounce:
-                            from time import monotonic
-                            runtime._last_face_request = monotonic()
-                        await runtime.async_setup()
-                        task = runtime._face_task
-                        await asyncio.sleep(0)
-                        hass.bus.async_fire(EVENT_HOMEASSISTANT_STOP)
-                        for _ in range(6):
-                            await asyncio.sleep(0)
-                        self.assertTrue(runtime._stopping)
-                        self.assertTrue(task.cancelled())
-                        self.assertIsNone(runtime._face_task)
-                        runtime._schedule_face_refresh()
-                        self.assertIsNone(runtime._face_task)
-                        self.assertEqual(mock_fetch.call_count, 0 if debounce else 1)
-                finally:
-                    await runtime.async_shutdown()
+    async def test_startup_mqtt_and_new_identity_do_not_fetch_catalogue(self):
+        from presence_engine.adapters import AdapterEnvelope
+        hass = HomeAssistant("/tmp/presence-engine-no-io")
+        runtime = HomeAssistantPresenceRuntime(hass, catalogue_entry(), integration_config(), max_records=2000, save_delay_seconds=15)
+        runtime._store = Mock(async_load=AsyncMock(return_value=None), async_save=AsyncMock())
+        runtime._reschedule_expiration = Mock()
+        accepted = []
+        runtime.async_add_identity_listener(accepted.append)
+        try:
+            with patch("presence_engine.ha_runtime.fetch_face_catalogue", new_callable=AsyncMock) as fetch, patch("presence_engine.ha_runtime.mqtt.async_subscribe", new_callable=AsyncMock, return_value=Mock()) as subscribe:
+                await runtime.async_setup()
+                runtime._async_component_loaded(SimpleNamespace(data={"component": "mqtt"}))
+                await runtime._mqtt_task
+                payload = {"type": "face", "id": "new-face", "camera": "camera_a", "name": "New Face", "score": 0.95, "timestamp": at(2).timestamp()}
+                await runtime._async_process(AdapterEnvelope("mqtt", "frigate/tracked_object_update", payload, at(2), at(2)))
+                self.assertEqual(accepted, ["New Face"])
+                self.assertEqual(runtime.faces.catalogue, [])
+                self.assertEqual(runtime.face_catalogue_status, "not_requested")
+                self.assertIsNone(runtime._face_task)
+                fetch.assert_not_awaited()
+                self.assertEqual({call.args[1] for call in subscribe.call_args_list}, set(runtime.engine.configuration.topics))
+        finally:
+            await runtime.async_shutdown()
 
-    async def test_forced_catalogue_refresh_is_also_cancelled_on_stop(self):
+    async def test_manual_catalogue_refresh_is_cancelled_on_stop(self):
         from homeassistant.const import EVENT_HOMEASSISTANT_STOP
         hass = HomeAssistant("/tmp/presence-engine-no-io")
         runtime = HomeAssistantPresenceRuntime(hass, catalogue_entry(), integration_config(), max_records=2000, save_delay_seconds=15)
@@ -296,10 +288,9 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
             return {}
         waiter = None
         try:
-            with patch.object(runtime, "_schedule_face_refresh"):
-                await runtime.async_setup()
+            await runtime.async_setup()
             with patch("presence_engine.ha_runtime.fetch_face_catalogue", side_effect=fetch):
-                waiter = asyncio.create_task(runtime.async_refresh_faces(force=True))
+                waiter = asyncio.create_task(runtime.async_refresh_faces())
                 await asyncio.sleep(0)
                 await asyncio.sleep(0)
                 self.assertIsNotNone(runtime._face_task)
@@ -369,9 +360,32 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(len(removed), count)
                 await runtime.async_shutdown()
                 self.assertEqual(runtime._unsubscribers, [])
-        self.assertEqual(len(removed), 6)
+        self.assertEqual(len(removed), 4)
         for callback in removed:
             callback.assert_called_once()
+
+    async def test_manual_catalogue_form_reports_failure_and_requires_saved_connection(self):
+        self.flow._reconfiguring = True
+        self.flow._draft["frigate"] = {"url": "http://frigate.local"}
+        entry = catalogue_entry()
+        entry.runtime_data = SimpleNamespace(async_refresh_faces=AsyncMock(return_value=True))
+        self.flow._get_reconfigure_entry = lambda: entry
+        form = await self.flow.async_step_frigate()
+        values = form["data_schema"]({})
+        self.assertNotIn("availability_topic", values)
+        values["refresh_catalogue"] = True
+        self.assertEqual((await self.flow.async_step_frigate(values))["type"], "menu")
+        entry.runtime_data.async_refresh_faces.assert_awaited_once()
+        entry.runtime_data.async_refresh_faces.reset_mock()
+        entry.runtime_data.async_refresh_faces.return_value = False
+        result = await self.flow.async_step_frigate(values)
+        self.assertEqual(result["errors"], {"base": "cannot_refresh_catalogue"})
+        entry.runtime_data.async_refresh_faces.reset_mock()
+        values["url"] = "http://other-frigate.local"
+        for _ in range(2):
+            result = await self.flow.async_step_frigate(values)
+            self.assertEqual(result["errors"], {"base": "save_before_refresh"})
+        entry.runtime_data.async_refresh_faces.assert_not_awaited()
 
     async def test_setup_failure_rolls_back_and_unload_cleans_runtime(self):
         from presence_engine import async_setup_entry as setup, async_unload_entry as unload

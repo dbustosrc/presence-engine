@@ -24,7 +24,7 @@ class FaceDiscovery:
             for name, images in payload.items()
         ):
             raise ValueError("Invalid face catalogue")
-        self.catalogue = sorted(payload)[:self.limit]
+        self.catalogue = sorted(name for name in payload if name != "train")[:self.limit]
 
     def export(self) -> dict:
         return {"catalogue": self.catalogue, "observed": dict(self.observed)}
@@ -34,7 +34,7 @@ class FaceDiscovery:
             return
         catalogue = raw.get("catalogue", [])
         if isinstance(catalogue, list):
-            self.catalogue = [name for name in catalogue if isinstance(name, str) and name.strip()][:self.limit]
+            self.catalogue = [name for name in catalogue if isinstance(name, str) and name.strip() and name != "train"][:self.limit]
         observed = raw.get("observed", {})
         if isinstance(observed, dict):
             self.observed = {

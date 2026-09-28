@@ -54,11 +54,10 @@
           "url": "Frigate base URL (optional)",
           "username": "Username (optional)",
           "password": "Password (optional)",
-          "availability_topic": "Frigate availability topic",
           "cookie_name": "Authentication cookie name",
           "refresh_catalogue": "Refresh the active face catalogue"
         },
-        "description": "MQTT recognition creates records; the optional API only updates the catalogue at startup, on a new name or after reconnection. No periodic polling. Credentials require HTTPS. Refresh uses the saved connection; save connection changes first. {detail}"
+        "description": "MQTT recognition discovers identities without the catalogue. The optional API is queried only when you select Refresh catalogue. No startup, MQTT-triggered or periodic requests. Credentials require HTTPS. Save connection changes before refreshing. {detail}"
       },
       "advanced": {
         "title": "Advanced JSON import / export",
@@ -172,7 +171,9 @@
       }
     },
     "error": {
-      "invalid_configuration": "The configuration is not valid."
+      "invalid_configuration": "The configuration is not valid.",
+      "cannot_refresh_catalogue": "The catalogue could not be updated. Check the saved connection. Previous names are preserved.",
+      "save_before_refresh": "Save the connection settings, then reopen Frigate to update the catalogue."
     },
     "abort": {
       "single_instance_allowed": "Only one Presence Engine instance is supported.",

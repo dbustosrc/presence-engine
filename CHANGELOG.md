@@ -1,5 +1,10 @@
 # Historial de cambios
 
+## 0.5.5 — Catálogo facial manual
+
+- Actualiza el catálogo únicamente bajo solicitud manual, sin consultas al iniciar ni por MQTT; el descubrimiento de identidades por reconocimiento continúa independiente.
+- Informa errores de actualización y conexión sin guardar, conserva los datos anteriores y excluye la carpeta de entrenamiento de los nombres de personas.
+
 ## 0.5.4 — Ciclo de vida y memoria
 
 - Revierte suscripciones MQTT parciales cuando falla la carga y cancela las pendientes al descargar la integración.

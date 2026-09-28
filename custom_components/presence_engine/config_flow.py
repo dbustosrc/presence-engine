@@ -441,6 +441,8 @@ class PresenceEngineConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             user_input = dict(user_input)
             refresh = user_input.pop("refresh_catalogue", False)
+            if not user_input.get("password") and values.get("password") and user_input.get("username", values.get("username")) == values.get("username"):
+                user_input["password"] = values["password"]
             draft = deepcopy(self._draft)
             draft["frigate"] = {**values, **user_input}
             try:
@@ -448,10 +450,16 @@ class PresenceEngineConfigFlow(ConfigFlow, domain=DOMAIN):
             except (ConfigurationError, ValueError, TypeError) as err:
                 return self.async_show_form(step_id="frigate", data_schema=self._frigate_schema(user_input), errors={"base": "invalid_configuration"}, description_placeholders={"detail": str(err)})
             self._draft = draft
-            if refresh and self._reconfiguring:
-                runtime = getattr(self._get_reconfigure_entry(), "runtime_data", None)
-                if runtime and values == draft["frigate"]:
-                    await runtime.async_refresh_faces(force=True)
+            if refresh:
+                runtime = getattr(self._get_reconfigure_entry(), "runtime_data", None) if self._reconfiguring else None
+                saved = self._get_reconfigure_entry().data[CONF_CONFIGURATION].get("frigate", {}) if self._reconfiguring else {}
+                defaults = {"url": "", "username": "", "password": "", "cookie_name": "frigate_token"}
+                changed_connection = any(saved.get(key, default) != draft["frigate"].get(key, default) for key, default in defaults.items())
+                error = "save_before_refresh" if runtime is None or changed_connection else None
+                if error is None and not await runtime.async_refresh_faces():
+                    error = "cannot_refresh_catalogue"
+                if error:
+                    return self.async_show_form(step_id="frigate", data_schema=self._frigate_schema(draft["frigate"]), errors={"base": error}, description_placeholders={"detail": ""})
             return await self.async_step_menu()
         return self.async_show_form(step_id="frigate", data_schema=self._frigate_schema(values), description_placeholders={"detail": ""})
 
@@ -461,7 +469,6 @@ class PresenceEngineConfigFlow(ConfigFlow, domain=DOMAIN):
         _field(schema, "url", selector({"text": {"type": "url"}}), values, default="")
         _field(schema, "username", _text(), values, default="")
         _field(schema, "password", selector({"text": {"type": "password"}}), values, default="")
-        _field(schema, "availability_topic", _text(), values, default="frigate/available")
         _field(schema, "cookie_name", _text(), values, default="frigate_token")
         _field(schema, "refresh_catalogue", bool, {}, default=False)
         return vol.Schema(schema)

@@ -36,9 +36,9 @@ privado.
   `end_time`, `current_zones`, clase y cámara.
 - `frigate/tracked_object_update`, tipo `face`: ID del mismo objetivo, nombre,
   puntuación, cámara y timestamp.
-- `frigate/available`: sincronización opcional del catálogo al reconectar.
 - `/api/faces` y `/api/login`: consulta opcional del catálogo y autenticación,
-  sin entrenamiento, altas de rostros ni polling periódico.
+  únicamente por solicitud manual, sin entrenamiento, altas de rostros ni polling
+  periódico. No hay suscripción de disponibilidad para actualizar el catálogo.
 
 Frigate publica intentos faciales incluso bajo el umbral. El adaptador aplica
 el umbral configurado y un intento rechazado no borra una identidad ya

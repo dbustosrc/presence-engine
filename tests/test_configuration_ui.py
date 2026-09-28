@@ -60,7 +60,8 @@ class ConfigurationUITests(unittest.TestCase):
 
     def test_catalogue_is_not_observation_and_failed_updates_preserve_metadata(self):
         faces = FaceDiscovery()
-        faces.update_catalogue({"New Face": ["a.webp"]})
+        faces.update_catalogue({"New Face": ["a.webp"], "train": ["pending.webp"]})
+        self.assertEqual(faces.catalogue, ["New Face"])
         self.assertEqual(faces.observed, {})
         self.assertTrue(faces.observe("New Face", "new_identity"))
         self.assertFalse(faces.observe("New Face", "new_identity"))

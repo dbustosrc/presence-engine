@@ -7,7 +7,6 @@ from collections.abc import Callable
 from datetime import datetime
 import json
 import logging
-from time import monotonic
 from typing import Any
 
 from homeassistant.components import mqtt
@@ -90,10 +89,7 @@ class HomeAssistantPresenceRuntime:
         self._face_settings = dict(entry.data[CONF_CONFIGURATION].get("frigate", {}))
         self._face_task: asyncio.Task | None = None
         self._face_session: ClientSession | None = None
-        self._last_face_request = float("-inf")
-        self._face_refresh_pending = False
-        self._face_refresh_lock = asyncio.Lock()
-        self.face_catalogue_status = "not_configured"
+        self.face_catalogue_status = "not_requested" if self._face_settings.get("url") else "not_configured"
         self._stopping = False
         self.activated_discovery = activated_discovery
         self.pending_discovery = pending_discovery
@@ -161,7 +157,6 @@ class HomeAssistantPresenceRuntime:
                 self._async_registry_changed,
             )
         )
-        self._schedule_face_refresh()
         self._unsubscribers.append(
             self.hass.bus.async_listen(
                 dr.EVENT_DEVICE_REGISTRY_UPDATED,
@@ -194,7 +189,6 @@ class HomeAssistantPresenceRuntime:
     async def _async_stop_face_refresh(self, _event: Event | None = None) -> None:
         """Cancel optional HTTP work before HA reaches final-write shutdown."""
         self._stopping = True
-        self._face_refresh_pending = False
         if self._face_task is not None:
             self._face_task.cancel()
             await asyncio.gather(self._face_task, return_exceptions=True)
@@ -212,65 +206,34 @@ class HomeAssistantPresenceRuntime:
         self._identity_listeners.add(listener)
         return lambda: self._identity_listeners.discard(listener)
 
-    @callback
-    def _schedule_face_refresh(self) -> None:
-        if self._stopping or not self._face_settings.get("url"):
-            return
-        if self._face_task is not None and not self._face_task.done():
-            self._face_refresh_pending = True
-            return
-        self._face_task = self.entry.async_create_background_task(
-            self.hass, self._async_refresh_faces(), "Presence Engine face catalogue",
-        )
-
-    async def async_refresh_faces(self, *, force=False) -> bool:
-        """Await the same owned background task used by MQTT and startup."""
+    async def async_refresh_faces(self) -> bool:
+        """Refresh only on manual request; share concurrent requests."""
         if not self._face_settings.get("url") or self._stopping:
             return False
-        if force and self._face_task is not None and not self._face_task.done():
-            self._face_task.cancel()
-            await asyncio.gather(self._face_task, return_exceptions=True)
-            self._face_task = None
-        if self._stopping:
-            return False
-        if force:
+        if self._face_task is None or self._face_task.done():
             self._face_task = self.entry.async_create_background_task(
-                self.hass, self._async_refresh_faces(force=True), "Presence Engine face catalogue",
+                self.hass, self._async_refresh_faces(), "Presence Engine face catalogue",
             )
-        else:
-            self._schedule_face_refresh()
-        return await self._face_task
+        return await asyncio.shield(self._face_task)
 
-    async def _async_refresh_faces(self, *, force=False) -> bool:
-        """Coalesce bursts and retry only after another meaningful trigger."""
+    async def _async_refresh_faces(self) -> bool:
+        """Fetch metadata without creating presence or identity records."""
         if not self._face_settings.get("url") or self._stopping:
             return False
-        if not force and monotonic() - self._last_face_request < 60:
-            # One coalesced trailing request, not a recurring polling timer.
-            await asyncio.sleep(max(0, 60 - (monotonic() - self._last_face_request)))
-        async with self._face_refresh_lock:
+        try:
+            if self._face_session is None:
+                self._face_session = async_create_clientsession(self.hass, cookie_jar=DummyCookieJar())
+            payload = await fetch_face_catalogue(self._face_session, self._face_settings)
             if self._stopping:
                 return False
-            self._last_face_request = monotonic()
-            self._face_refresh_pending = False
-            try:
-                if self._face_session is None:
-                    self._face_session = async_create_clientsession(self.hass, cookie_jar=DummyCookieJar())
-                payload = await fetch_face_catalogue(self._face_session, self._face_settings)
-                if self._stopping:
-                    return False
-                self.faces.update_catalogue(payload)
-            except (ClientError, TimeoutError, ValueError, TypeError, KeyError):
-                self.face_catalogue_status = "unavailable"
-                # Do not log response bodies, credentials or URLs; preserve metadata.
-                _LOGGER.debug("Face catalogue refresh unavailable; detection remains push-only")
-                return False
+            self.faces.update_catalogue(payload)
+        except (ClientError, TimeoutError, ValueError, TypeError, KeyError):
+            self.face_catalogue_status = "unavailable"
+            # Do not log response bodies, credentials or URLs; preserve metadata.
+            _LOGGER.debug("Face catalogue refresh unavailable; detection remains push-only")
+            return False
         self.face_catalogue_status = "ready"
         self._store.async_delay_save(self._export_state, self._save_delay_seconds)
-        if self._face_refresh_pending:
-            self._face_refresh_pending = False
-            self._face_task = None
-            self._schedule_face_refresh()
         return True
 
     @callback
@@ -366,22 +329,12 @@ class HomeAssistantPresenceRuntime:
                 subscriptions.append(await mqtt.async_subscribe(
                     self.hass, topic, self._async_mqtt_message, qos=0, encoding="utf-8",
                 ))
-            if self._face_settings.get("url"):
-                topic = self._face_settings.get("availability_topic", "frigate/available")
-                subscriptions.append(await mqtt.async_subscribe(
-                    self.hass, topic, self._async_frigate_available, qos=0, encoding="utf-8",
-                ))
         except (Exception, asyncio.CancelledError):
             for unsubscribe in reversed(subscriptions):
                 unsubscribe()
             raise
         self._unsubscribers.extend(subscriptions)
         self._mqtt_subscribed = True
-
-    @callback
-    def _async_frigate_available(self, message) -> None:
-        if message.payload == "online":
-            self._schedule_face_refresh()
 
     @callback
     def _async_component_loaded(self, event: Event) -> None:
@@ -467,7 +420,6 @@ class HomeAssistantPresenceRuntime:
                 if self.faces.observe(name, identity):
                     for listener in tuple(self._identity_listeners):
                         listener(identity)
-                    self._schedule_face_refresh()
         self.coordinator.async_set_updated_data(update.snapshot)
         for detection in update.detections:
             event_data = detection_payload(detection)
