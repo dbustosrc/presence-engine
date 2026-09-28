@@ -44,7 +44,7 @@ class PresenceConfig:
     adjacency: Mapping[str, frozenset[str]] = field(default_factory=dict)
     trajectory_window: timedelta = timedelta(seconds=20)
     device_continuity_window: timedelta = timedelta(seconds=180)
-    previous_continuity_window: timedelta = timedelta(seconds=180)
+    previous_continuity_window: timedelta = timedelta(seconds=90)
     count_stability_window: timedelta = timedelta(seconds=3)
 
     def __post_init__(self) -> None:
@@ -117,6 +117,9 @@ class PresenceResolver:
         people=self._known_people(active,previous,now)
         groups=self._reconcile_area_populations(self._evidence_groups(active,now))
         animals=tuple(group for group in groups if group.kind is TargetKind.ANIMAL)
+        physical_areas={group.location.area for group in groups
+                        if group.kind is not TargetKind.ANIMAL and group.location
+                        and group.location.area and group.maximum}
         conflicts: list[str]=[]
         reasons: list[str]=[]
         extras: list[PresenceHypothesis]=[]
@@ -136,7 +139,7 @@ class PresenceResolver:
                     ):
                         group_min=max(0,group_min-1)
                         reasons.append("anonymous_count_may_include_animal")
-                corroborated=self._device_corroboration_match(people,group)
+                corroborated=self._device_corroboration_match(people,group,physical_areas)
                 if corroborated is not None:
                     self._apply_group_location(corroborated,group,True)
                     group_min=max(0,group_min-1)
@@ -312,7 +315,7 @@ class PresenceResolver:
                     continue
                 if prior.location is None:
                     continue
-                if now-prior.location.observed_at > self._config.previous_continuity_window:
+                if now-prior.location.observed_at >= self._config.previous_continuity_window:
                     continue
                 current=people.get(prior.identity)
                 if current is not None:
@@ -329,10 +332,11 @@ class PresenceResolver:
                     continue
         return people
 
-    @staticmethod
     def _device_corroboration_match(
+        self,
         people: dict[str, _PersonCandidate],
         group: _EvidenceGroup,
+        physical_areas: set[str],
     ) -> _PersonCandidate | None:
         """Use physical evidence to locate one device-backed person.
 
@@ -345,10 +349,14 @@ class PresenceResolver:
         candidates = [
             person
             for person in people.values()
-            if person.from_device
-            and not (person.location and person.location.area)
+            if ((person.from_device and not (person.location and person.location.area))
+                or (person.status == "continued" and person.location is not None
+                    and person.location.area not in physical_areas and group.minimum > 0))
             and any(
                 location.area == group.location.area
+                and (person.status != "continued" or abs(
+                    location.observed_at - group.location.observed_at
+                ) <= self._config.trajectory_window)
                 for location in person.device_locations
             )
         ]

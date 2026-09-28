@@ -1,5 +1,10 @@
 # Historial de cambios
 
+## 0.5.7 — Continuidad de ubicación
+
+- Actualiza una ubicación conservada cuando cesa su evidencia anterior y una nueva detección física coincide temporalmente con un dispositivo registrado.
+- Reduce a 90 segundos la continuidad máxima de la ubicación anterior cuando no aparece evidencia suficiente para trasladarla.
+
 ## 0.5.6 — Recuento multizona coherente
 
 - Retira recuentos anteriores al cambiar entre zonas, solapamientos y objetivos fuera de zonas en radares MTR, evitando sumar evidencia obsoleta.

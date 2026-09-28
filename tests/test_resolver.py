@@ -420,6 +420,51 @@ class ResolverTests(unittest.TestCase):
         self.assertEqual(person.location.area,"beta")
         self.assertEqual((result.count_minimum,result.count_maximum),(1,1))
 
+    def test_new_physical_room_and_device_release_unobserved_previous_room(self) -> None:
+        home = observation(
+            "home", kind=TargetKind.PERSON,
+            location=SpatialClaim(SpatialLevel.HOME, observed_at=at(-100), method="home_scope", quality=Quality.LOW),
+            identity_claim=identity(seconds=-100),
+        )
+        previous = self.resolve(
+            home,
+            observation("device-old", kind=TargetKind.DEVICE, location=area("alpha", -10),
+                        identity_claim=identity(seconds=-10, method="registered_owner")),
+            observation("radar-old", kind=TargetKind.UNKNOWN_LIVING, location=area("alpha", -10)),
+        )
+        self.resolver = PresenceResolver(self.resolver._config, FrozenClock(at(20)))
+        device = observation("device-new", kind=TargetKind.DEVICE, location=area("gamma", 19),
+                             identity_claim=identity(seconds=19, method="registered_owner"))
+        new_radar = observation("radar-new", kind=TargetKind.UNKNOWN_LIVING,
+                                location=area("gamma", 20))
+
+        moved = self.resolve(home, device, new_radar, previous=previous)
+        person = next(item for item in moved.presences if item.identity == "person_a")
+        self.assertEqual(person.location.area, "gamma")
+        self.assertEqual(person.location_status, "correlated_movement")
+        self.assertEqual((moved.count_minimum, moved.count_maximum), (1, 1))
+
+        still_observed = self.resolve(
+            home, device, new_radar,
+            observation("radar-old-active", kind=TargetKind.UNKNOWN_LIVING,
+                        location=area("alpha", 20)),
+            previous=previous,
+        )
+        person = next(item for item in still_observed.presences if item.identity == "person_a")
+        self.assertEqual(person.location.area, "alpha")
+        self.assertTrue(any(item.identity is None and item.location.area == "gamma"
+                            for item in still_observed.presences))
+
+        stale_device = observation(
+            "device-left-behind", kind=TargetKind.DEVICE, location=area("gamma", -60),
+            identity_claim=identity(seconds=-60, method="registered_owner"),
+        )
+        visitor = self.resolve(home, stale_device, new_radar, previous=previous)
+        person = next(item for item in visitor.presences if item.identity == "person_a")
+        self.assertEqual(person.location.area, "alpha")
+        self.assertTrue(any(item.identity is None and item.location.area == "gamma"
+                            for item in visitor.presences))
+
     def test_previous_snapshot_without_current_evidence_does_not_create_presence(self) -> None:
         previous=PresenceSnapshot(
             contract_version=CONTRACT_VERSION,snapshot_id="previous",revision=6,evaluated_at=at(-1),

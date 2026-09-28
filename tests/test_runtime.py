@@ -804,9 +804,9 @@ class RuntimeTests(unittest.TestCase):
         )
         self.assertEqual(person.location.area, "alpha")
         self.assertEqual(person.location_status, "continued")
-        self.assertEqual(runtime.next_expiration(), at(181))
+        self.assertEqual(runtime.next_expiration(), at(91))
 
-        current[0] = at(182)
+        current[0] = at(91)
         expired = runtime.refresh()
 
         person = next(
