@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import json
 
-from aiohttp import ClientTimeout, DummyCookieJar
-from homeassistant.helpers.aiohttp_client import async_create_clientsession
+from aiohttp import ClientTimeout
 
 
-async def fetch_face_catalogue(hass, settings: dict) -> object:
-    async with async_create_clientsession(hass, cookie_jar=DummyCookieJar()) as session:
-        return await _fetch(session, settings)
+async def fetch_face_catalogue(session, settings: dict) -> object:
+    """Borrow the entry's managed session; its owner handles cleanup."""
+    return await _fetch(session, settings)
 
 
 async def _fetch(session, settings):

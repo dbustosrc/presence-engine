@@ -11,11 +11,12 @@ from time import monotonic
 from typing import Any
 
 from homeassistant.components import mqtt
-from aiohttp import ClientError
+from aiohttp import ClientError, ClientSession, DummyCookieJar
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EVENT_COMPONENT_LOADED
+from homeassistant.const import EVENT_COMPONENT_LOADED, EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, State, callback
 from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -88,6 +89,7 @@ class HomeAssistantPresenceRuntime:
         self.faces = FaceDiscovery(max_records)
         self._face_settings = dict(entry.data[CONF_CONFIGURATION].get("frigate", {}))
         self._face_task: asyncio.Task | None = None
+        self._face_session: ClientSession | None = None
         self._last_face_request = float("-inf")
         self._face_refresh_pending = False
         self._face_refresh_lock = asyncio.Lock()
@@ -108,6 +110,9 @@ class HomeAssistantPresenceRuntime:
 
     async def async_setup(self) -> None:
         """Restore state, subscribe exactly once and seed configured entities."""
+        self._unsubscribers.append(self.hass.bus.async_listen(
+            EVENT_HOMEASSISTANT_STOP, self._async_stop_face_refresh,
+        ))
         restored = await self._store.async_load()
         if restored:
             self.engine.restore_state(restored)
@@ -172,11 +177,7 @@ class HomeAssistantPresenceRuntime:
 
     async def async_shutdown(self) -> None:
         """Remove listeners before final persistence."""
-        self._stopping = True
-        if self._face_task is not None:
-            self._face_task.cancel()
-            await asyncio.gather(self._face_task, return_exceptions=True)
-            self._face_task = None
+        await self._async_stop_face_refresh()
         if self._cancel_expiration is not None:
             self._cancel_expiration()
             self._cancel_expiration = None
@@ -184,6 +185,15 @@ class HomeAssistantPresenceRuntime:
             self._unsubscribers.pop()()
         self._identity_listeners.clear()
         await self._store.async_save(self._export_state())
+
+    async def _async_stop_face_refresh(self, _event: Event | None = None) -> None:
+        """Cancel optional HTTP work before HA reaches final-write shutdown."""
+        self._stopping = True
+        self._face_refresh_pending = False
+        if self._face_task is not None:
+            self._face_task.cancel()
+            await asyncio.gather(self._face_task, return_exceptions=True)
+            self._face_task = None
 
     def _export_state(self) -> dict:
         return {**self.engine.export_state(), "face_discovery": self.faces.export()}
@@ -204,26 +214,46 @@ class HomeAssistantPresenceRuntime:
         if self._face_task is not None and not self._face_task.done():
             self._face_refresh_pending = True
             return
-        self._face_task = self.hass.async_create_task(
-            self.async_refresh_faces(), "Presence Engine face catalogue",
+        self._face_task = self.entry.async_create_background_task(
+            self.hass, self._async_refresh_faces(), "Presence Engine face catalogue",
         )
 
     async def async_refresh_faces(self, *, force=False) -> bool:
-        """Coalesce bursts and retry only after another meaningful trigger."""
+        """Await the same owned background task used by MQTT and startup."""
+        if not self._face_settings.get("url") or self._stopping:
+            return False
         if force and self._face_task is not None and not self._face_task.done():
             self._face_task.cancel()
             await asyncio.gather(self._face_task, return_exceptions=True)
             self._face_task = None
+        if self._stopping:
+            return False
+        if force:
+            self._face_task = self.entry.async_create_background_task(
+                self.hass, self._async_refresh_faces(force=True), "Presence Engine face catalogue",
+            )
+        else:
+            self._schedule_face_refresh()
+        return await self._face_task
+
+    async def _async_refresh_faces(self, *, force=False) -> bool:
+        """Coalesce bursts and retry only after another meaningful trigger."""
         if not self._face_settings.get("url") or self._stopping:
             return False
         if not force and monotonic() - self._last_face_request < 60:
             # One coalesced trailing request, not a recurring polling timer.
             await asyncio.sleep(max(0, 60 - (monotonic() - self._last_face_request)))
         async with self._face_refresh_lock:
+            if self._stopping:
+                return False
             self._last_face_request = monotonic()
             self._face_refresh_pending = False
             try:
-                payload = await fetch_face_catalogue(self.hass, self._face_settings)
+                if self._face_session is None:
+                    self._face_session = async_create_clientsession(self.hass, cookie_jar=DummyCookieJar())
+                payload = await fetch_face_catalogue(self._face_session, self._face_settings)
+                if self._stopping:
+                    return False
                 self.faces.update_catalogue(payload)
             except (ClientError, TimeoutError, ValueError, TypeError, KeyError):
                 self.face_catalogue_status = "unavailable"

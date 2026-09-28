@@ -1,5 +1,6 @@
 """Native HA checks; also runnable in an isolated HA interpreter without setup/I/O."""
 
+import asyncio
 from copy import deepcopy
 import importlib.util
 import json
@@ -23,9 +24,20 @@ from integration_helpers import integration_config
 from helpers import at
 
 
+def catalogue_entry():
+    return SimpleNamespace(
+        entry_id="isolated", data={CONF_CONFIGURATION: {"frigate": {"url": "http://frigate.local"}}},
+        options={}, async_on_unload=Mock(),
+        async_create_background_task=lambda owner, target, name: owner.async_create_background_task(target, name, eager_start=False),
+    )
+
+
 @unittest.skipUnless(HA_AVAILABLE, "Requires an isolated Home Assistant interpreter")
 class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        session_factory = patch("presence_engine.ha_runtime.async_create_clientsession", return_value=Mock())
+        session_factory.start()
+        self.addCleanup(session_factory.stop)
         self.flow = PresenceEngineConfigFlow()
         self.flow.hass = SimpleNamespace(config_entries=SimpleNamespace(async_entries=lambda *args: []))
         self.flow._descriptors = lambda: ()
@@ -159,7 +171,7 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_catalogue_failure_preserves_data_and_never_creates_presence(self):
         hass = HomeAssistant("/tmp/presence-engine-no-io")
-        entry = SimpleNamespace(entry_id="isolated", data={CONF_CONFIGURATION: {"frigate": {"url": "http://frigate.local"}}}, options={}, async_on_unload=Mock())
+        entry = catalogue_entry()
         runtime = HomeAssistantPresenceRuntime(hass, entry, integration_config(), max_records=2000, save_delay_seconds=15)
         runtime._store = Mock()
         runtime._store.async_save = AsyncMock()
@@ -175,7 +187,7 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
     async def test_catalogue_request_is_coalesced_and_cancelled_on_unload(self):
         import asyncio
         hass = HomeAssistant("/tmp/presence-engine-no-io")
-        entry = SimpleNamespace(entry_id="isolated", data={CONF_CONFIGURATION: {"frigate": {"url": "http://frigate.local"}}}, options={}, async_on_unload=Mock())
+        entry = catalogue_entry()
         runtime = HomeAssistantPresenceRuntime(hass, entry, integration_config(), max_records=2000, save_delay_seconds=15)
         runtime._store = Mock(async_save=AsyncMock())
         release = asyncio.Event()
@@ -217,3 +229,87 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, {"New Face": ["a.webp"]})
         self.assertEqual(session.get.call_args.args, ("https://frigate.local/api/faces",))
         self.assertEqual(session.get.call_args.kwargs["headers"], {"Authorization": "Bearer fixture-token"})
+
+    async def test_catalogue_reuses_managed_session_without_closing_it(self):
+        hass = HomeAssistant("/tmp/presence-engine-no-io")
+        entry = catalogue_entry()
+        runtime = HomeAssistantPresenceRuntime(hass, entry, integration_config(), max_records=2000, save_delay_seconds=15)
+        runtime._store = Mock(async_save=AsyncMock())
+        session = Mock()
+        session.closed = False
+        class ManagedSession:
+            async def __aenter__(self): return session
+            async def __aexit__(self, *args): session.closed = True
+        factory = Mock(return_value=ManagedSession())
+        try:
+            with patch("presence_engine.ha_runtime.async_create_clientsession", factory), patch("presence_engine.ha_face_catalogue._fetch", new_callable=AsyncMock, return_value={"Registered Face": []}) as fetch:
+                self.assertTrue(await runtime.async_refresh_faces(force=True))
+                self.assertTrue(await runtime.async_refresh_faces(force=True))
+                self.assertEqual(factory.call_count, 1)
+                self.assertFalse(session.closed)
+                self.assertIs(fetch.call_args.args[0], factory.return_value)
+        finally:
+            await runtime.async_shutdown()
+
+    async def test_catalogue_cancelled_at_stop_during_request_or_debounce(self):
+        from homeassistant.const import EVENT_HOMEASSISTANT_STOP
+        for debounce in (False, True):
+            with self.subTest(debounce=debounce):
+                hass = HomeAssistant("/tmp/presence-engine-no-io")
+                entry = catalogue_entry()
+                runtime = HomeAssistantPresenceRuntime(hass, entry, integration_config(), max_records=2000, save_delay_seconds=15)
+                runtime._store = Mock(async_load=AsyncMock(return_value=None), async_save=AsyncMock())
+                runtime._reschedule_expiration = Mock()
+                blocked = asyncio.Event()
+                async def fetch(*args):
+                    await blocked.wait()
+                    return {"Registered Face": []}
+                try:
+                    with patch("presence_engine.ha_runtime.fetch_face_catalogue", side_effect=fetch) as mock_fetch:
+                        if debounce:
+                            from time import monotonic
+                            runtime._last_face_request = monotonic()
+                        await runtime.async_setup()
+                        task = runtime._face_task
+                        await asyncio.sleep(0)
+                        hass.bus.async_fire(EVENT_HOMEASSISTANT_STOP)
+                        for _ in range(6):
+                            await asyncio.sleep(0)
+                        self.assertTrue(runtime._stopping)
+                        self.assertTrue(task.cancelled())
+                        self.assertIsNone(runtime._face_task)
+                        runtime._schedule_face_refresh()
+                        self.assertIsNone(runtime._face_task)
+                        self.assertEqual(mock_fetch.call_count, 0 if debounce else 1)
+                finally:
+                    await runtime.async_shutdown()
+
+    async def test_forced_catalogue_refresh_is_also_cancelled_on_stop(self):
+        from homeassistant.const import EVENT_HOMEASSISTANT_STOP
+        hass = HomeAssistant("/tmp/presence-engine-no-io")
+        runtime = HomeAssistantPresenceRuntime(hass, catalogue_entry(), integration_config(), max_records=2000, save_delay_seconds=15)
+        runtime._store = Mock(async_load=AsyncMock(return_value=None), async_save=AsyncMock())
+        runtime._reschedule_expiration = Mock()
+        blocked = asyncio.Event()
+        async def fetch(*args):
+            await blocked.wait()
+            return {}
+        waiter = None
+        try:
+            with patch.object(runtime, "_schedule_face_refresh"):
+                await runtime.async_setup()
+            with patch("presence_engine.ha_runtime.fetch_face_catalogue", side_effect=fetch):
+                waiter = asyncio.create_task(runtime.async_refresh_faces(force=True))
+                await asyncio.sleep(0)
+                await asyncio.sleep(0)
+                self.assertIsNotNone(runtime._face_task)
+                hass.bus.async_fire(EVENT_HOMEASSISTANT_STOP)
+                for _ in range(6):
+                    await asyncio.sleep(0)
+                self.assertTrue(waiter.cancelled())
+                self.assertIsNone(runtime._face_task)
+                runtime._store.async_delay_save.assert_not_called()
+        finally:
+            await runtime.async_shutdown()
+            if waiter is not None:
+                await asyncio.gather(waiter, return_exceptions=True)

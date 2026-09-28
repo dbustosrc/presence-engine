@@ -1,5 +1,10 @@
 # Historial de cambios
 
+## 0.5.3 — Ciclo de vida del catálogo facial
+
+- Reutiliza la sesión HTTP del catálogo sin cerrar recursos gestionados por Home Assistant.
+- Cancela las consultas pendientes al detener o recargar la integración, sin retrasar el inicio ni añadir consultas periódicas.
+
 ## 0.5.2 — Contexto temporal de capturas
 
 - Utiliza la hora propia de la captura de Frigate cuando está disponible,
