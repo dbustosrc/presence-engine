@@ -33,6 +33,30 @@ class RuntimeTests(unittest.TestCase):
                 )
             )
 
+    def test_detection_revision_history_respects_record_limit(self) -> None:
+        runtime = PresenceRuntime(integration_config(), now=lambda: at(100), max_records=5)
+        for index in range(12):
+            event_id = f"bounded-{index}"
+            update = runtime.process(AdapterEnvelope(
+                "mqtt", "frigate/events",
+                {"type": "end", "after": {
+                    "id": event_id, "camera": "camera_a", "label": "person",
+                    "start_time": at(index).timestamp(),
+                    "frame_time": at(index + 1).timestamp(),
+                    "end_time": at(index + 1).timestamp(),
+                    "current_zones": ["zone_alpha"],
+                }}, at(index + 1), at(index + 1),
+            ))
+            self.assertEqual(update.detections[0].revision, 1)
+        saved = runtime.export_state()
+        self.assertLessEqual(len(saved["observations"]), 5)
+        self.assertLessEqual(len(saved["detection_revisions"]), 5)
+        self.assertNotIn("bounded-0", saved["detection_revisions"])
+        self.assertIn("bounded-11", saved["detection_revisions"])
+        restored = PresenceRuntime(integration_config(), now=lambda: at(100), max_records=5)
+        restored.restore_state(saved)
+        self.assertEqual(restored.export_state()["detection_revisions"], saved["detection_revisions"])
+
     def test_event_and_late_face_become_one_presence_and_one_detection(self) -> None:
         event = AdapterEnvelope(
             "mqtt",

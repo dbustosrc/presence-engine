@@ -1,26 +1,13 @@
-# Reversión de la integración
+# Reversión de una actualización
 
-La integración no reemplaza consumidores automáticamente. Las proyecciones
-públicas no toman propiedad de entity IDs existentes. Mientras ninguna haya
-sido conectada a consumidores, la reversión no exige restaurar automatizaciones,
-scripts, templates, trackers ni dashboards.
+Si una versión nueva falla, selecciona en HACS la última versión validada de
+Presence Engine y reinicia Home Assistant. Conserva la entrada de configuración:
+el motor restaurará solo la evidencia compatible con el contrato y las fuentes
+actuales. Comprueba después que la integración carga, que sus sensores responden
+y que las suscripciones MQTT no se duplican.
 
-## Procedimiento
-
-1. Eliminar la entrada `Presence Engine` desde **Settings > Devices &
-   services**.
-2. Reiniciar Home Assistant y confirmar que no quedan entidades cargadas del
-   dominio `presence_engine`.
-3. Desinstalar `Presence Engine` desde HACS.
-4. Reiniciar Home Assistant una vez más si HACS lo solicita.
-5. Confirmar que el sistema anterior mantiene exactamente sus escritores y
-   consumidores operativos.
-
-La eliminación de la entrada descarga listeners, suscripciones MQTT, timer de
-caducidad, entidades y coordinador. El almacenamiento privado que Home
-Assistant conserve deja de ser consumido y puede retirarse mediante los
-mecanismos soportados si fuera necesario; nunca se borra manualmente desde el
-servidor.
-
-Si una proyección o evento propio se hubiera conectado a un consumidor, se
-deshabilita primero ese consumidor y solo después se elimina la entrada.
+Antes de volver a una versión anterior a un cambio de esquema, guarda una copia
+local de la configuración y verifica su compatibilidad. Si la reversión requiere
+retirar la integración, desactiva primero los consumidores que dependen de sus
+entidades y eventos. No borres manualmente archivos de Home Assistant ni restaures
+el procesador anterior en paralelo: podría crear resultados duplicados.

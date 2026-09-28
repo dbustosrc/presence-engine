@@ -250,6 +250,12 @@ class PresenceRuntime:
             self._detection_revisions[detection_id] = (
                 self._detection_revisions.get(detection_id, 0) + 1
             )
+        if detection_ids:
+            retained = {item.event_id for item in self._store.values() if item.event_id}
+            self._detection_revisions = {
+                key: revision for key, revision in self._detection_revisions.items()
+                if key in retained
+            }
         detections = tuple(
             self._resolve_detection(detection_id)
             for detection_id in sorted(detection_ids)
@@ -423,6 +429,11 @@ class PresenceRuntime:
             for detection_id, revision in detection_revisions.items():
                 if isinstance(detection_id, str) and isinstance(revision, int) and revision > 0:
                     self._detection_revisions[detection_id] = revision
+        retained = {item.event_id for item in self._store.values() if item.event_id}
+        self._detection_revisions = {
+            key: revision for key, revision in self._detection_revisions.items()
+            if key in retained
+        }
         self._snapshot = self._resolve_snapshot()
 
     def _build_adapters(self) -> tuple[SourceAdapter, ...]:

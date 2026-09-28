@@ -313,3 +313,86 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
             await runtime.async_shutdown()
             if waiter is not None:
                 await asyncio.gather(waiter, return_exceptions=True)
+
+    async def test_mqtt_subscription_failure_rolls_back_partial_subscriptions(self):
+        hass = HomeAssistant("/tmp/presence-engine-no-io")
+        runtime = HomeAssistantPresenceRuntime(hass, catalogue_entry(), integration_config(), max_records=2000, save_delay_seconds=15)
+        removed = Mock()
+        with patch("presence_engine.ha_runtime.mqtt.async_subscribe", new_callable=AsyncMock, side_effect=[removed, RuntimeError("subscription failed")]):
+            with self.assertRaisesRegex(RuntimeError, "subscription failed"):
+                await runtime._async_subscribe_mqtt()
+        removed.assert_called_once()
+        self.assertFalse(runtime._mqtt_subscribed)
+        self.assertEqual(runtime._unsubscribers, [])
+
+    async def test_shutdown_cancels_pending_mqtt_subscription(self):
+        hass = HomeAssistant("/tmp/presence-engine-no-io")
+        runtime = HomeAssistantPresenceRuntime(hass, catalogue_entry(), integration_config(), max_records=2000, save_delay_seconds=15)
+        runtime._store = Mock(async_save=AsyncMock())
+        blocked = asyncio.Event()
+        removed = Mock()
+
+        async def subscribe(*args, **kwargs):
+            if not blocked.is_set():
+                blocked.set()
+                return removed
+            await asyncio.Event().wait()
+
+        with patch("presence_engine.ha_runtime.mqtt.async_subscribe", side_effect=subscribe):
+            runtime._async_component_loaded(SimpleNamespace(data={"component": "mqtt"}))
+            task = runtime._mqtt_task
+            await blocked.wait()
+            await asyncio.sleep(0)
+            await runtime.async_shutdown()
+        removed.assert_called_once()
+        self.assertTrue(task.cancelled())
+        self.assertFalse(runtime._mqtt_subscribed)
+        self.assertEqual(runtime._unsubscribers, [])
+
+    async def test_mqtt_reload_unsubscribes_once_and_resubscribes_once(self):
+        hass = HomeAssistant("/tmp/presence-engine-no-io")
+        entry = catalogue_entry()
+        removed = []
+
+        async def subscribe(*args, **kwargs):
+            callback = Mock()
+            removed.append(callback)
+            return callback
+
+        with patch("presence_engine.ha_runtime.mqtt.async_subscribe", side_effect=subscribe):
+            for _ in range(2):
+                runtime = HomeAssistantPresenceRuntime(hass, entry, integration_config(), max_records=2000, save_delay_seconds=15)
+                runtime._store = Mock(async_save=AsyncMock())
+                await runtime._async_subscribe_mqtt()
+                count = len(removed)
+                await runtime._async_subscribe_mqtt()
+                self.assertEqual(len(removed), count)
+                await runtime.async_shutdown()
+                self.assertEqual(runtime._unsubscribers, [])
+        self.assertEqual(len(removed), 6)
+        for callback in removed:
+            callback.assert_called_once()
+
+    async def test_setup_failure_rolls_back_and_unload_cleans_runtime(self):
+        from presence_engine import async_setup_entry as setup, async_unload_entry as unload
+        configuration = deepcopy(EMPTY_CONFIGURATION)
+        entry = SimpleNamespace(entry_id="isolated", data={CONF_CONFIGURATION: configuration}, options={})
+        runtime = Mock(async_setup=AsyncMock(), async_shutdown=AsyncMock())
+        hass = SimpleNamespace(config_entries=SimpleNamespace(
+            async_forward_entry_setups=AsyncMock(side_effect=RuntimeError("platform failed")),
+            async_unload_platforms=AsyncMock(return_value=True),
+        ))
+        with patch("presence_engine.ha_discovery.collect_entity_descriptors", return_value=()), \
+             patch("presence_engine.ha_runtime.HomeAssistantPresenceRuntime", return_value=runtime), \
+             patch("presence_engine._migrate_public_projection_registry"):
+            with self.assertRaisesRegex(RuntimeError, "platform failed"):
+                await setup(hass, entry)
+        runtime.async_shutdown.assert_awaited_once()
+        entry.runtime_data = runtime
+        runtime.async_shutdown.reset_mock()
+        self.assertTrue(await unload(hass, entry))
+        runtime.async_shutdown.assert_awaited_once()
+        runtime.async_shutdown.reset_mock()
+        hass.config_entries.async_unload_platforms.return_value = False
+        self.assertFalse(await unload(hass, entry))
+        runtime.async_shutdown.assert_not_awaited()

@@ -98,6 +98,7 @@ class HomeAssistantPresenceRuntime:
         self.activated_discovery = activated_discovery
         self.pending_discovery = pending_discovery
         self._mqtt_subscribed = False
+        self._mqtt_task: asyncio.Task | None = None
         self._cancel_expiration: Callable[[], None] | None = None
         self._topic_sources = {
             topic: tuple(
@@ -178,6 +179,10 @@ class HomeAssistantPresenceRuntime:
     async def async_shutdown(self) -> None:
         """Remove listeners before final persistence."""
         await self._async_stop_face_refresh()
+        if self._mqtt_task is not None:
+            self._mqtt_task.cancel()
+            await asyncio.gather(self._mqtt_task, return_exceptions=True)
+            self._mqtt_task = None
         if self._cancel_expiration is not None:
             self._cancel_expiration()
             self._cancel_expiration = None
@@ -353,22 +358,24 @@ class HomeAssistantPresenceRuntime:
             self._reschedule_expiration()
 
     async def _async_subscribe_mqtt(self) -> None:
-        if self._mqtt_subscribed:
+        if self._mqtt_subscribed or self._stopping:
             return
-        for topic in self.engine.configuration.topics:
-            unsubscribe = await mqtt.async_subscribe(
-                self.hass,
-                topic,
-                self._async_mqtt_message,
-                qos=0,
-                encoding="utf-8",
-            )
-            self._unsubscribers.append(unsubscribe)
-        if self._face_settings.get("url"):
-            topic = self._face_settings.get("availability_topic", "frigate/available")
-            self._unsubscribers.append(await mqtt.async_subscribe(
-                self.hass, topic, self._async_frigate_available, qos=0, encoding="utf-8",
-            ))
+        subscriptions = []
+        try:
+            for topic in self.engine.configuration.topics:
+                subscriptions.append(await mqtt.async_subscribe(
+                    self.hass, topic, self._async_mqtt_message, qos=0, encoding="utf-8",
+                ))
+            if self._face_settings.get("url"):
+                topic = self._face_settings.get("availability_topic", "frigate/available")
+                subscriptions.append(await mqtt.async_subscribe(
+                    self.hass, topic, self._async_frigate_available, qos=0, encoding="utf-8",
+                ))
+        except (Exception, asyncio.CancelledError):
+            for unsubscribe in reversed(subscriptions):
+                unsubscribe()
+            raise
+        self._unsubscribers.extend(subscriptions)
         self._mqtt_subscribed = True
 
     @callback
@@ -378,9 +385,11 @@ class HomeAssistantPresenceRuntime:
 
     @callback
     def _async_component_loaded(self, event: Event) -> None:
-        if event.data.get("component") != "mqtt" or self._mqtt_subscribed:
+        if event.data.get("component") != "mqtt" or self._mqtt_subscribed or self._stopping:
             return
-        self.hass.async_create_task(
+        if self._mqtt_task is not None and not self._mqtt_task.done():
+            return
+        self._mqtt_task = self.hass.async_create_task(
             self._async_subscribe_mqtt(),
             "Presence Engine MQTT subscription",
         )

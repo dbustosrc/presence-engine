@@ -1,5 +1,10 @@
 # Historial de cambios
 
+## 0.5.4 — Ciclo de vida y memoria
+
+- Revierte suscripciones MQTT parciales cuando falla la carga y cancela las pendientes al descargar la integración.
+- Conserva únicamente revisiones de detección asociadas a evidencia aún retenida, evitando crecimiento indefinido de ese historial.
+
 ## 0.5.3 — Ciclo de vida del catálogo facial
 
 - Reutiliza la sesión HTTP del catálogo sin cerrar recursos gestionados por Home Assistant.
