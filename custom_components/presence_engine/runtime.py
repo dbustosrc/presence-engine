@@ -384,6 +384,15 @@ class PresenceRuntime:
             except (KeyError, TypeError, ValueError):
                 continue
         self._store.remove_where(self._is_orphaned_strict_face)
+        for adapter in self._adapters:
+            if isinstance(adapter, MTRCountAdapter):
+                adapter.restore_revision(max(
+                    (revision.sequence
+                     for observation in self._store.values()
+                     if observation.source.source_id == adapter.source_id
+                     for revision in observation.revisions.values()),
+                    default=0,
+                ))
         contexts = raw.get("camera_contexts")
         if isinstance(contexts, dict):
             try:

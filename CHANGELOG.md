@@ -1,5 +1,10 @@
 # Historial de cambios
 
+## 0.5.6 — Recuento multizona coherente
+
+- Retira recuentos anteriores al cambiar entre zonas, solapamientos y objetivos fuera de zonas en radares MTR, evitando sumar evidencia obsoleta.
+- Descarta mensajes duplicados o atrasados por canal sin alterar la calibración ni las mediciones de ubicación.
+
 ## 0.5.5 — Catálogo facial manual
 
 - Actualiza el catálogo únicamente bajo solicitud manual, sin consultas al iniciar ni por MQTT; el descubrimiento de identidades por reconocimiento continúa independiente.

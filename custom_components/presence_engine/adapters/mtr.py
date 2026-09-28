@@ -40,19 +40,30 @@ class MTRCountAdapter:
         self._total_entity_id = str(definition.options["total_entity_id"])
         self._zone_areas = dict(definition.options["zone_areas"])
         self._states: dict[str, _CountState] = {}
+        self._channel_times: dict[str, datetime] = {}
+        self._sequence = 0
+
+    def restore_revision(self, sequence: int) -> None:
+        """Continue the compound clock after restoring persisted evidence."""
+        self._sequence = max(self._sequence, sequence)
 
     def accepts(self, envelope: AdapterEnvelope) -> bool:
         return envelope.channel_type == "state" and envelope.channel in self._entities
 
     def parse(self, envelope: AdapterEnvelope) -> AdapterResult:
+        previous = self._channel_times.get(envelope.channel)
+        if previous is not None and envelope.observed_at <= previous:
+            return AdapterResult(ignored=True)
         raw_state = str(envelope.payload.get("state", ""))
         if raw_state.casefold() in INVALID_STATES:
+            self._channel_times[envelope.channel] = envelope.observed_at
             self._states.pop(envelope.channel, None)
             return AdapterResult(
                 remove_source_ids=(self.source_id,),
                 source_availability=(SourceAvailability(self.source_id, False),),
             )
         value = max(0, int(float(raw_state)))
+        self._channel_times[envelope.channel] = envelope.observed_at
         self._states[envelope.channel] = _CountState(
             value=value,
             observed_at=envelope.observed_at,
@@ -69,18 +80,22 @@ class MTRCountAdapter:
             entity_id: self._states[entity_id] for entity_id in self._zone_areas
         }
         zone_total = sum(state.value for state in zone_states.values())
+        composite = self._combine_states(self._states.values())
+        self._sequence = max(
+            self._sequence + 1, int(composite.observed_at.timestamp() * 1_000_000)
+        )
         observations: list[Observation] = []
 
         if zone_total > total.value:
             # A physical target can occupy overlapping logical zones. The total
             # is the hard population bound; competing areas remain candidates.
             observations.extend(
-                self._zero_zone_buckets(total, envelope.received_at)
+                self._zero_zone_buckets(composite, envelope.received_at)
             )
             observations.append(
                 self._ambiguous_observation(
                     total.value,
-                    self._combine_states((*zone_states.values(), total)),
+                    composite,
                     envelope.received_at,
                 )
             )
@@ -90,11 +105,11 @@ class MTRCountAdapter:
                 self._area_bucket_observations(zone_states, envelope.received_at)
             )
             observations.append(
-                self._ambiguous_observation(0, total, envelope.received_at)
+                self._ambiguous_observation(0, composite, envelope.received_at)
             )
             outside_value = total.value - zone_total
         observations.append(
-            self._outside_observation(outside_value, total, envelope.received_at)
+            self._outside_observation(outside_value, composite, envelope.received_at)
         )
         return AdapterResult(
             observations=tuple(observations),
@@ -215,8 +230,11 @@ class MTRCountAdapter:
         location: SpatialClaim,
     ) -> Observation:
         active = value > 0
-        sequence = int(state.observed_at.timestamp() * 1_000_000)
-        revision = RevisionStamp(sequence, state.observed_at)
+        # All buckets share the revision of this complete input combination.
+        # Claim timestamps still describe measurements, not this clock.
+        revision = RevisionStamp(
+            self._sequence, max(item.observed_at for item in self._states.values())
+        )
         dependency_group = f"{self.source_id}:{observation_id}"
         return Observation(
             observation_id=observation_id,
