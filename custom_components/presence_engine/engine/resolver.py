@@ -9,6 +9,7 @@ from typing import Callable, Iterable, Mapping, Protocol
 
 from .model import (
     CONTRACT_VERSION,
+    AreaOccupancy,
     CountClaim,
     DeviceState,
     Observation,
@@ -222,7 +223,30 @@ class PresenceResolver:
             conflicts=tuple(dict.fromkeys(conflicts)),
             reasons=tuple(dict.fromkeys(reasons)),
             unavailable_source_ids=tuple(sorted(set(unavailable))),
+            area_occupancies=self._area_occupancies(groups),
         )
+
+    @staticmethod
+    def _area_occupancies(groups: tuple[_EvidenceGroup, ...]) -> tuple[AreaOccupancy, ...]:
+        """Keep active physical evidence even when correlation consumes its count."""
+        by_area: dict[str, list[_EvidenceGroup]] = {}
+        for group in groups:
+            if group.location and group.location.area and group.maximum:
+                by_area.setdefault(group.location.area, []).append(group)
+        result = []
+        for area, items in sorted(by_area.items()):
+            location = max(items, key=lambda item: item.location.observed_at).location
+            # ponytail: conservative bounds for overlapping groups; refine
+            # independence with the full population-fusion work, not identity guesses.
+            minimum = max(item.minimum for item in items)
+            maximum = sum(item.maximum for item in items)
+            result.append(AreaOccupancy(
+                location=location,
+                count=CountClaim(minimum, maximum, location.observed_at,
+                                 minimum == maximum, location.quality),
+                source_ids=tuple(sorted({source for item in items for source in item.source_ids})),
+            ))
+        return tuple(result)
 
     def _resolve_devices(self, observations: tuple[Observation, ...]) -> tuple[DeviceState, ...]:
         result=[]

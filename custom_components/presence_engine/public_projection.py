@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any, Mapping
 
-from .engine import PresenceHypothesis, PresenceSnapshot, Quality, SpatialLevel, TargetKind
+from .engine import AreaOccupancy, PresenceHypothesis, PresenceSnapshot, Quality, SpatialLevel, TargetKind
 from .projection import image_payload
 
 if TYPE_CHECKING:
@@ -30,7 +30,7 @@ def public_presence_projection(
         _presence_payload(presence, _presence_image(presence, image_map))
         for presence in snapshot.presences
     ]
-    active_areas = _active_areas(snapshot.presences)
+    active_areas = _active_areas(snapshot.presences, snapshot.area_occupancies)
     persons = [
         {
             "person": presence.identity,
@@ -193,50 +193,55 @@ def _presence_payload(
     }
 
 
-def _active_areas(presences: tuple[PresenceHypothesis, ...]) -> list[dict[str, Any]]:
+def _active_areas(
+    presences: tuple[PresenceHypothesis, ...],
+    occupancies: tuple[AreaOccupancy, ...] = (),
+) -> list[dict[str, Any]]:
     grouped: dict[str, list[PresenceHypothesis]] = defaultdict(list)
     for presence in presences:
         if presence.location and presence.location.area:
             grouped[presence.location.area].append(presence)
 
+    occupancy_by_area = {item.location.area: item for item in occupancies}
     result: list[dict[str, Any]] = []
-    for area, items in sorted(grouped.items()):
+    for area in sorted(grouped.keys() | occupancy_by_area.keys()):
+        items = grouped.get(area, [])
+        occupancy = occupancy_by_area.get(area)
         confirmed = [item for item in items if item.location_status != "possible"]
         current = [item for item in confirmed if item.location_status != "continued"]
         counts = _classification_counts(items)
-        sources = sorted({source for item in items for source in item.location_source_ids})
-        methods = sorted(
-            {
-                item.location.method
-                for item in items
-                if item.location is not None
-            }
-        )
-        observed = max(
-            item.location.observed_at
-            for item in items
-            if item.location is not None
-        )
+        sources = {source for item in items for source in item.location_source_ids}
+        methods = {item.location.method for item in items if item.location}
+        observed = [item.location.observed_at for item in items if item.location]
+        current_observed = [item.location.observed_at for item in current]
+        minimum, maximum, current_minimum = len(confirmed), len(items), len(current)
+        if occupancy:
+            minimum = max(minimum, occupancy.count.minimum)
+            maximum = max(maximum, occupancy.count.maximum)
+            current_minimum = max(current_minimum, occupancy.count.minimum)
+            observed.append(occupancy.location.observed_at)
+            if occupancy.count.minimum:
+                current_observed.append(occupancy.location.observed_at)
+            sources.update(occupancy.source_ids)
+            methods.add(occupancy.location.method)
         result.append(
             {
                 "area": area,
-                "presence_count": len(items),
-                "minimum_count": len(confirmed),
-                "current_minimum_count": len(current),
-                "last_current_observed_at": max(
-                    (item.location.observed_at for item in current), default=None
-                ).isoformat() if current else None,
-                "maximum_count": len(items),
-                "count_status": "exact" if len(confirmed) == len(items) else "interval",
+                "presence_count": maximum,
+                "minimum_count": minimum,
+                "current_minimum_count": current_minimum,
+                "last_current_observed_at": max(current_observed).isoformat() if current_observed else None,
+                "maximum_count": maximum,
+                "count_status": "exact" if minimum == maximum else "interval",
                 "person_count": counts["person"],
                 "dog_count": counts["dog"],
                 "cat_count": counts["cat"],
                 "animal_count": counts["animal"],
-                "unknown_count": counts["unknown"],
-                "confidence": _aggregate_quality(items),
-                "sources": sources,
-                "location_methods": methods,
-                "last_observed_at": observed.isoformat(),
+                "unknown_count": counts["unknown"] + max(0, maximum - len(items)),
+                "confidence": _aggregate_quality(items) if items else occupancy.location.quality.value,
+                "sources": sorted(sources),
+                "location_methods": sorted(methods),
+                "last_observed_at": max(observed).isoformat(),
             }
         )
     return result

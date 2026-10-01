@@ -247,6 +247,19 @@ class PresenceHypothesis:
 
 
 @dataclass(frozen=True, slots=True)
+class AreaOccupancy:
+    """Active area population evidence, independent of occupant identities."""
+
+    location: SpatialClaim
+    count: CountClaim
+    source_ids: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if self.location.level is not SpatialLevel.AREA or self.count.maximum == 0:
+            raise ValueError("area occupancy requires an area and a positive maximum")
+
+
+@dataclass(frozen=True, slots=True)
 class PresenceSnapshot:
     contract_version: int
     snapshot_id: str
@@ -260,6 +273,7 @@ class PresenceSnapshot:
     conflicts: tuple[str, ...] = ()
     reasons: tuple[str, ...] = ()
     unavailable_source_ids: tuple[str, ...] = ()
+    area_occupancies: tuple[AreaOccupancy, ...] = ()
 
     def __post_init__(self) -> None:
         require_aware(self.evaluated_at, "evaluated_at")

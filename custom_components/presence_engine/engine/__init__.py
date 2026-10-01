@@ -4,6 +4,7 @@ from .detection import resolve_detection
 from .geometry import CameraGeometry, GeometryContext, resolve_camera_location
 from .model import (
     CONTRACT_VERSION,
+    AreaOccupancy,
     CountClaim,
     DetectionResult,
     DeviceState,
@@ -27,6 +28,7 @@ from .store import EvidenceStore, StoreUpdate
 
 __all__ = [
     "CONTRACT_VERSION",
+    "AreaOccupancy",
     "CameraGeometry",
     "CountClaim",
     "DetectionResult",

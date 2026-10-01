@@ -1,5 +1,12 @@
 # Historial de cambios
 
+## 0.5.11 — Ocupación independiente de la identidad
+
+- Conserva evidencia activa de ocupación de área aunque termine un evento visual más reciente o se absorba durante la correlación de personas.
+- Expone sus bounds, fuentes y hora por separado de la ubicación personal, sin renovar identidad, retrofechar trayectorias ni sumar ocupantes artificiales.
+- Los consumidores de áreas actuales mantienen su objetivo mientras exista ocupación confirmada; el vaciado, la indisponibilidad y la expiración configurada retiran esa evidencia.
+- Reconstruye la ocupación desde la evidencia persistida después de reiniciar, sin nuevos timers, suscripciones ni cambios de configuración requeridos.
+
 ## 0.5.10 — Corroboración de ocupación actual
 
 - Actualiza una ubicación continuada cuando evidencia física activa de la misma área respalda su población, conservando la hora y fuentes de esa evidencia.

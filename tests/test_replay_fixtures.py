@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from presence_engine.adapters import AdapterEnvelope
 from presence_engine.configuration import parse_configuration
 from presence_engine.runtime import PresenceRuntime
+from presence_engine.public_projection import public_presence_projection
 
 from helpers import at
 
@@ -68,6 +69,11 @@ class ReplayFixtureTests(unittest.TestCase):
         return payload
 
     def _assert_expectation(self, update, expected: dict[str, object]) -> None:
+        if "active_area" in expected:
+            self.assertTrue(any(
+                all(area.get(key) == value for key, value in expected["active_area"].items())
+                for area in public_presence_projection(update.snapshot)["active_areas"]
+            ))
         if "count" in expected:
             self.assertEqual((update.snapshot.count_minimum, update.snapshot.count_maximum), tuple(expected["count"]))
         self.assertEqual(len(update.detections), expected.get("detections", 1 if "detection" in expected else 0))

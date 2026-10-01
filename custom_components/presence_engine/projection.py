@@ -28,6 +28,12 @@ def snapshot_payload(
         "unavailable_source_ids": list(snapshot.unavailable_source_ids),
         "conflicts": list(snapshot.conflicts),
         "reasons": list(snapshot.reasons),
+        "area_occupancies": [
+            {"location": _location(item.location),
+             "count": {"minimum": item.count.minimum, "maximum": item.count.maximum},
+             "source_ids": list(item.source_ids)}
+            for item in snapshot.area_occupancies
+        ],
         "presences": [
             {
                 "hypothesis_id": presence.hypothesis_id,

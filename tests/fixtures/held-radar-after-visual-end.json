@@ -1,0 +1,182 @@
+{
+  "name": "held radar occupancy survives the end of a newer visual event",
+  "configuration": {
+    "schema_version": 1,
+    "areas": {
+      "alpha": "ground",
+      "beta": "ground"
+    },
+    "cameras": {
+      "camera_a": {
+        "floor": "ground",
+        "zone_to_area": {
+          "zone_a": "alpha"
+        }
+      }
+    },
+    "sources": [
+      {
+        "source_id": "device",
+        "adapter": "bermuda_area",
+        "entity_ids": [
+          "sensor.device_area"
+        ],
+        "identity": "person_a",
+        "target_kind": "device",
+        "spatial_quality": "medium",
+        "options": {
+          "area_map": {
+            "Alpha": "alpha"
+          }
+        }
+      },
+      {
+        "source_id": "radar",
+        "adapter": "mtr_count",
+        "entity_ids": [
+          "sensor.total",
+          "sensor.zone1",
+          "sensor.zone2",
+          "sensor.zone3"
+        ],
+        "floor": "ground",
+        "options": {
+          "total_entity_id": "sensor.total",
+          "zone_areas": {
+            "sensor.zone1": "alpha",
+            "sensor.zone2": "alpha",
+            "sensor.zone3": "beta"
+          }
+        }
+      },
+      {
+        "source_id": "events",
+        "adapter": "frigate_events",
+        "topics": [
+          "vision/events"
+        ],
+        "options": {
+          "labels": [
+            "person"
+          ]
+        }
+      }
+    ]
+  },
+  "steps": [
+    {
+      "at": 0,
+      "channel_type": "state",
+      "channel": "sensor.device_area",
+      "payload": {
+        "state": "Alpha"
+      }
+    },
+    {
+      "at": 1,
+      "channel_type": "state",
+      "channel": "sensor.total",
+      "payload": {
+        "state": "1"
+      }
+    },
+    {
+      "at": 1,
+      "channel_type": "state",
+      "channel": "sensor.zone1",
+      "payload": {
+        "state": "1"
+      }
+    },
+    {
+      "at": 1,
+      "channel_type": "state",
+      "channel": "sensor.zone2",
+      "payload": {
+        "state": "0"
+      }
+    },
+    {
+      "at": 1,
+      "channel_type": "state",
+      "channel": "sensor.zone3",
+      "payload": {
+        "state": "0"
+      }
+    },
+    {
+      "at": 2,
+      "channel_type": "mqtt",
+      "channel": "vision/events",
+      "payload": {
+        "type": "update",
+        "after": {
+          "id": "target-a",
+          "camera": "camera_a",
+          "label": "person",
+          "start_offset": 2,
+          "frame_offset": 2,
+          "current_zones": [
+            "zone_a"
+          ]
+        }
+      },
+      "expect": {
+        "active_area": {
+          "area": "alpha",
+          "current_minimum_count": 1
+        },
+        "detections": 1
+      }
+    },
+    {
+      "at": 3,
+      "channel_type": "mqtt",
+      "channel": "vision/events",
+      "payload": {
+        "type": "end",
+        "after": {
+          "id": "target-a",
+          "camera": "camera_a",
+          "label": "person",
+          "start_offset": 2,
+          "frame_offset": 2,
+          "end_offset": 3,
+          "current_zones": [
+            "zone_a"
+          ]
+        }
+      },
+      "expect": {
+        "active_area": {
+          "area": "alpha",
+          "current_minimum_count": 1
+        },
+        "detections": 1
+      }
+    },
+    {
+      "at": 4,
+      "channel_type": "state",
+      "channel": "sensor.zone1",
+      "payload": {
+        "state": "0"
+      }
+    },
+    {
+      "at": 4,
+      "channel_type": "state",
+      "channel": "sensor.total",
+      "payload": {
+        "state": "0"
+      },
+      "expect": {
+        "active_area": {
+          "area": "alpha",
+          "current_minimum_count": 0
+        }
+      }
+    }
+  ],
+  "start_at": "2030-01-01T12:00:00+00:00"
+}
