@@ -163,6 +163,8 @@ class FrigateEventAdapter:
             return None
         key = (event_id, snapshot_time)
         facts = self._snapshot_contexts.get(key, {"camera_id": camera_id, "zones": None, "area": None})
+        if facts["camera_id"] != camera_id:
+            facts = {"camera_id": camera_id, "zones": None, "area": None}
         if snapshot_time == spatial_at:
             facts = {**facts, "zones": _string_list(after.get("current_zones"))}
         # A later tracked frame cannot supply zones for this earlier image.
@@ -204,6 +206,8 @@ class FrigateEventAdapter:
                 }
             except (KeyError, TypeError, ValueError):
                 continue
+        while len(self._snapshot_contexts) > SNAPSHOT_CONTEXT_LIMIT:
+            self._snapshot_contexts.popitem(last=False)
 
     def _location(
         self,

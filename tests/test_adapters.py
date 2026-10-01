@@ -52,6 +52,8 @@ class AdapterTests(unittest.TestCase):
                    {**valid, "event_id": []}]
         adapter.restore_snapshot_contexts(invalid)
         self.assertEqual(len(adapter.export_snapshot_contexts()), 512)
+        adapter.restore_snapshot_contexts([{**valid, "event_id": "new-" + str(index)} for index in range(600)])
+        self.assertEqual(len(adapter.export_snapshot_contexts()), 512)
 
     def setUp(self) -> None:
         self.config = integration_config()
