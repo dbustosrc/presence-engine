@@ -32,6 +32,7 @@ class _CameraContextEvent:
     observed_at: datetime
     role: str
     state: str
+    until: datetime | None = None
 
 
 class TemporalCameraRegistry:
@@ -72,6 +73,18 @@ class TemporalCameraRegistry:
         assert point is not None
         return point
 
+    def record_interval(self, camera_id: str, *, destination: str, start: datetime, end: datetime) -> bool:
+        """Keep a closed, measured position interval; never extrapolate arrival."""
+        require_aware(start, "position interval start")
+        require_aware(end, "position interval end")
+        if not destination or end <= start or (end - start).total_seconds() > 3:
+            raise ValueError("invalid measured position interval")
+        event = _CameraContextEvent(start, "physical", destination.casefold(), end)
+        if event in self._events.get(camera_id, ()):
+            return False
+        self._insert(camera_id, event)
+        return True
+
     def at(self, camera_id: str, observed_at: datetime) -> CameraContextPoint | None:
         """Return the last coherent context no later than an observation."""
         require_aware(observed_at, "camera context lookup observed_at")
@@ -96,7 +109,7 @@ class TemporalCameraRegistry:
                     preset=event.state or None,
                     physical_profile_confirmed=False,
                 )
-            else:
+            elif event.role == "movement":
                 moving = event.state in camera.moving_states
                 stable = event.state in camera.stable_states
                 point = replace(
@@ -107,6 +120,17 @@ class TemporalCameraRegistry:
                     telemetry_valid=moving or stable,
                     physical_profile_confirmed=stable and point.profile is not None,
                 )
+        # A later confirmation may bracket an earlier frame. A new request
+        # inside that interval invalidates it; logical Moving alone does not.
+        physical = [event for event in events[:index]
+                    if event.role == "physical" and event.until is not None and observed_at <= event.until
+                    and not any(event.observed_at < other.observed_at <= observed_at
+                                and (other.role == "preset" or other.role == "movement"
+                                     and other.state in camera.moving_states)
+                                for other in events[:index])]
+        if physical:
+            point = replace(point, profile=physical[-1].state, moving=False,
+                            telemetry_valid=True, physical_profile_confirmed=True)
         return point
 
     def latest(self, camera_id: str) -> CameraContextPoint | None:
@@ -121,6 +145,7 @@ class TemporalCameraRegistry:
                     "observed_at": event.observed_at.isoformat(),
                     "role": event.role,
                     "state": event.state,
+                    **({"until": event.until.isoformat()} if event.until else {}),
                 }
                 for event in events
             ]
@@ -139,6 +164,7 @@ class TemporalCameraRegistry:
                         observed_at=datetime.fromisoformat(str(value["observed_at"])),
                         role=str(value["role"]),
                         state=str(value["state"]),
+                        until=datetime.fromisoformat(str(value["until"])) if value.get("until") else None,
                     )
                 )
             self._events[camera_id] = sorted(restored, key=lambda event: event.observed_at)

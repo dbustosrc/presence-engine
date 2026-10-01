@@ -1,5 +1,11 @@
 # Historial de cambios
 
+## 0.5.8 — Geometría PTZ medida
+
+- Permite configurar una entidad de intervalos PTZ medidos y refinar la ubicación de un fotograma entre lecturas físicas compatibles, incluso antes de finalizar el estado lógico de transición.
+- Conserva tiempo e imagen del hecho al recibir confirmaciones posteriores; no extrapola intervalos ni usa posiciones solicitadas como evidencia.
+- Expone recuento y antigüedad de ubicaciones actuales por separado de la continuidad, para consumidores de control de cámaras.
+
 ## 0.5.7 — Continuidad de ubicación
 
 - Actualiza una ubicación conservada cuando cesa su evidencia anterior y una nueva detección física coincide temporalmente con un dispositivo registrado.

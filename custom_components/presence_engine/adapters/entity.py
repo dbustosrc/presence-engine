@@ -24,6 +24,7 @@ from ..engine import (
     SpatialClaim,
     SpatialLevel,
     TargetKind,
+    require_aware,
 )
 from ..temporal import TemporalCameraRegistry
 
@@ -75,6 +76,7 @@ class PTZContextAdapter:
                 (camera.profile_entity_id, "profile"),
                 (camera.preset_entity_id, "preset"),
                 (camera.movement_entity_id, "movement"),
+                (camera.telemetry_entity_id, "telemetry"),
             )
             if entity_id is not None
         }
@@ -85,6 +87,31 @@ class PTZContextAdapter:
     def parse(self, envelope: AdapterEnvelope) -> AdapterResult:
         state = str(envelope.payload.get("state", ""))
         role = self._roles[envelope.channel]
+        if role == "telemetry":
+            attributes = envelope.payload.get("attributes", {})
+            if not isinstance(attributes, Mapping):
+                raise ValueError("telemetry attributes must be a mapping")
+            intervals = attributes.get("stable_intervals", [])
+            if not isinstance(intervals, list):
+                raise ValueError("stable_intervals must be a list")
+            changed = False
+            pending = []
+            for item in intervals[-64:]:
+                if not isinstance(item, Mapping) or not isinstance(item.get("destination"), str):
+                    raise ValueError("invalid measured destination")
+                start = datetime.fromisoformat(item["start"])
+                end = datetime.fromisoformat(item["end"])
+                require_aware(start, "position interval start")
+                require_aware(end, "position interval end")
+                if end > envelope.received_at:
+                    raise ValueError("position measurement is in the future")
+                if not item["destination"] or not 0 < (end - start).total_seconds() <= 3:
+                    raise ValueError("invalid measured position interval")
+                pending.append((item["destination"], start, end))
+            for destination, start, end in pending:
+                changed = self._registry.record_interval(self._camera.camera_id,
+                                                        destination=destination, start=start, end=end) or changed
+            return AdapterResult(context_changed=changed)
         if state.casefold() in INVALID_STATES:
             state = "unavailable" if role == "movement" else ""
         self._registry.update(

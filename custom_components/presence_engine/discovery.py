@@ -199,7 +199,7 @@ def resolve_raw_registry_bindings(
             for registry_id, entity_id in zip(registry_ids, entity_ids, strict=True)
         ]
     for camera in resolved.get("cameras", {}).values():
-        for role in ("profile", "preset", "movement"):
+        for role in ("profile", "preset", "movement", "telemetry"):
             registry_id = camera.get(f"{role}_registry_id")
             if registry_id in by_registry_id:
                 camera[f"{role}_entity_id"] = by_registry_id[registry_id]

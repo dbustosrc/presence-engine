@@ -4,6 +4,7 @@ from copy import deepcopy
 import json
 from pathlib import Path
 import unittest
+from datetime import datetime, timedelta
 
 from presence_engine.adapters import AdapterEnvelope
 from presence_engine.configuration import parse_configuration
@@ -25,15 +26,17 @@ class ReplayFixtureTests(unittest.TestCase):
 
     def _replay(self, path: Path) -> None:
         fixture = json.loads(path.read_text(encoding="utf-8"))
-        current = [at(0)]
+        start = datetime.fromisoformat(fixture["start_at"]) if fixture.get("start_at") else at(0)
+        instant = lambda seconds: start + timedelta(seconds=seconds)
+        current = [instant(0)]
         runtime = PresenceRuntime(
             parse_configuration(fixture["configuration"]),
             now=lambda: current[0],
         )
 
         for step in fixture["steps"]:
-            current[0] = at(step["at"])
-            payload = self._payload(step["payload"])
+            current[0] = instant(step["at"])
+            payload = self._payload(step["payload"], instant)
             update = runtime.process(
                 AdapterEnvelope(
                     step["channel_type"],
@@ -47,26 +50,34 @@ class ReplayFixtureTests(unittest.TestCase):
                 self._assert_expectation(update, step["expect"])
 
     @staticmethod
-    def _payload(raw: dict[str, object]) -> dict[str, object]:
+    def _payload(raw: dict[str, object], instant=at) -> dict[str, object]:
         payload = deepcopy(raw)
         after = payload.get("after")
         if isinstance(after, dict):
             if "start_offset" in after:
-                after["start_time"] = at(after.pop("start_offset")).timestamp()
+                after["start_time"] = instant(after.pop("start_offset")).timestamp()
             if "frame_offset" in after:
-                after["frame_time"] = at(after.pop("frame_offset")).timestamp()
+                after["frame_time"] = instant(after.pop("frame_offset")).timestamp()
             if "end_offset" in after:
-                after["end_time"] = at(after.pop("end_offset")).timestamp()
+                after["end_time"] = instant(after.pop("end_offset")).timestamp()
+            snapshot = after.get("snapshot")
+            if isinstance(snapshot, dict) and "frame_offset" in snapshot:
+                snapshot["frame_time"] = instant(snapshot.pop("frame_offset")).timestamp()
         if "timestamp_offset" in payload:
-            payload["timestamp"] = at(payload.pop("timestamp_offset")).timestamp()
+            payload["timestamp"] = instant(payload.pop("timestamp_offset")).timestamp()
         return payload
 
     def _assert_expectation(self, update, expected: dict[str, object]) -> None:
-        self.assertEqual(
-            (update.snapshot.count_minimum, update.snapshot.count_maximum),
-            tuple(expected["count"]),
-        )
-        self.assertEqual(len(update.detections), expected.get("detections", 0))
+        if "count" in expected:
+            self.assertEqual((update.snapshot.count_minimum, update.snapshot.count_maximum), tuple(expected["count"]))
+        self.assertEqual(len(update.detections), expected.get("detections", 1 if "detection" in expected else 0))
+        if "detection" in expected:
+            detection = update.detections[0]
+            values = {"area": detection.location.area if detection.location else None,
+                      "image_area": detection.image.area if detection.image else None,
+                      "image_at": detection.image.observed_at.isoformat() if detection.image else None}
+            for key, value in expected["detection"].items():
+                self.assertEqual(values[key], value)
         if "status" in expected:
             self.assertEqual(update.detections[0].status, expected["status"])
         if "presence" in expected:

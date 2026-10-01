@@ -132,6 +132,7 @@ class PresenceRuntime:
         changed = False
         detection_ids: set[str] = set()
         matched = False
+        context_changed = False
         accepted_faces: set[tuple[str, str]] = set()
         for adapter in self._adapters:
             if not adapter.accepts(envelope):
@@ -233,11 +234,12 @@ class PresenceRuntime:
                 if observation.event_id and update.changed:
                     detection_ids.add(observation.event_id)
             changed = result.context_changed or changed
+            context_changed = result.context_changed or context_changed
 
         if self._camera_id_from_envelope(envelope) not in self._unavailable_cameras:
             self._remember_event_envelope(envelope)
 
-        if any(
+        if context_changed and any(
             adapter.accepts(envelope)
             and isinstance(adapter, PTZContextAdapter)
             for adapter in self._adapters
@@ -596,14 +598,21 @@ class PresenceRuntime:
                     )
                     if stored is not None and observation.location is not None:
                         previous = stored.dimension_revisions[RevisionDimension.LOCATION]
+                        revisions = {
+                            RevisionDimension.LOCATION: RevisionStamp(
+                                previous.sequence + 1, observation.location.observed_at,
+                            )
+                        }
+                        if (observation.image is not None and stored.observation.image is not None
+                                and observation.image.observed_at == stored.observation.image.observed_at
+                                and observation.image != stored.observation.image):
+                            revisions[RevisionDimension.IMAGE] = RevisionStamp(
+                                stored.dimension_revisions[RevisionDimension.IMAGE].sequence + 1,
+                                observation.image.observed_at,
+                            )
                         observation = replace(
                             observation,
-                            revisions={
-                                RevisionDimension.LOCATION: RevisionStamp(
-                                    previous.sequence + 1,
-                                    observation.location.observed_at,
-                                )
-                            },
+                            revisions=revisions,
                         )
                     update = self._store.upsert(observation)
                     changed = update.changed or changed

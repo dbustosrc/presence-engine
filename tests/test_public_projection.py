@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 
 from presence_engine.engine import (
     ImageReference,
@@ -19,6 +20,15 @@ from helpers import area, at
 
 
 class PublicProjectionTests(unittest.TestCase):
+    def test_continued_location_does_not_drive_current_area_count(self):
+        snapshot = replace(self.snapshot, presences=(replace(self.person, location_status="continued"), self.dog))
+        result = public_presence_projection(snapshot, self.images)
+        areas = {item["area"]: item for item in result["active_areas"]}
+        self.assertEqual(areas["alpha"]["minimum_count"], 1)
+        self.assertEqual(areas["alpha"]["current_minimum_count"], 0)
+        self.assertIsNone(areas["alpha"]["last_current_observed_at"])
+        self.assertEqual(areas["beta"]["current_minimum_count"], 1)
+
     def setUp(self) -> None:
         self.person = PresenceHypothesis(
             hypothesis_id="person:person_a",

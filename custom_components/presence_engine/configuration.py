@@ -64,10 +64,12 @@ class CameraDefinition:
     profile_entity_id: str | None = None
     preset_entity_id: str | None = None
     movement_entity_id: str | None = None
+    telemetry_entity_id: str | None = None
     availability_entity_ids: tuple[str, ...] = ()
     profile_registry_id: str | None = None
     preset_registry_id: str | None = None
     movement_registry_id: str | None = None
+    telemetry_registry_id: str | None = None
     availability_registry_ids: tuple[str, ...] = ()
     availability_unavailable_states: tuple[str, ...] = (
         "unknown",
@@ -104,6 +106,7 @@ class CameraDefinition:
             self.profile_entity_id,
             self.preset_entity_id,
             self.movement_entity_id,
+            self.telemetry_entity_id,
         ):
             if value is not None:
                 _require_entity_id(value)
@@ -111,6 +114,7 @@ class CameraDefinition:
             self.profile_registry_id,
             self.preset_registry_id,
             self.movement_registry_id,
+            self.telemetry_registry_id,
         ):
             if value is not None:
                 _require_registry_id(value)
@@ -172,6 +176,7 @@ class CameraDefinition:
                 self.profile_entity_id,
                 self.preset_entity_id,
                 self.movement_entity_id,
+                self.telemetry_entity_id,
             )
             if value is not None
         )
@@ -451,10 +456,12 @@ def parse_configuration(raw: Mapping[str, Any]) -> EngineConfiguration:
                 profile_entity_id=value.get("profile_entity_id"),
                 preset_entity_id=value.get("preset_entity_id"),
                 movement_entity_id=value.get("movement_entity_id"),
+                telemetry_entity_id=value.get("telemetry_entity_id"),
                 availability_entity_ids=tuple(value.get("availability_entity_ids", ())),
                 profile_registry_id=value.get("profile_registry_id"),
                 preset_registry_id=value.get("preset_registry_id"),
                 movement_registry_id=value.get("movement_registry_id"),
+                telemetry_registry_id=value.get("telemetry_registry_id"),
                 availability_registry_ids=tuple(
                     value.get("availability_registry_ids", ())
                 ),

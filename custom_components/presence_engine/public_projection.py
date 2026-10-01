@@ -202,6 +202,7 @@ def _active_areas(presences: tuple[PresenceHypothesis, ...]) -> list[dict[str, A
     result: list[dict[str, Any]] = []
     for area, items in sorted(grouped.items()):
         confirmed = [item for item in items if item.location_status != "possible"]
+        current = [item for item in confirmed if item.location_status != "continued"]
         counts = _classification_counts(items)
         sources = sorted({source for item in items for source in item.location_source_ids})
         methods = sorted(
@@ -221,6 +222,10 @@ def _active_areas(presences: tuple[PresenceHypothesis, ...]) -> list[dict[str, A
                 "area": area,
                 "presence_count": len(items),
                 "minimum_count": len(confirmed),
+                "current_minimum_count": len(current),
+                "last_current_observed_at": max(
+                    (item.location.observed_at for item in current), default=None
+                ).isoformat() if current else None,
                 "maximum_count": len(items),
                 "count_status": "exact" if len(confirmed) == len(items) else "interval",
                 "person_count": counts["person"],

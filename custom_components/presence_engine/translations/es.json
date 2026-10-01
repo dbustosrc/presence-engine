@@ -111,6 +111,7 @@
               "profile_entity_id": "Entidad de perfil",
               "preset_entity_id": "Entidad de preset",
               "movement_entity_id": "Entidad de movimiento",
+              "telemetry_entity_id": "Entidad de intervalos PTZ medidos",
               "stable_states": "Estados de movimiento estable",
               "moving_states": "Estados de movimiento"
             }

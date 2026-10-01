@@ -437,6 +437,18 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(accepted.observations[0].identity.value, "owner")
         self.assertEqual(accepted.observations[0].status.value, "active")
 
+    def test_measured_intervals_reject_naive_dates_before_any_insert(self) -> None:
+        contexts = TemporalCameraRegistry(dict(self.config.cameras))
+        camera = replace(self.config.cameras["camera_a"], telemetry_entity_id="sensor.camera_intervals")
+        adapter = PTZContextAdapter(camera, contexts)
+        valid = {"destination": "profile_beta", "start": at(1).isoformat(), "end": at(2).isoformat()}
+        invalid = {**valid, "start": at(1).replace(tzinfo=None).isoformat(), "end": at(2).replace(tzinfo=None).isoformat()}
+        with self.assertRaises(ValueError):
+            adapter.parse(AdapterEnvelope("state", "sensor.camera_intervals", {
+                "state": "confirmed", "attributes": {"stable_intervals": [valid, invalid]},
+            }, at(3), at(3)))
+        self.assertIsNone(contexts.latest("camera_a"))
+
     def test_unavailable_ptz_telemetry_invalidates_previous_room_context(self) -> None:
         contexts = TemporalCameraRegistry(dict(self.config.cameras))
         camera = self.config.cameras["camera_a"]

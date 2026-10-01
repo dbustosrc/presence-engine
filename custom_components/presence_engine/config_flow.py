@@ -282,14 +282,14 @@ class PresenceEngineConfigFlow(ConfigFlow, domain=DOMAIN):
         for field in ("zone_to_area", "profile_to_area"):
             values[field] = mapping_rows(item.get(field, {}))
             _field(schema, field, _mapping({}, {"select": {"options": self._areas()}}), values, default=[])
-        for field in ("profile_entity_id", "preset_entity_id", "movement_entity_id"):
+        for field in ("profile_entity_id", "preset_entity_id", "movement_entity_id", "telemetry_entity_id"):
             _field(schema, field, selector({"entity": {}}), values)
         _field(schema, "availability_entity_ids", selector({"entity": {"multiple": True}}), values, default=[])
         for field, default in (("stable_states", ["available"]), ("moving_states", ["moving"]),
                                ("availability_unavailable_states", ["unknown", "unavailable", "none", "", "off", "down", "disconnected"])):
             _field(schema, field, _text(multiple=True), values, default=default)
         _field(schema, "remove", bool, {}, default=False)
-        _group(schema, "ptz", {"profile_to_area", "profile_entity_id", "preset_entity_id", "movement_entity_id", "stable_states", "moving_states"})
+        _group(schema, "ptz", {"profile_to_area", "profile_entity_id", "preset_entity_id", "movement_entity_id", "telemetry_entity_id", "stable_states", "moving_states"})
         _group(schema, "health", {"availability_entity_ids", "availability_unavailable_states"})
         def edit(data):
             key = self._key or data["id"]
@@ -300,7 +300,7 @@ class PresenceEngineConfigFlow(ConfigFlow, domain=DOMAIN):
                 changes[field] = rows_mapping(data.get(field, []))
             for field in ("stable_states", "moving_states", "availability_unavailable_states"):
                 changes[field] = data[field]
-            for field, registry_field in (("profile_entity_id", "profile_registry_id"), ("preset_entity_id", "preset_registry_id"), ("movement_entity_id", "movement_registry_id"), ("availability_entity_ids", "availability_registry_ids")):
+            for field, registry_field in (("profile_entity_id", "profile_registry_id"), ("preset_entity_id", "preset_registry_id"), ("movement_entity_id", "movement_registry_id"), ("telemetry_entity_id", "telemetry_registry_id"), ("availability_entity_ids", "availability_registry_ids")):
                 bind_entities(item, field, registry_field, data.get(field, [] if field.endswith("ids") else None), self._descriptors())
                 if field in item:
                     changes[field] = item[field]

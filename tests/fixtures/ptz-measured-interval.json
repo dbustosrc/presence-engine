@@ -1,0 +1,41 @@
+{
+  "name": "measured arrival brackets a snapshot before logical availability",
+  "start_at": "2030-01-01T12:00:00+00:00",
+  "configuration": {
+    "schema_version": 1,
+    "areas": {"alpha": "ground", "beta": "ground"},
+    "cameras": {
+      "camera_a": {
+        "floor": "ground",
+        "profile_to_area": {"profile_alpha": "alpha", "profile_beta": "beta"},
+        "profile_entity_id": "select.camera_profile",
+        "movement_entity_id": "sensor.camera_motion",
+        "telemetry_entity_id": "sensor.camera_position",
+        "stable_states": ["available"],
+        "moving_states": ["moving"]
+      }
+    },
+    "sources": [{
+      "source_id": "camera_events", "adapter": "frigate_events",
+      "topics": ["vision/events"], "options": {"labels": ["person"]}
+    }]
+  },
+  "steps": [
+    {"at": 0, "channel_type": "state", "channel": "select.camera_profile", "payload": {"state": "profile_alpha"}},
+    {"at": 0.5, "channel_type": "state", "channel": "sensor.camera_motion", "payload": {"state": "available"}},
+    {"at": 2, "channel_type": "state", "channel": "sensor.camera_motion", "payload": {"state": "moving"}},
+    {"at": 2.4, "channel_type": "mqtt", "channel": "vision/events", "payload": {
+      "type": "update", "after": {"id": "person-event", "camera": "camera_a", "label": "person",
+        "start_offset": 2.35, "frame_offset": 2.35, "snapshot": {"frame_offset": 2.35}, "current_zones": []}
+    }, "expect": {"detection": {"area": null, "image_area": null}}},
+    {"at": 2.6, "channel_type": "state", "channel": "sensor.camera_position", "payload": {
+      "state": "confirmed", "attributes": {"stable_intervals": [{
+        "destination": "profile_beta", "start": "2030-01-01T12:00:02.100000+00:00",
+        "end": "2030-01-01T12:00:02.500000+00:00", "pan": 100, "tilt": 200}]}
+    }, "expect": {"detection": {"area": "beta", "image_area": "beta", "image_at": "2030-01-01T12:00:02.350000+00:00"}}},
+    {"at": 3, "channel_type": "mqtt", "channel": "vision/events", "payload": {
+      "type": "update", "after": {"id": "person-event", "camera": "camera_a", "label": "person",
+        "start_offset": 2.35, "frame_offset": 3, "snapshot": {"frame_offset": 2.35}, "current_zones": []}
+    }, "expect": {"detection": {"area": null, "image_area": "beta"}}}
+  ]
+}

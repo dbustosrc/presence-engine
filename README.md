@@ -24,6 +24,14 @@ automatizaciones consumidoras.
 - Entidades diagnósticas, eventos y acciones con respuesta para consumidores.
 - Proyecciones públicas estables para presencia, cobertura y registros por
   identidad, con un solo escritor por salida.
+- Contexto PTZ opcional mediante `telemetry_entity_id`: consume intervalos
+  medidos `stable_intervals` con `destination`, `start` y `end`. El destino
+  es una clave de `profile_to_area`; cada intervalo cerrado dura como máximo
+  tres segundos y no se extrapola. Una confirmación posterior puede refinar
+  una captura histórica sin cambiar su hora ni la de otra ubicación actual.
+- `active_areas` distingue `current_minimum_count` y
+  `last_current_observed_at` de la ubicación continuada para consumidores de
+  control; la continuidad general permanece visible por separado.
 
 ## Límites
 
