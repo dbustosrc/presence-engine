@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from datetime import datetime
 from math import isfinite
 from typing import Any, Mapping
@@ -21,6 +22,7 @@ from ..engine import (
     RevisionStamp,
     SourceRef,
     TargetKind,
+    require_aware,
     resolve_camera_location,
 )
 from ..temporal import TemporalCameraRegistry
@@ -28,6 +30,7 @@ from ..temporal import TemporalCameraRegistry
 
 ANIMAL_LABELS = frozenset({"bird", "cat", "dog", "horse"})
 REPLAY_CAMERA_PREFIX = "_replay_"
+SNAPSHOT_CONTEXT_LIMIT = 512
 
 
 def canonical_frigate_camera_id(
@@ -56,6 +59,7 @@ class FrigateEventAdapter:
         self._definition = definition
         self._cameras = dict(cameras)
         self._contexts = contexts
+        self._snapshot_contexts: OrderedDict[tuple[str, datetime], dict[str, Any]] = OrderedDict()
 
     def accepts(self, envelope: AdapterEnvelope) -> bool:
         return envelope.channel_type == "mqtt" and envelope.channel in self._topics
@@ -93,8 +97,7 @@ class FrigateEventAdapter:
         snapshot_time = _snapshot_time(snapshot, envelope.observed_at)
         image_at = snapshot_time or spatial_at
         # Zones in this update describe the tracked frame, not an earlier snapshot.
-        image_facts = after if snapshot_time == spatial_at else {}
-        image_location = self._location(camera_id, image_facts, image_at) if snapshot_time else None
+        image_area = self._snapshot_area(event_id, camera_id, after, spatial_at, snapshot_time)
         camera = self._cameras.get(camera_id)
         if (
             camera is not None
@@ -132,7 +135,7 @@ class FrigateEventAdapter:
             image=ImageReference(
                 reference=f"frigate:event:{event_id}",
                 observed_at=image_at,
-                area=image_location.area if image_location else None,
+                area=image_area,
                 event_id=event_id,
                 origin_id=origin_camera_id,
                 snapshot_status=_media_status(diagnostics.get("has_snapshot"), ended_at, snapshot=True),
@@ -154,6 +157,53 @@ class FrigateEventAdapter:
             },
         )
         return AdapterResult(observations=(observation,))
+
+    def _snapshot_area(self, event_id, camera_id, after, spatial_at, snapshot_time):
+        if snapshot_time is None:
+            return None
+        key = (event_id, snapshot_time)
+        facts = self._snapshot_contexts.get(key, {"camera_id": camera_id, "zones": None, "area": None})
+        if snapshot_time == spatial_at:
+            facts = {**facts, "zones": _string_list(after.get("current_zones"))}
+        # A later tracked frame cannot supply zones for this earlier image.
+        location = self._location(camera_id, {"current_zones": facts["zones"] or []}, snapshot_time)
+        area = location.area if location else None
+        camera = self._cameras.get(camera_id)
+        if (camera and camera.context_entity_ids and self._contexts.at(camera_id, snapshot_time) is None):
+            # Pruned history is missing evidence, not a correction of an already
+            # established image. Actual late PTZ context still revises it above.
+            area = facts["area"]
+        self._snapshot_contexts[key] = {**facts, "area": area}
+        self._snapshot_contexts.move_to_end(key)
+        while len(self._snapshot_contexts) > SNAPSHOT_CONTEXT_LIMIT:
+            self._snapshot_contexts.popitem(last=False)
+        return area
+
+    def export_snapshot_contexts(self):
+        return [{"event_id": event_id, "observed_at": instant.isoformat(), **facts,
+                 "zones": list(facts["zones"]) if facts["zones"] is not None else None}
+                for (event_id, instant), facts in self._snapshot_contexts.items()]
+
+    def restore_snapshot_contexts(self, values):
+        if not isinstance(values, list):
+            return
+        for item in values[-SNAPSHOT_CONTEXT_LIMIT:]:
+            try:
+                camera = self._cameras[item["camera_id"]]
+                instant = require_aware(datetime.fromisoformat(item["observed_at"]), "snapshot context time")
+                if not isinstance(item["event_id"], str) or not item["event_id"]:
+                    continue
+                zones = item.get("zones")
+                if zones is not None and (not isinstance(zones, list) or any(not isinstance(z, str) for z in zones)):
+                    continue
+                area = item.get("area")
+                if area is not None and area not in {*camera.zone_to_area.values(), *camera.profile_to_area.values(), camera.fixed_area}:
+                    continue
+                self._snapshot_contexts[(item["event_id"], instant)] = {
+                    "camera_id": item["camera_id"], "zones": tuple(zones) if zones is not None else None, "area": area,
+                }
+            except (KeyError, TypeError, ValueError):
+                continue
 
     def _location(
         self,

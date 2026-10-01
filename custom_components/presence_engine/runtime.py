@@ -351,6 +351,10 @@ class PresenceRuntime:
             ),
             "observations": [encode_observation(item) for item in self._store.values()],
             "camera_contexts": self._contexts.export(),
+            "snapshot_contexts": {
+                adapter.source_id: adapter.export_snapshot_contexts()
+                for adapter in self._adapters if isinstance(adapter, FrigateEventAdapter)
+            },
             "latest_images": {
                 identity: {
                     "detection_id": record.detection_id,
@@ -386,6 +390,11 @@ class PresenceRuntime:
             except (KeyError, TypeError, ValueError):
                 continue
         self._store.remove_where(self._is_orphaned_strict_face)
+        snapshot_contexts = raw.get("snapshot_contexts", {})
+        if isinstance(snapshot_contexts, Mapping):
+            for adapter in self._adapters:
+                if isinstance(adapter, FrigateEventAdapter):
+                    adapter.restore_snapshot_contexts(snapshot_contexts.get(adapter.source_id, []))
         for adapter in self._adapters:
             if isinstance(adapter, MTRCountAdapter):
                 adapter.restore_revision(max(

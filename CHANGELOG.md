@@ -1,5 +1,11 @@
 # Historial de cambios
 
+## 0.5.9 — Contexto histórico de capturas
+
+- Conserva las zonas observadas para el fotograma de una captura cuando llegan actualizaciones posteriores del objeto, sin atribuirle las zonas del nuevo frame.
+- Restaura ese contexto acotado tras reiniciar; la pérdida de historial antiguo por límites de memoria no borra por sí sola una ubicación de imagen ya demostrada.
+- Mantiene el refinamiento por intervalos PTZ medidos y permite corregir una imagen cuando nueva evidencia histórica contradice su geometría original.
+
 ## 0.5.8 — Geometría PTZ medida
 
 - Permite configurar una entidad de intervalos PTZ medidos y refinar la ubicación de un fotograma entre lecturas físicas compatibles, incluso antes de finalizar el estado lógico de transición.

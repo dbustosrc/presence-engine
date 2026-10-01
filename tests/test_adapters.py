@@ -18,6 +18,41 @@ from integration_helpers import integration_config
 
 
 class AdapterTests(unittest.TestCase):
+    def test_pruned_ptz_history_does_not_erase_an_established_snapshot(self):
+        config = integration_config()
+        contexts = TemporalCameraRegistry(dict(config.cameras), max_points_per_camera=2)
+        contexts.update("camera_a", role="movement", state="Available", observed_at=at(0))
+        source = next(s for s in config.sources if s.adapter is AdapterType.FRIGATE_EVENTS)
+        adapter = FrigateEventAdapter(source, config.cameras, contexts)
+        def event(frame, zones):
+            return AdapterEnvelope("mqtt", "frigate/events", {"type": "update", "after": {
+                "id": "snapshot-a", "camera": "camera_a", "label": "person", "frame_time": at(frame).timestamp(),
+                "snapshot": {"frame_time": at(1).timestamp()}, "current_zones": zones,
+            }}, at(frame), at(frame))
+        self.assertEqual(adapter.parse(event(1, ["zone_alpha"])).observations[0].image.area, "alpha")
+        contexts.update("camera_a", role="movement", state="Moving", observed_at=at(10))
+        contexts.update("camera_a", role="profile", state="profile_beta", observed_at=at(11))
+        self.assertIsNone(contexts.at("camera_a", at(1)))
+        observation = adapter.parse(event(12, ["zone_beta"])).observations[0]
+        self.assertEqual(observation.image.area, "alpha")
+        self.assertIsNone(observation.location.area)
+
+    def test_snapshot_context_restore_is_bounded_and_rejects_invalid_records(self):
+        camera = integration_config().cameras
+        source = next(s for s in integration_config().sources if s.adapter is AdapterType.FRIGATE_EVENTS)
+        adapter = FrigateEventAdapter(source, camera, TemporalCameraRegistry(dict(camera)))
+        valid = {"event_id": "snapshot-a", "camera_id": "camera_a", "observed_at": at(1).isoformat(), "zones": ["zone_alpha"], "area": "alpha"}
+        adapter.restore_snapshot_contexts([
+            {**valid, "event_id": str(index), "observed_at": at(index).isoformat()}
+            for index in range(600)
+        ])
+        self.assertEqual(len(adapter.export_snapshot_contexts()), 512)
+        invalid = [{**valid, "camera_id": "missing"}, {**valid, "zones": {}},
+                   {**valid, "area": "missing"}, {**valid, "observed_at": "2030-01-01"},
+                   {**valid, "event_id": []}]
+        adapter.restore_snapshot_contexts(invalid)
+        self.assertEqual(len(adapter.export_snapshot_contexts()), 512)
+
     def setUp(self) -> None:
         self.config = integration_config()
 

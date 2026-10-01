@@ -16,6 +16,37 @@ from integration_helpers import integration_config
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_snapshot_zones_survive_new_tracking_frames_and_restart(self):
+        config = integration_config()
+        camera = replace(config.cameras["camera_a"], profile_to_area={})
+        config = replace(config, cameras={"camera_a": camera})
+        runtime = PresenceRuntime(config, now=lambda: at(10))
+        runtime.process(AdapterEnvelope("state", "select.camera_profile", {"state": "wide"}, at(-2), at(-2)))
+        runtime.process(AdapterEnvelope("state", "sensor.camera_motion_state", {"state": "Available"}, at(-1), at(-1)))
+        def event(frame, zones, snapshot=1):
+            return AdapterEnvelope("mqtt", "frigate/events", {"type": "update", "after": {
+                "id": "snapshot-owner", "camera": "camera_a", "label": "person",
+                "start_time": at(0).timestamp(), "frame_time": at(frame).timestamp(),
+                "current_zones": zones, "snapshot": {"frame_time": at(snapshot).timestamp()},
+            }}, at(frame), at(frame))
+        first = runtime.process(event(1, ["zone_alpha"]))
+        self.assertEqual(first.detections[0].image.area, "alpha")
+        for restore in (False, True):
+            if restore:
+                saved = runtime.export_state()
+                runtime = PresenceRuntime(config, now=lambda: at(10))
+                runtime.restore_state(saved)
+            update = runtime.process(event(2 + int(restore), ["zone_beta"]))
+            self.assertEqual(update.detections[0].location.area, "beta")
+            self.assertEqual(update.detections[0].image.area, "alpha")
+            self.assertEqual(update.detections[0].image.observed_at, at(1))
+        # A genuine late movement at the image's instant must still invalidate it.
+        revised = runtime.process(AdapterEnvelope("state", "sensor.camera_motion_state", {"state": "Moving"}, at(0.5), at(3.5)))
+        self.assertIsNone(revised.detections[0].image.area)
+        runtime.process(AdapterEnvelope("state", "sensor.camera_motion_state", {"state": "Available"}, at(3.8), at(3.8)))
+        newer = runtime.process(event(4, ["zone_beta"], snapshot=4))
+        self.assertEqual(newer.detections[0].image.area, "beta")
+
     def setUp(self) -> None:
         self.runtime = PresenceRuntime(integration_config(), now=lambda: at(10))
         for entity_id, state, second in (

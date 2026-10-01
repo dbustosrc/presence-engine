@@ -1,0 +1,33 @@
+{
+  "name": "snapshot owns its zones independently of later tracked frames",
+  "start_at": "2030-01-01T12:00:00+00:00",
+  "configuration": {
+    "schema_version": 1,
+    "areas": {"alpha": "ground", "beta": "ground"},
+    "cameras": {"camera_a": {
+      "floor": "ground", "zone_to_area": {"zone_a": "alpha", "zone_b": "beta"},
+      "profile_entity_id": "select.camera_profile", "movement_entity_id": "sensor.camera_motion",
+      "stable_states": ["available"], "moving_states": ["moving"]
+    }},
+    "sources": [{"source_id": "camera_events", "adapter": "frigate_events",
+      "topics": ["vision/events"], "options": {"labels": ["person"]}}]
+  },
+  "steps": [
+    {"at": 0, "channel_type": "state", "channel": "select.camera_profile", "payload": {"state": "wide"}},
+    {"at": 0.1, "channel_type": "state", "channel": "sensor.camera_motion", "payload": {"state": "available"}},
+    {"at": 1, "channel_type": "mqtt", "channel": "vision/events", "payload": {
+      "type": "update", "after": {"id": "person-event", "camera": "camera_a", "label": "person",
+        "start_offset": 0.5, "frame_offset": 1, "snapshot": {"frame_offset": 1}, "current_zones": ["zone_a"]}
+    }, "expect": {"detection": {"area": "alpha", "image_area": "alpha"}}},
+    {"at": 2, "channel_type": "state", "channel": "sensor.camera_motion", "payload": {"state": "moving"}},
+    {"at": 3, "channel_type": "mqtt", "channel": "vision/events", "payload": {
+      "type": "update", "after": {"id": "person-event", "camera": "camera_a", "label": "person",
+        "start_offset": 0.5, "frame_offset": 3, "snapshot": {"frame_offset": 1}, "current_zones": ["zone_b"]}
+    }, "expect": {"detection": {"area": null, "image_area": "alpha", "image_at": "2030-01-01T12:00:01+00:00"}}},
+    {"at": 4, "channel_type": "state", "channel": "sensor.camera_motion", "payload": {"state": "available"}},
+    {"at": 5, "channel_type": "mqtt", "channel": "vision/events", "payload": {
+      "type": "update", "after": {"id": "person-event", "camera": "camera_a", "label": "person",
+        "start_offset": 0.5, "frame_offset": 5, "snapshot": {"frame_offset": 5}, "current_zones": ["zone_b"]}
+    }, "expect": {"detection": {"area": "beta", "image_area": "beta"}}}
+  ]
+}
