@@ -163,6 +163,11 @@ class PresenceResolver:
                         if group_min >= len(same_area):
                             for person in same_area:
                                 person.sources.update(group.source_ids)
+                                # Corroborate location, not identity; active evidence
+                                # may repeat, but must not rewind the retained path.
+                                if (person.status == "continued"
+                                        and group.location.observed_at >= person.location.observed_at):
+                                    self._apply_group_location(person, group, True)
                         consumed=min(len(same_area),group_max)
                         group_min=max(0,group_min-consumed)
                         group_max=max(0,group_max-consumed)

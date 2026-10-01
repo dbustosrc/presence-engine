@@ -1,5 +1,11 @@
 # Historial de cambios
 
+## 0.5.10 — Corroboración de ocupación actual
+
+- Actualiza una ubicación continuada cuando evidencia física activa de la misma área respalda su población, conservando la hora y fuentes de esa evidencia.
+- Evita que los consumidores de control interpreten esa corroboración como ausencia; la continuidad sin evidencia sigue sin constituir ocupación actual.
+- No eleva la confianza de identidad ni sustituye reconocimiento directo; evidencia antigua, posible, insuficiente o compatible con un animal no confirma indiscriminadamente a los ocupantes.
+
 ## 0.5.9 — Contexto histórico de capturas
 
 - Conserva las zonas observadas para el fotograma de una captura cuando llegan actualizaciones posteriores del objeto, sin atribuirle las zonas del nuevo frame.

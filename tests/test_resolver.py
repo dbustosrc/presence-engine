@@ -18,6 +18,7 @@ from presence_engine.engine import (
 )
 
 from helpers import area, at, floor, identity, observation
+from presence_engine.public_projection import _active_areas
 
 
 class ResolverTests(unittest.TestCase):
@@ -464,6 +465,79 @@ class ResolverTests(unittest.TestCase):
         self.assertEqual(person.location.area, "alpha")
         self.assertTrue(any(item.identity is None and item.location.area == "gamma"
                             for item in visitor.presences))
+
+    def test_current_same_area_evidence_refreshes_continued_location(self) -> None:
+        device = observation(
+            "device", kind=TargetKind.DEVICE, location=area("alpha", -10),
+            identity_claim=identity(seconds=-10, method="registered_owner"),
+        )
+        prior = self.resolve(device, observation("prior", location=area("alpha", -1)))
+        for kind in (TargetKind.PERSON, TargetKind.UNKNOWN_LIVING):
+            with self.subTest(kind=kind):
+                current = observation("current", kind=kind, location=area("alpha", 0))
+                result = self.resolve(device, current, previous=prior)
+                person = result.presences[0]
+                self.assertEqual(person.location_status, "correlated_movement")
+                self.assertEqual(person.location.observed_at, at(0))
+                self.assertEqual(person.location_source_ids, ("source.current",))
+                self.assertEqual(person.identity_quality, prior.presences[0].identity_quality)
+                self.assertEqual(person.identity_method, prior.presences[0].identity_method)
+                self.assertEqual(person.identity_observed_at, prior.presences[0].identity_observed_at)
+                self.assertEqual((result.count_minimum, result.count_maximum), (1, 1))
+                self.assertEqual(_active_areas(result.presences)[0]["current_minimum_count"], 1)
+                # Still-active evidence remains current on another evaluation;
+                # equality must not send it back to continuity.
+                repeated = self.resolve(device, current, previous=result)
+                self.assertEqual(repeated.presences[0].location_status, "correlated_movement")
+                self.assertEqual(repeated.presences[0].location.observed_at, at(0))
+
+    def test_same_area_uncertain_or_older_evidence_does_not_refresh_continuity(self) -> None:
+        device = observation(
+            "device", kind=TargetKind.DEVICE, location=area("alpha", -10),
+            identity_claim=identity(seconds=-10, method="registered_owner"),
+        )
+        prior = self.resolve(device, observation("prior", location=area("alpha", -1)))
+        cases = (
+            (),
+            (observation("older", location=area("alpha", -2)),),
+            (observation("possible", location=area("alpha", 0),
+                         count=CountClaim(0, 1, at(0), True)),),
+            (observation("radar", kind=TargetKind.UNKNOWN_LIVING, location=area("alpha", 0)),
+             observation("animal", kind=TargetKind.ANIMAL, location=area("alpha", 0))),
+        )
+        for items in cases:
+            with self.subTest(items=tuple(item.observation_id for item in items)):
+                result = self.resolve(device, *items, previous=prior)
+                person = next(item for item in result.presences if item.identity)
+                self.assertEqual(person.location_status, "continued")
+                self.assertEqual(person.location.observed_at, at(-1))
+                if len(items) < 2:
+                    self.assertEqual(_active_areas(result.presences)[0]["current_minimum_count"], 0)
+
+    def test_one_current_target_does_not_refresh_two_continued_identities(self) -> None:
+        devices = tuple(observation(
+            name, kind=TargetKind.DEVICE, location=area("alpha", -10),
+            identity_claim=identity(name, -10, method="registered_owner"),
+        ) for name in ("person_a", "person_b"))
+        prior = self.resolve(*(observation(
+            "prior-" + name, location=area("alpha", -1), identity_claim=identity(name, -1),
+        ) for name in ("person_a", "person_b")))
+        for minimum, expected in ((1, "continued"), (2, "correlated_movement")):
+            with self.subTest(minimum=minimum):
+                current = observation("population", location=area("alpha", 0),
+                                      count=CountClaim(minimum, minimum, at(0), True))
+                result = self.resolve(*devices, current, previous=prior)
+                self.assertEqual(len(result.presences), 2)
+                self.assertTrue(all(item.location_status == expected for item in result.presences))
+
+    def test_current_same_area_refresh_does_not_replace_direct_identity_evidence(self) -> None:
+        face = observation("face", location=area("alpha", -1), identity_claim=identity(seconds=-1))
+        result = self.resolve(face, observation("radar", kind=TargetKind.UNKNOWN_LIVING,
+                                               location=area("alpha", 0)))
+        person = result.presences[0]
+        self.assertEqual(person.location_status, "resolved")
+        self.assertEqual(person.location.observed_at, at(-1))
+        self.assertEqual(person.identity_method, "face")
 
     def test_previous_snapshot_without_current_evidence_does_not_create_presence(self) -> None:
         previous=PresenceSnapshot(
