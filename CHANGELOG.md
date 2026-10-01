@@ -1,5 +1,13 @@
 # Historial de cambios
 
+## 0.5.12 — Prioridad temporal y poblaciones solapadas
+
+- Evita que una observación anterior retroceda una ubicación personal más reciente; el reconocimiento tardío puede refinar identidad sin trasladar retrospectivamente al individuo.
+- Conserva a alcance de planta una inferencia visual antigua y menos precisa que contradice una ubicación reciente de una habitación contigua, sin borrar la detección ni cambiar su imagen histórica.
+- Representa con intervalos la posible superposición entre continuidad personal, poblaciones anónimas y observaciones de tránsito de áreas contiguas.
+- Conserva límites inferiores respaldados por objetos visuales distintos y por particiones de un mismo radar; mantiene visitantes posibles, especies y ocupación actual separada de identidad.
+- No requiere cambios de configuración y conserva los plazos existentes, la restauración y los resultados de detección destinados a avisos.
+
 ## 0.5.11 — Ocupación independiente de la identidad
 
 - Conserva evidencia activa de ocupación de área aunque termine un evento visual más reciente o se absorba durante la correlación de personas.

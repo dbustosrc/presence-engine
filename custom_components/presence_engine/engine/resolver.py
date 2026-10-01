@@ -117,15 +117,21 @@ class PresenceResolver:
         devices=self._resolve_devices(active)
         people=self._known_people(active,previous,now)
         groups=self._reconcile_area_populations(self._evidence_groups(active,now))
+        guarded_groups=self._guard_spatial_inferences(groups,previous,now)
+        inferences_guarded=guarded_groups != groups
+        groups=guarded_groups
         animals=tuple(group for group in groups if group.kind is TargetKind.ANIMAL)
         physical_areas={group.location.area for group in groups
                         if group.kind is not TargetKind.ANIMAL and group.location
                         and group.location.area and group.maximum}
         conflicts: list[str]=[]
         reasons: list[str]=[]
+        if inferences_guarded:
+            reasons.append("older_spatial_inference_kept_at_floor_scope")
         extras: list[PresenceHypothesis]=[]
         extra_min=0
         extra_max=0
+        counted_groups=[]
 
         for group in groups:
             if group.kind is TargetKind.ANIMAL:
@@ -142,9 +148,12 @@ class PresenceResolver:
                         reasons.append("anonymous_count_may_include_animal")
                 corroborated=self._device_corroboration_match(people,group,physical_areas)
                 if corroborated is not None:
-                    self._apply_group_location(corroborated,group,True)
+                    applied=self._apply_group_location(corroborated,group,True)
                     group_min=max(0,group_min-1)
-                    group_max=max(0,group_max-1)
+                    if applied:
+                        group_max=max(0,group_max-1)
+                    else:
+                        reasons.append("older_location_did_not_rewind_person")
                 if corroborated is None:
                     separated=self._separate_device_proxy_from_physical_presence(
                         people,
@@ -175,9 +184,9 @@ class PresenceResolver:
                     elif group.maximum:
                         match,exact=self._movement_match(people,group,now)
                         if match is not None:
-                            self._apply_group_location(match,group,exact)
+                            applied=self._apply_group_location(match,group,exact)
                             group_min=max(0,group_min-1)
-                            if exact:
+                            if exact and applied:
                                 group_max=max(0,group_max-1)
                             else:
                                 reasons.append("movement_correlation_kept_visitor_uncertainty")
@@ -193,6 +202,8 @@ class PresenceResolver:
                             reasons.append("ambiguous_count_may_include_known_person")
             extra_min+=group_min
             extra_max+=group_max
+            if group_min:
+                counted_groups.append((group,group_min))
             for index in range(group_min):
                 extras.append(self._anonymous_hypothesis(group,index,"resolved",Quality.MEDIUM))
             if group_max > group_min:
@@ -204,7 +215,13 @@ class PresenceResolver:
             (*person_hypotheses,*animal_hypotheses,*extras),
             key=lambda item:(item.kind.value,item.identity or "",item.hypothesis_id),
         ))
-        minimum=len(person_hypotheses)+animal_min+extra_min
+        population_min=self._population_minimum(counted_groups)
+        if population_min < extra_min:
+            reasons.append("cross_area_population_overlap")
+        continued=sum(person.status == "continued" for person in people.values())
+        minimum=max(len(person_hypotheses), len(person_hypotheses)-continued+population_min)+animal_min
+        if continued and population_min:
+            reasons.append("continued_identity_may_overlap_current_presence")
         maximum=len(person_hypotheses)+animal_max+extra_max
         if unavailable:
             reasons.append("coverage_degraded")
@@ -247,6 +264,67 @@ class PresenceResolver:
                 source_ids=tuple(sorted({source for item in items for source in item.source_ids})),
             ))
         return tuple(result)
+
+    def _guard_spatial_inferences(
+        self, groups: tuple[_EvidenceGroup, ...], previous: PresenceSnapshot | None, now: datetime,
+    ) -> tuple[_EvidenceGroup, ...]:
+        """An older weak visual inference is not a new room observation.
+
+        Retain its body and historical image, but only use floor scope while
+        a recent, more precise conflicting observation is retained.
+        """
+        if previous is None:
+            return groups
+        precise=[p.location for p in previous.presences if p.location and p.location.area
+                 and now-p.location.observed_at <= self._config.trajectory_window]
+        result=[]
+        for group in groups:
+            location=group.location
+            conflicts=[prior for prior in precise if location and group.target_id
+                       and group.kind is not TargetKind.ANIMAL
+                       and location.area and location.floor == prior.floor
+                       and location.area != prior.area
+                       and self._adjacent(location.area, prior.area)
+                       and location.observed_at < prior.observed_at
+                       and location.quality.rank < prior.quality.rank]
+            if conflicts:
+                group=replace(group,location=replace(
+                    location,level=SpatialLevel.FLOOR,area=None,quality=Quality.UNKNOWN,
+                    candidates=tuple(sorted({location.area,*(p.area for p in conflicts)})),
+                    method="superseded_spatial_inference",
+                ))
+            result.append(group)
+        return tuple(result)
+
+    def _population_minimum(self, counted_groups: list[tuple[_EvidenceGroup, int]]) -> int:
+        """Adjacent, recent aggregate claims may be one body's trajectory.
+
+        Keep distinct tracked objects as a lower bound and all upper bounds.
+        No association here identifies or moves a person.
+        """
+        pending=list(counted_groups)
+        minimum=0
+        while pending:
+            cluster=[pending.pop()]
+            for group,_ in cluster:
+                for candidate in pending[:]:
+                    other,_=candidate
+                    if (group.location and other.location
+                            and (self._possibly_same_location(group.location,other.location)
+                                 or (group.location.area and other.location.area
+                                     and self._adjacent(group.location.area,other.location.area)))
+                            and abs(group.location.observed_at-other.location.observed_at)
+                                <= self._config.trajectory_window):
+                        cluster.append(candidate)
+                        pending.remove(candidate)
+            # ponytail: conservative connected overlap bounds, not geometric
+            # triangulation; refine independence when measured coverage is available.
+            source_bounds={source:sum(count for group,count in cluster if source in group.source_ids)
+                           for group,_ in cluster for source in group.source_ids}
+            minimum+=max(max(count for _,count in cluster),
+                         sum(count for group,count in cluster if group.target_id),
+                         max(source_bounds.values(),default=0))
+        return minimum
 
     def _resolve_devices(self, observations: tuple[Observation, ...]) -> tuple[DeviceState, ...]:
         result=[]
@@ -348,8 +426,12 @@ class PresenceResolver:
                     continue
                 current=people.get(prior.identity)
                 if current is not None:
-                    if (current.from_device and current.location is not None
-                            and prior.location.observed_at > current.location.observed_at):
+                    if (current.location is not None
+                            and (current.from_device
+                                 or (prior.location.area and current.location.area
+                                     and prior.location.quality.rank >= current.location.quality.rank))
+                            and (prior.location.observed_at > current.location.observed_at
+                                 or (current.location.level is SpatialLevel.HOME and prior.location.area))):
                         current.candidate_areas.update(prior.candidate_areas)
                         if current.location.area:
                             current.candidate_areas.add(current.location.area)
@@ -565,8 +647,11 @@ class PresenceResolver:
         _,_,person,exact=min(candidates,key=lambda item:(item[0],item[1],item[2].identity))
         return (person,exact)
 
-    def _apply_group_location(self, person: _PersonCandidate, group: _EvidenceGroup, exact: bool) -> None:
+    def _apply_group_location(self, person: _PersonCandidate, group: _EvidenceGroup, exact: bool) -> bool:
         assert group.location is not None
+        if (person.location and person.location.area
+                and group.location.observed_at < person.location.observed_at):
+            return False
         if person.location and person.location.area:
             person.candidate_areas.add(person.location.area)
         if group.location.area:
@@ -575,6 +660,7 @@ class PresenceResolver:
         person.location_sources=set(group.source_ids)
         person.sources.update(group.source_ids)
         person.status="correlated_movement" if exact else "ambiguous_movement"
+        return True
 
     def _resolve_animals(
         self,
