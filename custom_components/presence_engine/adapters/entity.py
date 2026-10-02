@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import math
 from typing import Any, Mapping
 
 from .base import (
@@ -14,6 +15,7 @@ from .base import (
 from ..configuration import AdapterType, CameraDefinition, SourceDefinition
 from ..engine import (
     CountClaim,
+    DeviceSignalSample,
     IdentityClaim,
     Observation,
     ObservationStatus,
@@ -137,6 +139,8 @@ class EntityStateAdapter:
     def parse(self, envelope: AdapterEnvelope) -> AdapterResult:
         state = str(envelope.payload.get("state", ""))
         normalized = state.casefold()
+        if self._definition.adapter is AdapterType.BERMUDA_SIGNAL:
+            return self._device_signal(envelope, state)
         if self._definition.adapter is AdapterType.SOURCE_HEALTH:
             return self._source_health(normalized)
         if normalized in INVALID_STATES:
@@ -155,6 +159,36 @@ class EntityStateAdapter:
         if self._definition.adapter is AdapterType.AUXILIARY_ACTIVITY:
             return AdapterResult(ignored=True)
         raise ValueError(f"unsupported entity adapter: {self._definition.adapter.value}")
+
+    def _device_signal(self, envelope: AdapterEnvelope, state: str) -> AdapterResult:
+        options = self._definition.options
+        metric = options["metric"]
+        attributes = envelope.payload.get("attributes", {})
+        unit = attributes.get("unit_of_measurement", "") if isinstance(attributes, Mapping) else ""
+        unit = unit if isinstance(unit, str) else ""
+        status, value = "valid", None
+        if state.casefold() in INVALID_STATES:
+            status = "unavailable" if state.casefold() == "unavailable" else "unknown"
+        else:
+            try:
+                value = float(state)
+                if not math.isfinite(value) or metric != "rssi" and value < 0:
+                    status, value = "invalid_value", None
+            except ValueError:
+                status = "invalid_value"
+            units = {"dBm"} if metric == "rssi" else {"m", "cm", "mm"}
+            if status == "valid" and unit not in units:
+                status, value = "invalid_unit", None
+        observed = _state_time(envelope.payload, "last_updated", envelope.observed_at)
+        return AdapterResult(device_signals=(DeviceSignalSample(
+            source=SourceRef(self.source_id, "bermuda_signal", native_id=envelope.channel,
+                             dependency_group=self._definition.dependency_group or options["receiver_id"],
+                             coverage_group=self._definition.coverage_group),
+            device_id=options["device_id"], receiver_id=options["receiver_id"], metric=metric,
+            observed_at=observed, received_at=envelope.received_at, value=value, unit=unit,
+            status=status, identity=self._definition.identity,
+            clock_basis="ha_state_update" if "last_updated" in envelope.payload else "envelope",
+        ),))
 
     def _source_health(self, state: str) -> AdapterResult:
         """Translate one infrastructure channel without creating presence."""

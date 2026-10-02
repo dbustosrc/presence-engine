@@ -39,7 +39,9 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
 
     async def async_get_snapshot(call: ServiceCall) -> ServiceResponse:
         runtime = _loaded_runtime(hass, call.data.get("config_entry_id"))
-        return snapshot_payload(runtime.engine.snapshot, runtime.engine.latest_images)
+        return {**snapshot_payload(runtime.engine.snapshot, runtime.engine.latest_images),
+                "device_signal_histories": runtime.engine.signal_history_payload(
+                    include_samples=call.data.get("include_signal_samples", False))}
 
     async def async_get_detection(call: ServiceCall) -> ServiceResponse:
         runtime = _loaded_runtime(hass, call.data.get("config_entry_id"))
@@ -53,7 +55,7 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
         DOMAIN,
         SERVICE_GET_SNAPSHOT,
         async_get_snapshot,
-        schema=entry_schema,
+        schema=entry_schema.extend({vol.Optional("include_signal_samples", default=False): cv.boolean}),
         supports_response=SupportsResponse.ONLY,
     )
     hass.services.async_register(

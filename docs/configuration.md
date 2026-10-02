@@ -135,6 +135,49 @@ dispositivo para que una reconexión no oculte la caída de otro.
 
 ## Descubrimiento
 
+### Señales BLE por receptor
+
+La fuente `bermuda_signal` captura cambios de una entidad de sensor por
+dispositivo, receptor y métrica. Se configura en **Fuentes → Añadir → Señal de
+receptor BLE**, sin JSON obligatorio. Seleccionar exactamente una entidad,
+indicar `device_id`, `receiver_id` y `metric` (`rssi`, `distance` o
+`distance_unfiltered`). Usar el mismo dispositivo/receptor para sus distintos
+canales; el área opcional describe dónde está el **receptor**, no el dueño.
+La asociación `identity` es opcional y nunca demuestra ubicación personal.
+
+Solo se admiten valores finitos con unidad compatible: RSSI `dBm`, distancias
+`m`, `cm` o `mm`. Se conserva la unidad original; no hay conversión o
+trilateración implícita. Cero válido, valor desconocido, desconexión, unidad
+incompatible y ausencia de muestras recientes son estados distintos.
+No asignar el RSSI del receptor más cercano a un receptor fijo cuando la
+entidad cambia de observador: configurar únicamente canales cuya procedencia
+sea conocida. No se descubren ni adivinan automáticamente dispositivos,
+receptores o propietarios por el nombre de una entidad.
+
+`options.history_seconds` (1–3600, predeterminado 120) y `history_limit`
+(1–256, predeterminado 32) acotan cada serie. Además hay un máximo global de
+1024 muestras, o `max_records` si es menor, y una marca `truncated` cuando se
+descartan muestras por cantidad. Una última firma por fuente evita que un
+refresco de atributos resucite un valor idéntico después de caducar/reiniciar.
+El historial restaurado conserva sus horas y valida contra la configuración.
+Estos límites son de memoria; no cambian la continuidad personal de 90 s.
+
+La hora es `last_updated` del estado HA cuando existe (`ha_state_update`),
+distinta de recepción; no se presenta como hora de un anuncio BLE crudo. Sin
+esa metadata se utiliza el reloj del envelope. Los duplicados, datos fuera de
+orden y refrescos sin cambio de valor/unidad/estado no renuevan las muestras.
+Conservar un único valor no demuestra inmovilidad ni que el teléfono acompañe
+a su propietario; detectar esa asociación corresponde a la fusión temporal.
+
+Las señales se guardan mediante la persistencia existente, pero no producen
+observaciones de personas, detecciones, revisiones o atributos del sensor de
+presencia. `presence_engine.get_snapshot` incluye un resumen
+`device_signal_histories`; `include_signal_samples: true` solicita las series
+acotadas. Los diagnósticos descargables incluyen el resumen, sin payloads
+originales, direcciones BLE ni imágenes. Un teléfono no observado no prueba
+avería del receptor: configurar su salud mediante `source_health` si hay una
+entidad que represente esa capacidad.
+
 El descubrimiento lee los registros oficiales de Home Assistant al cargar o
 ante cambios del registro. Solo activa automáticamente familias conocidas si
 los metadatos demuestran semántica suficiente. Ejemplos:

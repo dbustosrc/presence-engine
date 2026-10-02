@@ -33,6 +33,7 @@ async def async_get_config_entry_diagnostics(
             ],
         },
         "snapshot": snapshot_payload(runtime.engine.snapshot),
+        "device_signal_histories": runtime.engine.signal_history_payload(),
         "event_diagnostics": [
             {
                 "detection_id": item["event_id"],

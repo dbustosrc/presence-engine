@@ -420,7 +420,8 @@ class HomeAssistantPresenceRuntime:
                 if self.faces.observe(name, identity):
                     for listener in tuple(self._identity_listeners):
                         listener(identity)
-        self.coordinator.async_set_updated_data(update.snapshot)
+        if update.changed or self.coordinator.data != update.snapshot:
+            self.coordinator.async_set_updated_data(update.snapshot)
         for detection in update.detections:
             event_data = detection_payload(detection)
             self.hass.bus.async_fire(EVENT_RESULT, event_data)

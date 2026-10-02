@@ -90,6 +90,53 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
             result = await self.flow.async_step_source_edit()
             convert(result["data_schema"], custom_serializer=custom_serializer)
 
+    async def test_ble_signal_form_round_trips_without_json(self):
+        self.flow._key=""
+        self.flow._adapter="bermuda_signal"
+        result=await self.flow.async_step_source_edit()
+        convert(result["data_schema"],custom_serializer=custom_serializer)
+        values=result["data_schema"]({"id":"signal_a","enabled":True,
+            "entity_ids":["sensor.distance_a"],"device_id":"phone_a","receiver_id":"receiver_a",
+            "metric":"distance","identity":"person_a","history_seconds":120,"history_limit":32})
+        result=await self.flow.async_step_source_edit(values)
+        self.assertFalse(result.get("errors"),result)
+        saved=self.flow._draft["sources"][0]
+        self.assertEqual(saved["options"]["receiver_id"],"receiver_a")
+        self.assertEqual(saved["entity_ids"],["sensor.distance_a"])
+        self.flow._key="signal_a"
+        result=await self.flow.async_step_source_edit()
+        values=result["data_schema"]({})
+        result=await self.flow.async_step_source_edit(values)
+        self.assertFalse(result.get("errors"),result)
+        self.assertEqual(self.flow._draft["sources"][0]["options"],saved["options"])
+
+    async def test_ble_state_updates_save_history_without_presence_publications(self):
+        from presence_engine.configuration import parse_configuration
+        from homeassistant.core import State
+        from homeassistant.util import dt as dt_util
+        configuration=parse_configuration({"schema_version":1,"areas":{},"cameras":{},"sources":[{
+            "source_id":"signal_a","adapter":"bermuda_signal","entity_ids":["sensor.distance_a"],
+            "identity":"person_a","options":{"device_id":"phone_a","receiver_id":"receiver_a","metric":"distance"}}]})
+        hass=HomeAssistant("/tmp/presence-engine-no-io")
+        runtime=HomeAssistantPresenceRuntime(hass,catalogue_entry(),configuration,max_records=2000,save_delay_seconds=15)
+        runtime._store=Mock(async_save=AsyncMock())
+        listener=Mock()
+        runtime.coordinator.async_add_listener(listener)
+        now=dt_util.utcnow()
+        await runtime._async_process_state("sensor.distance_a",State("sensor.distance_a","2.5",
+            {"unit_of_measurement":"m"},last_changed=now,last_updated=now))
+        later=dt_util.utcnow()
+        await runtime._async_process_state("sensor.distance_a",State("sensor.distance_a","2.5",
+            {"unit_of_measurement":"m","friendly_name":"Updated"},last_changed=now,last_updated=later))
+        history=runtime.engine.signal_history_payload(include_samples=True)[0]
+        self.assertEqual(history["sample_count"],1)
+        self.assertEqual(history["clock_basis"],"ha_state_update")
+        self.assertEqual(history["observed_at"],now.isoformat())
+        listener.assert_not_called()
+        self.assertEqual(runtime.engine.snapshot.count_maximum,0)
+        self.assertEqual(runtime._store.async_delay_save.call_count,2)
+        self.assertEqual(len(runtime._export_state()["device_signals"]),1)
+
     async def test_json_import_is_a_draft_and_preserves_secret(self):
         self.flow._draft["frigate"] = {"url": "https://frigate.local", "username": "user", "password": "not-a-real-secret"}
         exported = await self.flow.async_step_advanced()

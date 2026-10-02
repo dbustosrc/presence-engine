@@ -1,5 +1,13 @@
 # Historial de cambios
 
+## 0.5.15 — Series BLE por dispositivo y receptor
+
+- Añade fuentes de señal BLE configurables desde los menús nativos: RSSI, distancia filtrada y distancia sin filtrar, con asociación explícita de dispositivo/receptor y unidad original.
+- Conserva cambios de medición, reloj de estado y recepción, calidad del dato y series acotadas por tiempo, cantidad y presupuesto global; restaura sin renovar datos antiguos y expone truncamiento.
+- Permite consultar resúmenes o muestras mediante la acción de snapshot; las señales no crean personas, no asignan habitación al propietario y no publican atributos de alta frecuencia en las entidades de presencia.
+- Evita notificar snapshots idénticos al coordinador por actualizaciones sin cambios de presencia. Conserva detecciones, plazos, configuración anterior y control PTZ.
+- La variación radioeléctrica no se interpreta como movimiento físico. Esta versión prepara evidencia temporal; no incorpora todavía asociación de teléfono transportado/separado ni trilateración.
+
 ## 0.5.14 — Respaldo visual de áreas con identidad reconocida
 
 - Conserva la procedencia visual y la confianza espacial de un área sostenida por una persona reconocida, aunque no haya una población anónima adicional en esa habitación.

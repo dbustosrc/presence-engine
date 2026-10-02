@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime
+from dataclasses import asdict
 from typing import Any, Mapping
 
 from .engine import (
     CountClaim,
+    DeviceSignalSample,
     IdentityClaim,
     ImageReference,
     Observation,
@@ -19,6 +21,16 @@ from .engine import (
     SpatialLevel,
     TargetKind,
 )
+
+
+def encode_device_signal(value: DeviceSignalSample) -> dict[str, Any]:
+    return {**asdict(value), "observed_at": value.observed_at.isoformat(),
+            "received_at": value.received_at.isoformat()}
+
+
+def decode_device_signal(raw: Mapping[str, Any]) -> DeviceSignalSample:
+    return DeviceSignalSample(**{**raw, "source": SourceRef(**raw["source"]),
+        "observed_at": _datetime(raw["observed_at"]), "received_at": _datetime(raw["received_at"])})
 
 
 def encode_observation(value: Observation) -> dict[str, Any]:

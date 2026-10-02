@@ -341,6 +341,13 @@ class PresenceEngineConfigFlow(ConfigFlow, domain=DOMAIN):
             option_fields["identity_map"] = _mapping({}, {"select": {"options": self._identities(), "custom_value": True}})
         if adapter == "bermuda_area":
             option_fields["area_map"] = _mapping({}, {"select": {"options": self._areas()}})
+        if adapter == "bermuda_signal":
+            option_fields = {"device_id": _text(), "receiver_id": _text(),
+                             "metric": _select(["rssi", "distance", "distance_unfiltered"]),
+                             "history_seconds": selector({"number": {"min": 1, "max": 3600, "mode": "box"}}),
+                             "history_limit": selector({"number": {"min": 1, "max": 256, "mode": "box"}})}
+            options.setdefault("history_seconds", 120)
+            options.setdefault("history_limit", 32)
         if adapter == "mtr_count":
             option_fields["total_entity_id"] = selector({"entity": {"domain": "sensor"}})
             option_fields["zone_areas"] = _mapping({}, {"select": {"options": ["", *self._areas()]}})
@@ -355,7 +362,9 @@ class PresenceEngineConfigFlow(ConfigFlow, domain=DOMAIN):
             value = options.get(field)
             if field in mapping_fields:
                 value = mapping_rows({key: value if value is not None else "" for key, value in (value or {}).items()})
-            _field(schema, field, control, {field: value}, required=field in {"recognition_threshold", "total_entity_id"})
+            required = field in {"recognition_threshold", "total_entity_id"} or (
+                adapter == "bermuda_signal" and field in {"device_id", "receiver_id", "metric"})
+            _field(schema, field, control, {field: value}, required=required)
         _group(schema, "advanced_source", {"target_kind", "spatial_quality", "availability_role", "dependency_group", "coverage_group", "expires_after_seconds", "location_method", "target_id"})
         def edit(data):
             key = self._key or data["id"]

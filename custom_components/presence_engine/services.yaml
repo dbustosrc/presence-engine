@@ -2,6 +2,12 @@ get_snapshot:
   name: Get presence snapshot
   description: Returns one coherent revision of the current presence result.
   fields:
+    include_signal_samples:
+      name: Include BLE signal samples
+      description: Optional bounded device/receiver history. Signals do not prove owner location or movement.
+      required: false
+      selector:
+        boolean:
     config_entry_id:
       name: Config entry
       description: Optional Presence Engine config entry ID.

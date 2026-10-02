@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Mapping, Protocol
 
-from ..engine import Observation, require_aware
+from ..engine import DeviceSignalSample, Observation, require_aware
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +56,7 @@ class AdapterResult:
     camera_availability: tuple[CameraAvailability, ...] = ()
     source_availability: tuple[SourceAvailability, ...] = ()
     ignored: bool = False
+    device_signals: tuple[DeviceSignalSample, ...] = ()
 
 
 class SourceAdapter(Protocol):

@@ -28,6 +28,7 @@ class AdapterType(str, Enum):
     FRIGATE_FACE = "frigate_face"
     PTZ_CONTEXT = "ptz_context"
     BERMUDA_AREA = "bermuda_area"
+    BERMUDA_SIGNAL = "bermuda_signal"
     MTR_COUNT = "mtr_count"
     COUNT = "count"
     BINARY_PRESENCE = "binary_presence"
@@ -270,6 +271,19 @@ class SourceDefinition:
                             f"source {self.source_id} {option_name} must contain strings"
                         )
                     _require_entity_id(value)
+        if self.adapter is AdapterType.BERMUDA_SIGNAL:
+            if self.availability_role is AvailabilityRole.COVERAGE:
+                raise ConfigurationError("BLE endpoint signals are not receiver health; use source_health")
+            if len(self.entity_ids) != 1 or not self.entity_ids[0].startswith("sensor."):
+                raise ConfigurationError("BLE signal requires exactly one sensor entity")
+            for name in ("device_id", "receiver_id"):
+                _require_slug(self.options.get(name), name)
+            if self.options.get("metric") not in {"rssi", "distance", "distance_unfiltered"}:
+                raise ConfigurationError("BLE signal requires a supported metric")
+            for name, default, maximum in (("history_seconds", 120, 3600), ("history_limit", 32, 256)):
+                value = self.options.get(name, default)
+                if type(value) not in (int, float) or not 1 <= value <= maximum or int(value) != value:
+                    raise ConfigurationError(f"BLE signal {name} must be an integer from 1 to {maximum}")
         if self.adapter is AdapterType.SOURCE_HEALTH:
             if len(self.entity_ids) != 1:
                 raise ConfigurationError(
@@ -324,6 +338,7 @@ class SourceDefinition:
             return False
         return self.adapter not in {
             AdapterType.BERMUDA_AREA,
+            AdapterType.BERMUDA_SIGNAL,
             AdapterType.PERSON_HOME,
         }
 

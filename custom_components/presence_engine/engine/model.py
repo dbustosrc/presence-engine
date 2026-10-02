@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+import math
 from types import MappingProxyType
 from typing import Mapping
 
@@ -221,6 +222,43 @@ class DeviceState:
     linked_identity: str | None
     location: SpatialClaim | None
     source_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DeviceSignalSample:
+    """Device/receiver data, never proof of a person's presence or motion."""
+
+    source: SourceRef
+    device_id: str
+    receiver_id: str
+    metric: str
+    observed_at: datetime
+    received_at: datetime
+    value: float | None
+    unit: str
+    status: str
+    identity: str | None = None
+    clock_basis: str = "envelope"
+
+    def __post_init__(self) -> None:
+        require_aware(self.observed_at, "signal observed_at")
+        require_aware(self.received_at, "signal received_at")
+        if self.observed_at > self.received_at:
+            raise ValueError("signal observation cannot be after reception")
+        if not self.device_id or not self.receiver_id or self.metric not in {"rssi", "distance", "distance_unfiltered"}:
+            raise ValueError("signal requires device, receiver and supported metric")
+        if self.status not in {"valid", "unknown", "unavailable", "invalid_value", "invalid_unit"}:
+            raise ValueError("invalid signal status")
+        if self.clock_basis not in {"envelope", "ha_state_update"}:
+            raise ValueError("invalid signal clock basis")
+        if self.status == "valid":
+            units = {"dBm"} if self.metric == "rssi" else {"m", "cm", "mm"}
+            if type(self.value) not in (int, float) or not math.isfinite(self.value) or self.unit not in units:
+                raise ValueError("valid signal requires finite value and compatible unit")
+            if self.metric != "rssi" and self.value < 0:
+                raise ValueError("distance cannot be negative")
+        elif self.value is not None:
+            raise ValueError("missing signal cannot carry a numeric value")
 
 
 @dataclass(frozen=True, slots=True)

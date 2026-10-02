@@ -24,11 +24,14 @@ from .codec import (
     decode_observation,
     encode_image_reference,
     encode_observation,
+    encode_device_signal,
+    decode_device_signal,
 )
 from .configuration import AdapterType, CameraAdmissionMode, EngineConfiguration
 from .engine import (
     CONTRACT_VERSION,
     CountClaim,
+    DeviceSignalSample,
     DetectionResult,
     EvidenceStore,
     FrozenClock,
@@ -47,6 +50,9 @@ from .engine import (
     resolve_detection,
 )
 from .temporal import TemporalCameraRegistry
+
+
+MAX_SIGNAL_SAMPLES = 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +89,12 @@ class PresenceRuntime:
             adjacency=configuration.adjacency,
         )
         self._store = EvidenceStore(max_records=max_records)
+        self._signal_definitions = {source.source_id: source for source in configuration.sources
+                                    if source.enabled and source.adapter is AdapterType.BERMUDA_SIGNAL}
+        self._signal_samples: dict[str, list[DeviceSignalSample]] = {}
+        self._signal_latest: dict[str, DeviceSignalSample] = {}
+        self._signal_truncated: set[str] = set()
+        self._max_signal_samples = min(max_records, MAX_SIGNAL_SAMPLES)
         self._contexts = TemporalCameraRegistry(dict(configuration.cameras))
         self._adapters = self._build_adapters()
         self._snapshot: PresenceSnapshot | None = None
@@ -167,6 +179,12 @@ class PresenceRuntime:
                 changed = removed or changed
                 continue
             self._failures.pop(adapter.source_id, None)
+            if result.device_signals:
+                for sample in result.device_signals:
+                    self._retain_signal(sample)
+                # Signal changes are saved by the existing HA runtime, but do
+                # not revise presence, renew identities or produce detections.
+                continue
             explicit_availability = {
                 availability.source_id: availability.available
                 for availability in result.source_availability
@@ -324,6 +342,9 @@ class PresenceRuntime:
         changed = False
         for source_id in source_ids:
             availability_changed = False
+            if source_id in self._signal_latest:
+                self._retain_signal(replace(self._signal_latest[source_id], value=None, status="unavailable",
+                                            observed_at=self._now(), received_at=self._now(), clock_basis="envelope"))
             if source_id in self._coverage_source_ids:
                 availability_changed = source_id not in self._unavailable_sources
                 self._unavailable_sources.add(source_id)
@@ -344,12 +365,16 @@ class PresenceRuntime:
 
     def export_state(self) -> dict[str, object]:
         """Return bounded JSON-compatible state for Home Assistant Store."""
+        self._trim_signals()
         return {
             "contract_version": CONTRACT_VERSION,
             "configured_source_ids": sorted(
                 source.source_id for source in self.configuration.sources if source.enabled
             ),
             "observations": [encode_observation(item) for item in self._store.values()],
+            "device_signals": [encode_device_signal(sample) for history in self._signal_samples.values() for sample in history],
+            "device_signal_latest": [encode_device_signal(sample) for sample in self._signal_latest.values()],
+            "signal_truncated": sorted(self._signal_truncated),
             "camera_contexts": self._contexts.export(),
             "snapshot_contexts": {
                 adapter.source_id: adapter.export_snapshot_contexts()
@@ -379,6 +404,28 @@ class PresenceRuntime:
             for camera in self.configuration.cameras.values()
             if camera.availability_entity_ids
         }
+        samples = raw.get("device_signals", [])
+        if isinstance(samples, list):
+            for item in samples[-self._max_signal_samples:]:
+                try:
+                    self._retain_signal(decode_device_signal(item))
+                except (KeyError, TypeError, ValueError):
+                    continue
+        truncated = raw.get("signal_truncated", [])
+        if isinstance(truncated, list):
+            self._signal_truncated.update(value for value in truncated
+                                          if isinstance(value, str) and value in self._signal_definitions)
+        latest = raw.get("device_signal_latest", [])
+        if isinstance(latest, list):
+            for item in latest:
+                try:
+                    sample = decode_device_signal(item)
+                    if self._matches_signal(sample):
+                        prior = self._signal_latest.get(sample.source.source_id)
+                        if prior is None or sample.observed_at > prior.observed_at:
+                            self._signal_latest[sample.source.source_id] = sample
+                except (KeyError, TypeError, ValueError):
+                    continue
         for item in raw.get("observations", ()):  # type: ignore[union-attr]
             try:
                 observation = decode_observation(item)
@@ -455,6 +502,75 @@ class PresenceRuntime:
             if key in retained
         }
         self._snapshot = self._resolve_snapshot()
+
+    def _trim_signals(self) -> None:
+        now = self._now()
+        for source_id, history in list(self._signal_samples.items()):
+            definition = self._signal_definitions[source_id]
+            cutoff = now - timedelta(seconds=definition.options.get("history_seconds", 120))
+            self._signal_samples[source_id] = [sample for sample in history if sample.observed_at > cutoff]
+
+    def _matches_signal(self, sample: DeviceSignalSample) -> bool:
+        definition = self._signal_definitions.get(sample.source.source_id)
+        if definition is None:
+            return False
+        options = definition.options
+        return (sample.device_id == options["device_id"] and sample.receiver_id == options["receiver_id"]
+                and sample.metric == options["metric"] and sample.identity == definition.identity
+                and sample.source.family == "bermuda_signal" and sample.received_at <= self._now())
+
+    def _retain_signal(self, sample: DeviceSignalSample) -> None:
+        if not self._matches_signal(sample):
+            return
+        source_id = sample.source.source_id
+        latest = self._signal_latest.get(source_id)
+        if latest:
+            if sample.observed_at <= latest.observed_at:
+                return
+            if (sample.value, sample.unit, sample.status) == (latest.value, latest.unit, latest.status):
+                return  # Attribute-only updates are not new radio measurements.
+        self._signal_latest[source_id] = sample
+        definition = self._signal_definitions[source_id]
+        options = definition.options
+        if self._now() - sample.observed_at >= timedelta(seconds=options.get("history_seconds", 120)):
+            return
+        self._trim_signals()
+        history = self._signal_samples.setdefault(source_id, [])
+        history.append(sample)
+        limit = int(options.get("history_limit", 32))
+        if len(history) > limit:
+            del history[:-limit]
+            self._signal_truncated.add(definition.source_id)
+        # ponytail: one bounded global pool, not separate Recorder time series.
+        while sum(len(items) for items in self._signal_samples.values()) > self._max_signal_samples:
+            oldest = min((key for key, items in self._signal_samples.items() if items),
+                         key=lambda key: self._signal_samples[key][0].observed_at)
+            self._signal_samples[oldest].pop(0)
+            self._signal_truncated.add(oldest)
+
+    def signal_history_payload(self, *, include_samples: bool = False) -> list[dict]:
+        """Read bounded signal diagnostics without publishing them on presence entities."""
+        self._trim_signals()
+        result = []
+        for source_id, definition in sorted(self._signal_definitions.items()):
+            history = self._signal_samples.get(source_id, [])
+            latest = history[-1] if history else None
+            item = {"source_id": source_id, "device_id": definition.options["device_id"],
+                    "receiver_id": definition.options["receiver_id"], "metric": definition.options["metric"],
+                    "receiver_area": definition.area, "receiver_floor": definition.floor,
+                    "dependency_group": definition.dependency_group or definition.options["receiver_id"],
+                    "identity": definition.identity, "sample_count": len(history),
+                    "truncated": source_id in self._signal_truncated,
+                    "latest_value": latest.value if latest else None,
+                    "unit": latest.unit if latest else None,
+                    "status": latest.status if latest else "no_recent_samples",
+                    "observed_at": latest.observed_at.isoformat() if latest else None,
+                    "received_at": latest.received_at.isoformat() if latest else None,
+                    "clock_basis": latest.clock_basis if latest else None}
+            if include_samples:
+                item["samples"] = [encode_device_signal(sample) for sample in history]
+            result.append(item)
+        return result
 
     def _build_adapters(self) -> tuple[SourceAdapter, ...]:
         adapters: list[SourceAdapter] = []
