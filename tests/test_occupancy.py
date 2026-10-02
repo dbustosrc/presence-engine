@@ -78,6 +78,7 @@ class OccupancyTests(unittest.TestCase):
 
     def test_occupancy_rebuilds_after_restart_and_does_not_add_a_person(self):
         self.seed_held_radar()
+        before=public_presence_projection(self.runtime.snapshot)["active_areas"][0]
         saved = self.runtime.export_state()
         self.runtime = PresenceRuntime(parse_configuration(self.fixture["configuration"]),
                                        now=lambda: self.now)
@@ -85,6 +86,9 @@ class OccupancyTests(unittest.TestCase):
         self.assertEqual(public_presence_projection(self.runtime.snapshot)["active_areas"][0]
                          ["current_minimum_count"], 1)
         self.assertEqual(len(self.runtime.snapshot.presences), 1)
+        after=public_presence_projection(self.runtime.snapshot)["active_areas"][0]
+        self.assertEqual(after["current_source_families"],before["current_source_families"])
+        self.assertEqual(after["current_location_confidence"],before["current_location_confidence"])
 
     def test_registered_device_alone_never_creates_area_occupancy(self):
         self.deliver(self.fixture["steps"][0])

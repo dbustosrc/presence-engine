@@ -230,6 +230,10 @@ def _active_areas(
                 "presence_count": maximum,
                 "minimum_count": minimum,
                 "current_minimum_count": current_minimum,
+                "current_source_families": list(occupancy.support_families) if occupancy else [],
+                "current_location_confidence": occupancy.support_quality.value if occupancy else (
+                    max((item.location.quality for item in current), key=lambda quality: quality.rank).value
+                    if current else Quality.UNKNOWN.value),
                 "last_current_observed_at": max(current_observed).isoformat() if current_observed else None,
                 "maximum_count": maximum,
                 "count_status": "exact" if minimum == maximum else "interval",

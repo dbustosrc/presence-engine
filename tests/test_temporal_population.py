@@ -105,6 +105,65 @@ class TemporalPopulationTests(unittest.TestCase):
         self.assertEqual(result.presences[0].location.area,"alpha",
                          "another person's path does not relocate the animal")
 
+    def test_animal_and_adjacent_radar_do_not_prove_a_third_individual(self):
+        person=observation("face", location=area("delta",-10), identity_claim=identity(seconds=-10))
+        dog=observation("dog",kind=TargetKind.ANIMAL,classification="dog",target_id="animal-a",
+                        family="frigate_event",location=area("beta",-3.732))
+        radar=observation("radar",kind=TargetKind.UNKNOWN_LIVING,family="mtr_count",
+                          location=area("alpha"))
+        for items in permutations((person,dog,radar)):
+            result=self.resolve(*items)
+            self.assertEqual((result.count_minimum,result.count_maximum),(2,3))
+            unknown=next(p for p in result.presences if p.kind is TargetKind.UNKNOWN_LIVING)
+            self.assertEqual(unknown.location_status,"possible")
+            self.assertIsNone(unknown.classification)
+            self.assertIsNone(unknown.identity)
+            self.assertEqual(unknown.location.area,"alpha")
+            self.assertEqual(len(result.area_occupancies),2,"both physical positives remain current")
+        for location in (area("epsilon"),area("gamma",21),area("alpha",quality=Quality.LOW)):
+            result=self.resolve(person,dog,replace(radar,location=location),second=max(0,(location.observed_at-at()).total_seconds()))
+            self.assertEqual((result.count_minimum,result.count_maximum),(3,3))
+        human=self.resolve(person,dog,replace(radar,target_kind=TargetKind.PERSON,target_id="visitor"))
+        self.assertEqual((human.count_minimum,human.count_maximum),(3,3))
+        stationary=self.resolve(person,replace(dog,location=area("alpha",-60)),radar)
+        self.assertEqual((stationary.count_minimum,stationary.count_maximum),(2,3))
+        buckets=self.resolve(person,dog,replace(radar,source=replace(radar.source,source_id="one-radar")),
+            observation("second-bucket",source_id="one-radar",family="mtr_count",
+                        kind=TargetKind.UNKNOWN_LIVING,location=area("gamma")))
+        self.assertEqual((buckets.count_minimum,buckets.count_maximum),(3,4),
+                         "one animal cannot consume two disjoint buckets of one radar")
+
+    def test_area_support_uses_independent_families_not_channel_count(self):
+        visual=observation("object",family="frigate_event",target_id="body-a",location=area("alpha"))
+        face=replace(visual,observation_id="face",source=replace(visual.source,source_id="face",family="frigate_face"))
+        radar=observation("radar",family="mtr_count",kind=TargetKind.UNKNOWN_LIVING,location=area("alpha"))
+        weak=observation("weak",family="context",kind=TargetKind.UNKNOWN_LIVING,
+                         location=area("alpha",quality=Quality.LOW))
+        result=self.resolve(visual,face,radar,weak)
+        public=public_presence_projection(result)["active_areas"][0]
+        self.assertEqual(public["current_source_families"],["physical_presence","visual"])
+        self.assertEqual(public["current_location_confidence"],"high")
+        self.assertEqual((result.count_minimum,result.count_maximum),(1,1))
+        stale=replace(radar,location=area("alpha",-30))
+        public=public_presence_projection(self.resolve(visual,stale))["active_areas"][0]
+        self.assertEqual(public["current_source_families"],["visual"],"old measurement does not boost confidence")
+        dependent=replace(radar,source=replace(radar.source,dependency_group="shared-camera"))
+        linked=replace(visual,source=replace(visual.source,dependency_group="shared-camera"))
+        public=public_presence_projection(self.resolve(linked,dependent))["active_areas"][0]
+        self.assertEqual(len(public["current_source_families"]),1,"explicit dependency is one family vote")
+
+    def test_device_support_requires_current_owner_association(self):
+        device=replace(self.device("alpha",0),source=replace(self.device().source,family="bermuda_area"))
+        radar=observation("radar",family="binary_presence",kind=TargetKind.UNKNOWN_LIVING,location=area("alpha"))
+        result=self.resolve(device,radar)
+        self.assertEqual(public_presence_projection(result)["active_areas"][0]["current_source_families"],
+                         ["bermuda_area","physical_presence"])
+        dog=observation("dog",family="frigate_event",kind=TargetKind.ANIMAL,classification="dog",
+                        target_id="animal-a",location=area("alpha"))
+        result=self.resolve(device,dog)
+        self.assertEqual(public_presence_projection(result)["active_areas"][0]["current_source_families"],["visual"])
+        self.assertEqual(next(p for p in result.presences if p.identity).location.level.value,"home")
+
 
 if __name__ == "__main__":
     unittest.main()

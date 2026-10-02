@@ -132,6 +132,7 @@ class PresenceResolver:
         extra_min=0
         extra_max=0
         counted_groups=[]
+        animal_consumption: dict[str, set[str]]={}
 
         for group in groups:
             if group.kind is TargetKind.ANIMAL:
@@ -140,11 +141,14 @@ class PresenceResolver:
             group_max=group.maximum
             if group.kind in {TargetKind.PERSON,TargetKind.UNKNOWN_LIVING}:
                 if group.kind is TargetKind.UNKNOWN_LIVING and group.location is not None:
-                    if any(
-                        self._possibly_same_location(group.location, animal.location)
-                        for animal in animals
-                    ):
+                    overlap=next((animal for animal in animals if animal.minimum > 0
+                                  and self._possible_trajectory(group.location,animal.location)
+                                  and all(animal.key not in animal_consumption.get(source,set())
+                                          for source in group.source_ids)),None)
+                    if overlap is not None and group_min:
                         group_min=max(0,group_min-1)
+                        for source in group.source_ids:
+                            animal_consumption.setdefault(source,set()).add(overlap.key)
                         reasons.append("anonymous_count_may_include_animal")
                 corroborated=self._device_corroboration_match(people,group,physical_areas)
                 if corroborated is not None:
@@ -240,11 +244,13 @@ class PresenceResolver:
             conflicts=tuple(dict.fromkeys(conflicts)),
             reasons=tuple(dict.fromkeys(reasons)),
             unavailable_source_ids=tuple(sorted(set(unavailable))),
-            area_occupancies=self._area_occupancies(groups),
+            area_occupancies=self._area_occupancies(groups, active, people),
         )
 
-    @staticmethod
-    def _area_occupancies(groups: tuple[_EvidenceGroup, ...]) -> tuple[AreaOccupancy, ...]:
+    def _area_occupancies(
+        self, groups: tuple[_EvidenceGroup, ...], observations: tuple[Observation, ...],
+        people: dict[str, _PersonCandidate],
+    ) -> tuple[AreaOccupancy, ...]:
         """Keep active physical evidence even when correlation consumes its count."""
         by_area: dict[str, list[_EvidenceGroup]] = {}
         for group in groups:
@@ -257,13 +263,47 @@ class PresenceResolver:
             # independence with the full population-fusion work, not identity guesses.
             minimum = max(item.minimum for item in items)
             maximum = sum(item.maximum for item in items)
+            sources={source for item in items for source in item.source_ids}
+            support=[item for item in observations if item.location and item.location.area == area
+                     and (item.source.source_id in sources or (item.identity and
+                          item.target_kind is TargetKind.PERSON))
+                     and abs(location.observed_at-item.location.observed_at) <= self._config.trajectory_window]
+            # A phone corroborates only an already associated current person;
+            # a stationary device near an animal is not an extra control vote.
+            support.extend(item for item in observations if item.target_kind is TargetKind.DEVICE
+                           and item.identity and item.location and item.location.area == area
+                           and item.identity.value in people
+                           and people[item.identity.value].status in {"resolved", "correlated_movement"}
+                           and self._same_area(people[item.identity.value].location,item.location)
+                           and item.location.observed_at >= people[item.identity.value].location.observed_at
+                           and abs(location.observed_at-item.location.observed_at) <= self._config.trajectory_window)
+            independent={}
+            for item in sorted(support,key=lambda item:(-item.location.quality.rank,item.source.family)):
+                if item.location.quality.rank >= Quality.MEDIUM.rank:
+                    family=self._support_family(item.source.family)
+                    independent.setdefault(item.source.dependency_group or family,family)
+            families=tuple(sorted(set(independent.values())))
+            quality=max((item.location.quality for item in support
+                         if item.target_kind is not TargetKind.DEVICE),
+                        key=lambda value:value.rank, default=location.quality)
             result.append(AreaOccupancy(
                 location=location,
                 count=CountClaim(minimum, maximum, location.observed_at,
                                  minimum == maximum, location.quality),
-                source_ids=tuple(sorted({source for item in items for source in item.source_ids})),
+                source_ids=tuple(sorted(sources)),
+                support_families=families,
+                support_quality=quality,
             ))
         return tuple(result)
+
+    @staticmethod
+    def _support_family(family: str) -> str:
+        # Derived object/face/count channels are not independent votes.
+        if family in {"frigate_event", "frigate_face", "resolved_event"}:
+            return "visual"
+        if family in {"mtr_count", "binary_presence"}:
+            return "physical_presence"
+        return family
 
     def _guard_spatial_inferences(
         self, groups: tuple[_EvidenceGroup, ...], previous: PresenceSnapshot | None, now: datetime,
@@ -572,6 +612,13 @@ class PresenceResolver:
             residual_minimum = max(0, aggregate_minimum - specific_maximum)
             residual_maximum = max(0, aggregate_maximum - specific_minimum)
             if residual_maximum == 0:
+                # Consumption removes a duplicate population, not the independent
+                # sensor corroborating the tracked body's area.
+                aggregate_sources={source for group in aggregates for source in group.source_ids}
+                for index,group in enumerate(passthrough):
+                    if group in specific:
+                        passthrough[index]=replace(group,source_ids=tuple(sorted(
+                            set(group.source_ids) | aggregate_sources)))
                 continue
             representative = max(
                 aggregates,
@@ -802,3 +849,14 @@ class PresenceResolver:
 
     def _adjacent(self, left: str, right: str) -> bool:
         return right in self._config.adjacency.get(left,frozenset()) or left in self._config.adjacency.get(right,frozenset())
+
+    def _possible_trajectory(self, left: SpatialClaim, right: SpatialClaim | None) -> bool:
+        """Possible shared body, never an identity/species assignment."""
+        if right is None:
+            return False
+        if self._possibly_same_location(left,right):
+            return True
+        return bool(left.area and right.area and left.floor and left.floor == right.floor
+                    and min(left.quality.rank,right.quality.rank) >= Quality.MEDIUM.rank
+                    and self._adjacent(left.area,right.area)
+                    and abs(left.observed_at-right.observed_at) <= self._config.trajectory_window)

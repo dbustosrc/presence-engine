@@ -1,5 +1,13 @@
 # Historial de cambios
 
+## 0.5.13 — Corroboración multifuente y tránsito animal
+
+- Conserva como intervalo la posible asociación entre un animal observado y un radar anónimo reciente de una habitación contigua, sin asignar especie o identidad al radar ni descartar sus mediciones.
+- Mantiene independencia de las particiones de un mismo radar, personas clasificadas, otras plantas y observaciones sin trayectoria compatible.
+- Expone confianza espacial y familias independientes por área actual para que los consumidores comparen corroboración, en lugar de elegir únicamente por la última actualización.
+- Conserva respaldo de sensores consumidos al deduplicar una población; canales visuales derivados, dependencia explícita, contexto débil y teléfonos sin asociación actual no multiplican la confianza.
+- Mantiene los plazos existentes, el descubrimiento, los positivos de Frigate, imágenes y resultados destinados a avisos; no añade lectores, timers ni dependencias.
+
 ## 0.5.12 — Prioridad temporal y poblaciones solapadas
 
 - Evita que una observación anterior retroceda una ubicación personal más reciente; el reconocimiento tardío puede refinar identidad sin trasladar retrospectivamente al individuo.

@@ -253,6 +253,8 @@ class AreaOccupancy:
     location: SpatialClaim
     count: CountClaim
     source_ids: tuple[str, ...]
+    support_families: tuple[str, ...] = ()
+    support_quality: Quality = Quality.UNKNOWN
 
     def __post_init__(self) -> None:
         if self.location.level is not SpatialLevel.AREA or self.count.maximum == 0:

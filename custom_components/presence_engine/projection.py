@@ -31,7 +31,9 @@ def snapshot_payload(
         "area_occupancies": [
             {"location": _location(item.location),
              "count": {"minimum": item.count.minimum, "maximum": item.count.maximum},
-             "source_ids": list(item.source_ids)}
+             "source_ids": list(item.source_ids),
+             "support_families": list(item.support_families),
+             "support_quality": item.support_quality.value}
             for item in snapshot.area_occupancies
         ],
         "presences": [

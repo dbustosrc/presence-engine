@@ -17,6 +17,17 @@ plus a presentation-ready authenticated image URL when visual evidence exists.
 The image retains its own event, area and timestamp, so consumers do not infer
 the current room from historical visual metadata or rescan source entities.
 
+Current area occupancy additionally exposes `current_location_confidence`
+(the configured ordinal spatial quality, not a calibrated probability) and
+`current_source_families`. Only compatible measurements within the resolver's
+trajectory window corroborate an area. Visual object/face channels and radar
+partitions do not receive multiple votes; explicit dependency groups also
+prevent correlated channels from multiplying support. Low-quality context
+does not add a control vote. Device support requires an already associated
+current owner, a device sample no older than the associated body location,
+and physical area evidence; a phone alone never creates area
+occupancy. None of these fields confirms identity or changes historical images.
+
 ## Coverage
 
 The canonical diagnostic binary sensor mirrors degraded coverage and exposes both
