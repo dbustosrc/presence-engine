@@ -256,6 +256,20 @@ class PresenceResolver:
         for group in groups:
             if group.location and group.location.area and group.maximum:
                 by_area.setdefault(group.location.area, []).append(group)
+        # Identified bodies are counted separately, but still provide physical
+        # area support. Only use the current location's direct sources: a device
+        # or a superseded observation must not revive historical occupancy.
+        direct=tuple(item for item in observations if item.target_kind is TargetKind.PERSON
+                     and item.identity and item.location and item.location.area
+                     and item.identity.value in people
+                     and people[item.identity.value].status != "continued"
+                     and item.source.source_id in people[item.identity.value].location_sources
+                     and self._same_area(item.location,people[item.identity.value].location))
+        missing={item.location.area for item in direct} - by_area.keys()
+        for group in self._evidence_groups(tuple(replace(
+                item,identity=None,target_id="identity:"+item.identity.value) for item in direct),self._clock.now()):
+            if group.location and group.location.area in missing and group.maximum:
+                by_area.setdefault(group.location.area, []).append(group)
         result = []
         for area, items in sorted(by_area.items()):
             location = max(items, key=lambda item: item.location.observed_at).location
@@ -265,8 +279,7 @@ class PresenceResolver:
             maximum = sum(item.maximum for item in items)
             sources={source for item in items for source in item.source_ids}
             support=[item for item in observations if item.location and item.location.area == area
-                     and (item.source.source_id in sources or (item.identity and
-                          item.target_kind is TargetKind.PERSON))
+                     and (item.source.source_id in sources or item in direct)
                      and abs(location.observed_at-item.location.observed_at) <= self._config.trajectory_window]
             # A phone corroborates only an already associated current person;
             # a stationary device near an animal is not an extra control vote.

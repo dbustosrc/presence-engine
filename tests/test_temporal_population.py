@@ -119,7 +119,7 @@ class TemporalPopulationTests(unittest.TestCase):
             self.assertIsNone(unknown.classification)
             self.assertIsNone(unknown.identity)
             self.assertEqual(unknown.location.area,"alpha")
-            self.assertEqual(len(result.area_occupancies),2,"both physical positives remain current")
+            self.assertEqual(len(result.area_occupancies),3,"all physical positives remain current")
         for location in (area("epsilon"),area("gamma",21),area("alpha",quality=Quality.LOW)):
             result=self.resolve(person,dog,replace(radar,location=location),second=max(0,(location.observed_at-at()).total_seconds()))
             self.assertEqual((result.count_minimum,result.count_maximum),(3,3))
@@ -163,6 +163,40 @@ class TemporalPopulationTests(unittest.TestCase):
         result=self.resolve(device,dog)
         self.assertEqual(public_presence_projection(result)["active_areas"][0]["current_source_families"],["visual"])
         self.assertEqual(next(p for p in result.presences if p.identity).location.level.value,"home")
+
+    def test_recognized_body_keeps_visual_support_without_anonymous_population(self):
+        face=observation("face",family="resolved_event",target_id="body-a",
+                         location=area("alpha",-.7),identity_claim=identity(seconds=-.7))
+        radar=observation("radar",family="mtr_count",kind=TargetKind.UNKNOWN_LIVING,
+                          location=area("beta",-1.4))
+        result=self.resolve(face,radar)
+        public={a["area"]:a for a in public_presence_projection(result)["active_areas"]}
+        self.assertEqual(public["alpha"]["current_source_families"],["visual"])
+        self.assertEqual(public["alpha"]["current_location_confidence"],"high")
+        self.assertEqual(public["beta"]["current_source_families"],["physical_presence"])
+        self.assertEqual((result.count_minimum,result.count_maximum),(1,2))
+        self.assertEqual(next(p for p in result.presences if p.identity).location.area,"alpha")
+
+    def test_recognized_support_deduplicates_channels_and_retires_with_body(self):
+        face=observation("face",family="frigate_face",location=area("alpha"),identity_claim=identity())
+        alias=replace(face,observation_id="object",source=replace(face.source,source_id="object",family="frigate_event"))
+        radar=observation("radar",family="mtr_count",kind=TargetKind.UNKNOWN_LIVING,location=area("alpha"))
+        for items,families in (((face,alias),["visual"]),((face,alias,radar),["physical_presence","visual"])):
+            result=self.resolve(*items)
+            public=public_presence_projection(result)["active_areas"][0]
+            self.assertEqual(public["current_source_families"],families)
+            self.assertEqual(public["maximum_count"],1)
+            self.assertEqual((result.count_minimum,result.count_maximum),(1,1))
+        other=replace(face,observation_id="other",identity=identity("person_b"))
+        result=self.resolve(face,other)
+        self.assertEqual((result.count_minimum,result.count_maximum),(2,2))
+        self.assertEqual(public_presence_projection(result)["active_areas"][0]["maximum_count"],2)
+        previous=self.resolve(face)
+        for items in ((self.device("alpha",1),),
+                      (self.device("alpha",1),replace(face,location=area("beta",-1)) )):
+            result=self.resolve(*items,previous=previous,second=1)
+            self.assertEqual(result.area_occupancies,(),"continuity and superseded bodies are not current support")
+        self.assertEqual(self.resolve(replace(face,location=floor())).area_occupancies,())
 
 
 if __name__ == "__main__":

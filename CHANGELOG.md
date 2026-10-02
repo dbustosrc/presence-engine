@@ -1,5 +1,12 @@
 # Historial de cambios
 
+## 0.5.14 — Respaldo visual de áreas con identidad reconocida
+
+- Conserva la procedencia visual y la confianza espacial de un área sostenida por una persona reconocida, aunque no haya una población anónima adicional en esa habitación.
+- Los consumidores de control pueden comparar ese respaldo con otras familias de sensores sin perderlo durante la proyección común.
+- Deduplica canales de una misma identidad, sin añadir personas al conteo ni convertir dispositivos, continuidad o ubicaciones superadas en ocupación actual.
+- No modifica plazos, telemetría PTZ, imágenes históricas ni configuración requerida.
+
 ## 0.5.13 — Corroboración multifuente y tránsito animal
 
 - Conserva como intervalo la posible asociación entre un animal observado y un radar anónimo reciente de una habitación contigua, sin asignar especie o identidad al radar ni descartar sus mediciones.
