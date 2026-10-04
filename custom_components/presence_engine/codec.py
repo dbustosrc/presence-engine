@@ -56,6 +56,10 @@ def encode_observation(value: Observation) -> dict[str, Any]:
         "count": _encode_count(value.count),
         "image": encode_image_reference(value.image),
         "source_diagnostics": dict(value.source_diagnostics),
+        "network_attachment": value.network_attachment,
+        "network_attachment_area": value.network_attachment_area,
+        "network_attachment_observed_at": _time(value.network_attachment_observed_at),
+        "network_attachment_attribute": value.network_attachment_attribute,
         "active_since": _time(value.active_since),
         "ended_at": _time(value.ended_at),
         "revisions": {
@@ -92,6 +96,10 @@ def decode_observation(raw: Mapping[str, Any]) -> Observation:
         count=_decode_count(raw.get("count")),
         image=decode_image_reference(raw.get("image")),
         source_diagnostics=raw.get("source_diagnostics", {}),
+        network_attachment=_optional_text(raw.get("network_attachment")),
+        network_attachment_area=_optional_text(raw.get("network_attachment_area")),
+        network_attachment_observed_at=_optional_datetime(raw.get("network_attachment_observed_at")),
+        network_attachment_attribute=_optional_text(raw.get("network_attachment_attribute")),
         active_since=_optional_datetime(raw.get("active_since")),
         ended_at=_optional_datetime(raw.get("ended_at")),
         revisions={

@@ -110,6 +110,61 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.get("errors"),result)
         self.assertEqual(self.flow._draft["sources"][0]["options"],saved["options"])
 
+    async def test_wifi_form_round_trips_and_identity_menu_can_remove_owner(self):
+        self.flow._key = ""
+        self.flow._adapter = "wifi_tracker"
+        form = await self.flow.async_step_source_edit()
+        convert(form["data_schema"], custom_serializer=custom_serializer)
+        values = form["data_schema"]({"id": "wifi_a", "enabled": True,
+            "entity_ids": ["device_tracker.phone_a"], "identity": "person_a", "device_id": "phone_a",
+            "ap_attribute": "connected_ap", "ap_area_map": [{"key": "AP Alpha", "value": "alpha"}]})
+        result = await self.flow.async_step_source_edit(values)
+        self.assertFalse(result.get("errors"), result)
+        saved = deepcopy(self.flow._draft["sources"][0])
+        self.flow._key = "wifi_a"
+        form = await self.flow.async_step_source_edit()
+        result = await self.flow.async_step_source_edit(form["data_schema"]({}))
+        self.assertFalse(result.get("errors"), result)
+        self.assertEqual(self.flow._draft["sources"][0]["options"], saved["options"])
+        self.flow._key = "person_a"
+        form = await self.flow.async_step_identity_edit()
+        values = form["data_schema"]({})
+        self.assertEqual(values["entities"], ["device_tracker.phone_a"])
+        values["entities"] = []
+        self.assertFalse((await self.flow.async_step_identity_edit(values)).get("errors"))
+        self.assertIsNone(self.flow._draft["sources"][0]["identity"])
+
+    async def test_native_wifi_attribute_only_ap_changes_and_diagnostics_redaction(self):
+        from datetime import timedelta
+        from presence_engine.configuration import parse_configuration
+        from presence_engine.diagnostics import async_get_config_entry_diagnostics
+        from homeassistant.core import State
+        from homeassistant.util import dt as dt_util
+        configuration = parse_configuration({"schema_version": 1, "areas": {"alpha": "ground"},
+            "sources": [{"source_id": "wifi_a", "adapter": "wifi_tracker",
+                "entity_ids": ["device_tracker.phone_a"], "options": {"device_id": "phone_a",
+                    "ap_attribute": "connected_ap", "ap_area_map": {"AP Alpha": "alpha"}}}]})
+        hass = HomeAssistant("/tmp/presence-engine-no-io")
+        entry = catalogue_entry()
+        runtime = HomeAssistantPresenceRuntime(hass, entry, configuration, max_records=2000, save_delay_seconds=15)
+        entry.runtime_data = runtime
+        runtime._store = Mock(async_save=AsyncMock())
+        runtime._reschedule_expiration = Mock()
+        now = dt_util.utcnow()
+        for offset, ap in ((0, "AP Alpha"), (1, "AP Other"), (2, "AP Other")):
+            updated = now + timedelta(seconds=offset)
+            with patch("presence_engine.ha_runtime.dt_util.utcnow", return_value=updated):
+                await runtime._async_process_state("device_tracker.phone_a", State("device_tracker.phone_a", "home",
+                    {"source_type": "router", "connected_ap": ap, "friendly_name": str(offset)},
+                    last_changed=now, last_updated=updated))
+        device = runtime.engine.snapshot.devices[0]
+        self.assertEqual(device.network_attachment, "AP Other")
+        self.assertEqual(device.network_attachment_observed_at, now + timedelta(seconds=1))
+        self.assertIsNone(device.location.area)
+        self.assertEqual(runtime.engine.snapshot.count_maximum, 0)
+        diagnostic = await async_get_config_entry_diagnostics(hass, entry)
+        self.assertEqual(diagnostic["snapshot"]["devices"][0]["network_attachment"], "[redacted]")
+
     async def test_ble_state_updates_save_history_without_presence_publications(self):
         from presence_engine.configuration import parse_configuration
         from homeassistant.core import State

@@ -29,6 +29,7 @@ class AdapterType(str, Enum):
     PTZ_CONTEXT = "ptz_context"
     BERMUDA_AREA = "bermuda_area"
     BERMUDA_SIGNAL = "bermuda_signal"
+    WIFI_TRACKER = "wifi_tracker"
     MTR_COUNT = "mtr_count"
     COUNT = "count"
     BINARY_PRESENCE = "binary_presence"
@@ -271,6 +272,26 @@ class SourceDefinition:
                             f"source {self.source_id} {option_name} must contain strings"
                         )
                     _require_entity_id(value)
+        if self.adapter is AdapterType.WIFI_TRACKER:
+            if len(self.entity_ids) != 1 or not self.entity_ids[0].startswith("device_tracker."):
+                raise ConfigurationError("Wi-Fi source requires exactly one device_tracker")
+            if self.availability_role is AvailabilityRole.COVERAGE:
+                raise ConfigurationError("Wi-Fi endpoint is not infrastructure health; use source_health")
+            if self.area or self.floor or self.camera_id:
+                raise ConfigurationError("Wi-Fi attachment is not a physical location")
+            _require_slug(self.options.get("device_id"), "device_id")
+            attribute = self.options.get("ap_attribute")
+            if attribute is not None and (not isinstance(attribute, str) or not attribute.strip() or len(attribute) > 128):
+                raise ConfigurationError("AP attribute must be a non-empty attribute name")
+            if attribute is not None and any(name in attribute.casefold() for name in (
+                    "token", "password", "secret", "url", "image", "picture", "latitude", "longitude")):
+                raise ConfigurationError("AP attribute cannot refer to credentials, media or coordinates")
+            mapping = self.options.get("ap_area_map", {})
+            if not isinstance(mapping, Mapping):
+                raise ConfigurationError("AP mapping must be an object")
+            _validate_area_mapping(mapping, "ap_area_map")
+            if mapping and not attribute:
+                raise ConfigurationError("AP mapping requires an explicit AP attribute")
         if self.adapter is AdapterType.BERMUDA_SIGNAL:
             if self.availability_role is AvailabilityRole.COVERAGE:
                 raise ConfigurationError("BLE endpoint signals are not receiver health; use source_health")
@@ -339,6 +360,7 @@ class SourceDefinition:
         return self.adapter not in {
             AdapterType.BERMUDA_AREA,
             AdapterType.BERMUDA_SIGNAL,
+            AdapterType.WIFI_TRACKER,
             AdapterType.PERSON_HOME,
         }
 
@@ -381,6 +403,9 @@ class EngineConfiguration:
         if unknown_camera_ids:
             raise ConfigurationError(f"sources reference unknown cameras: {sorted(unknown_camera_ids)}")
         for source in self.sources:
+            if source.adapter is AdapterType.WIFI_TRACKER:
+                if set(source.options.get("ap_area_map", {}).values()) - known_areas:
+                    raise ConfigurationError("AP mapping references unknown area")
             if source.area is not None and source.area not in known_areas:
                 raise ConfigurationError(f"source {source.source_id} references unknown area")
             if source.floor is not None and source.floor not in set(self.areas.values()):

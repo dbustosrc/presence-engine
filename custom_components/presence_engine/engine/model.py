@@ -187,12 +187,30 @@ class Observation:
     ended_at: datetime | None = None
     revisions: Mapping[RevisionDimension, RevisionStamp] = field(default_factory=dict)
     source_diagnostics: Mapping[str, bool | int] = field(default_factory=dict)
+    network_attachment: str | None = None
+    network_attachment_area: str | None = None
+    network_attachment_observed_at: datetime | None = None
+    network_attachment_attribute: str | None = None
 
     def __post_init__(self) -> None:
         if not self.observation_id.strip():
             raise ValueError("observation_id is required")
         require_aware(self.received_at, "received_at")
         require_aware(self.detected_at, "detected_at")
+        if self.network_attachment_observed_at is not None:
+            require_aware(self.network_attachment_observed_at, "network attachment observed_at")
+            if self.network_attachment_observed_at > self.received_at:
+                raise ValueError("network attachment time cannot be after reception")
+        if self.network_attachment is not None:
+            if self.network_attachment_attribute is not None and (not isinstance(self.network_attachment_attribute, str)
+                    or not 0 < len(self.network_attachment_attribute) <= 128):
+                raise ValueError("network attachment attribute must be bounded text")
+            if self.target_kind is not TargetKind.DEVICE or not isinstance(self.network_attachment, str) or not 0 < len(self.network_attachment) <= 256:
+                raise ValueError("network attachment requires a device and a bounded identifier")
+            if self.network_attachment_observed_at is None:
+                raise ValueError("network attachment requires observation time")
+        elif self.network_attachment_area is not None or self.network_attachment_observed_at is not None or self.network_attachment_attribute is not None:
+            raise ValueError("network attachment metadata requires an attachment")
         if self.active_since is not None:
             require_aware(self.active_since, "active_since")
         if self.ended_at is not None:
@@ -222,6 +240,9 @@ class DeviceState:
     linked_identity: str | None
     location: SpatialClaim | None
     source_ids: tuple[str, ...]
+    network_attachment: str | None = None
+    network_attachment_area: str | None = None
+    network_attachment_observed_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from dataclasses import replace
 import math
 from typing import Any, Mapping
 
@@ -132,6 +133,7 @@ class EntityStateAdapter:
         self.source_id = definition.source_id
         self._definition = definition
         self._entities = frozenset(definition.entity_ids)
+        self._wifi_observation: Observation | None = None
 
     def accepts(self, envelope: AdapterEnvelope) -> bool:
         return envelope.channel_type == "state" and envelope.channel in self._entities
@@ -139,6 +141,8 @@ class EntityStateAdapter:
     def parse(self, envelope: AdapterEnvelope) -> AdapterResult:
         state = str(envelope.payload.get("state", ""))
         normalized = state.casefold()
+        if self._definition.adapter is AdapterType.WIFI_TRACKER:
+            return self._wifi_tracker(envelope, normalized)
         if self._definition.adapter is AdapterType.BERMUDA_SIGNAL:
             return self._device_signal(envelope, state)
         if self._definition.adapter is AdapterType.SOURCE_HEALTH:
@@ -159,6 +163,78 @@ class EntityStateAdapter:
         if self._definition.adapter is AdapterType.AUXILIARY_ACTIVITY:
             return AdapterResult(ignored=True)
         raise ValueError(f"unsupported entity adapter: {self._definition.adapter.value}")
+
+    def restore_wifi_observation(self, observation: Observation | None) -> bool:
+        """Seed semantic deduplication only when the saved binding still matches."""
+        definition = self._definition
+        self._wifi_observation = None
+        if observation is None:
+            return True
+        expected_owner = definition.identity
+        if (observation.source.family != "wifi_tracker"
+                or observation.observation_id != self.source_id
+                or observation.target_kind is not TargetKind.DEVICE
+                or observation.target_id != definition.options["device_id"]
+                or observation.source.native_id not in self._entities
+                or RevisionDimension.LIFECYCLE not in observation.revisions
+                or observation.count is not None
+                or observation.event_id is not None or observation.image is not None
+                or observation.location is not None and (observation.location.level is not SpatialLevel.HOME
+                    or observation.location.area is not None or observation.location.floor is not None or observation.location.candidates)
+                or (observation.identity.value if observation.identity else None) != expected_owner
+                or observation.network_attachment is not None and observation.network_attachment_attribute != definition.options.get("ap_attribute")
+                or observation.network_attachment_area != definition.options.get("ap_area_map", {}).get(observation.network_attachment)):
+            return False
+        self._wifi_observation = observation
+        return True
+
+    def _wifi_tracker(self, envelope: AdapterEnvelope, state: str) -> AdapterResult:
+        """Store endpoint connection and AP attachment, never a body's room."""
+        updated = _state_time(envelope.payload, "last_updated", envelope.observed_at)
+        changed = _state_time(envelope.payload, "last_changed", envelope.observed_at)
+        for value in (updated, changed):
+            require_aware(value, "Wi-Fi state time")
+        if changed > updated or updated > envelope.received_at:
+            raise ValueError("Wi-Fi state clocks are inconsistent")
+        attributes = envelope.payload.get("attributes", {})
+        unsupported = isinstance(attributes, Mapping) and (
+            attributes.get("tracking_type") == "position"
+            or attributes.get("source_type") not in (None, "router"))
+        active = state == "home" and not unsupported
+        options = self._definition.options
+        attachment = attributes.get(options.get("ap_attribute")) if active and isinstance(attributes, Mapping) else None
+        if not isinstance(attachment, str) or not attachment.strip() or len(attachment) > 256:
+            attachment = None
+        mapped_area = options.get("ap_area_map", {}).get(attachment)
+        facts = {"connected": active, "tracker_unknown": state in INVALID_STATES and state != "unavailable",
+                 "tracker_unavailable": state == "unavailable",
+                 "unsupported_tracker": unsupported,
+                 "attachment_unmapped": attachment is not None and mapped_area is None}
+        status = ObservationStatus.ACTIVE if active else (
+            ObservationStatus.ENDED if state in ABSENT_AREA_STATES and not unsupported else ObservationStatus.UNKNOWN)
+        prior = self._wifi_observation
+        if prior is not None:
+            prior_time = prior.revisions[RevisionDimension.LIFECYCLE].observed_at
+            if updated <= prior_time or (status, attachment, mapped_area, facts) == (
+                    prior.status, prior.network_attachment, prior.network_attachment_area, dict(prior.source_diagnostics)):
+                return AdapterResult(ignored=True)
+        identity = IdentityClaim(self._definition.identity, changed, "registered_device_owner", Quality.HIGH) if self._definition.identity else None
+        location = SpatialClaim(SpatialLevel.HOME, changed, method="wifi_connection", quality=Quality.LOW) if active else None
+        observation = self._observation(envelope, kind=TargetKind.DEVICE, identity=identity,
+                                        location=location, count=None, active=active)
+        stamp = RevisionStamp(int(updated.timestamp() * 1_000_000), updated)
+        attachment_time = (prior.network_attachment_observed_at if prior and prior.network_attachment == attachment
+                           and prior.status is ObservationStatus.ACTIVE else updated) if attachment else None
+        observation = replace(observation, target_id=options["device_id"], status=status,
+            detected_at=changed, ended_at=updated if status is ObservationStatus.ENDED else None,
+            network_attachment=attachment, network_attachment_area=mapped_area,
+            network_attachment_observed_at=attachment_time, source_diagnostics=facts,
+            network_attachment_attribute=options.get("ap_attribute") if attachment else None,
+            revisions={dimension: stamp for dimension in (
+                RevisionDimension.LOCATION, RevisionDimension.IDENTITY, RevisionDimension.LIFECYCLE,
+                RevisionDimension.DIAGNOSTICS)})
+        self._wifi_observation = observation
+        return AdapterResult(observations=(observation,))
 
     def _device_signal(self, envelope: AdapterEnvelope, state: str) -> AdapterResult:
         options = self._definition.options
@@ -361,7 +437,7 @@ class EntityStateAdapter:
         *,
         kind: TargetKind,
         identity: IdentityClaim | None,
-        location: SpatialClaim,
+        location: SpatialClaim | None,
         count: CountClaim | None,
         active: bool,
     ) -> Observation:

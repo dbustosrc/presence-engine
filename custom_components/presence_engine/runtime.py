@@ -89,6 +89,8 @@ class PresenceRuntime:
             adjacency=configuration.adjacency,
         )
         self._store = EvidenceStore(max_records=max_records)
+        self._wifi_source_ids = {source.source_id for source in configuration.sources
+                                 if source.enabled and source.adapter is AdapterType.WIFI_TRACKER}
         self._signal_definitions = {source.source_id: source for source in configuration.sources
                                     if source.enabled and source.adapter is AdapterType.BERMUDA_SIGNAL}
         self._signal_samples: dict[str, list[DeviceSignalSample]] = {}
@@ -163,6 +165,10 @@ class PresenceRuntime:
             ):
                 continue
             try:
+                if adapter.source_id in self._wifi_source_ids:
+                    saved = self._store.get(adapter.source_id, adapter.source_id)
+                    if not adapter.restore_wifi_observation(saved.observation if saved else None):
+                        changed = bool(self._store.remove_source(adapter.source_id)) or changed
                 result = adapter.parse(envelope)
             except (KeyError, TypeError, ValueError) as err:
                 failure = AdapterFailure(adapter.source_id, type(err).__name__, str(err))
@@ -433,6 +439,10 @@ class PresenceRuntime:
                     continue
                 if not self._observation_matches_camera_admission(observation):
                     continue
+                if observation.source.source_id in self._wifi_source_ids:
+                    adapter = next(a for a in self._adapters if a.source_id == observation.source.source_id)
+                    if not adapter.restore_wifi_observation(observation):
+                        continue
                 self._store.upsert(observation)
             except (KeyError, TypeError, ValueError):
                 continue

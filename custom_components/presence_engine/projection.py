@@ -67,6 +67,10 @@ def snapshot_payload(
                 "linked_identity": device.linked_identity,
                 "location": _location(device.location),
                 "source_ids": list(device.source_ids),
+                "network_attachment": device.network_attachment,
+                "network_attachment_area": device.network_attachment_area,
+                "network_attachment_observed_at": (device.network_attachment_observed_at.isoformat()
+                                                   if device.network_attachment_observed_at else None),
             }
             for device in snapshot.devices
         ],

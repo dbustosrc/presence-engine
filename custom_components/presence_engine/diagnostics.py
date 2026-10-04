@@ -16,6 +16,10 @@ async def async_get_config_entry_diagnostics(
 ) -> dict[str, Any]:
     runtime = entry.runtime_data
     configuration = runtime.engine.configuration
+    snapshot = snapshot_payload(runtime.engine.snapshot)
+    for device in snapshot["devices"]:
+        if device["network_attachment"] is not None:
+            device["network_attachment"] = "[redacted]"
     return {
         "configuration": {
             "schema_version": configuration.schema_version,
@@ -32,7 +36,7 @@ async def async_get_config_entry_diagnostics(
                 for source in configuration.sources
             ],
         },
-        "snapshot": snapshot_payload(runtime.engine.snapshot),
+        "snapshot": snapshot,
         "device_signal_histories": runtime.engine.signal_history_payload(),
         "event_diagnostics": [
             {

@@ -276,8 +276,8 @@ class HomeAssistantPresenceRuntime:
                 "last_changed": state.last_changed.isoformat(),
                 "last_updated": state.last_updated.isoformat(),
             },
-            # Entity adapters consume the state value, not attributes. An
-            # attribute-only refresh must not create a semantic revision.
+            # Default clock for state-value claims. Attribute adapters use
+            # last_updated and deduplicate their consumed fields separately.
             observed_at=state.last_changed,
             received_at=dt_util.utcnow(),
         )

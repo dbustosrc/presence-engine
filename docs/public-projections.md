@@ -50,6 +50,22 @@ individual or proof of absence; lifecycle, source availability and configured
 expiry remain authoritative. This is conservative population fusion, not visual
 appearance re-identification or a calibrated probability of identity.
 
+### Wi-Fi attachment facts
+
+From 0.5.17, `devices` may expose `network_attachment`,
+`network_attachment_area` and `network_attachment_observed_at`. These describe
+the current endpoint/AP connection, not a physical room measurement. The device
+`location` remains home scope with no room; `linked_identity` is an optional
+owner association, not face recognition or proof that the owner carries it.
+AP changes while the tracker remains connected are supported, and unknown or
+disconnected endpoints lose active attachment facts even when old router
+attributes remain. Downloadable diagnostics redact the AP identifier.
+
+Wi-Fi alone creates no body, room occupancy or detection. It cannot replace
+direct visual/radar evidence, remove the owner on disconnect, or degrade
+observer coverage. Existing Bluetooth/body association and continuity are
+unchanged; AP attachment is not triangulation or a calibrated probability.
+
 ## Coverage
 
 The canonical diagnostic binary sensor mirrors degraded coverage and exposes both

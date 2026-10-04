@@ -496,6 +496,9 @@ class PresenceResolver:
                 linked_identity=item.identity.value if item.identity else None,
                 location=item.location,
                 source_ids=(item.source.source_id,),
+                network_attachment=item.network_attachment,
+                network_attachment_area=item.network_attachment_area,
+                network_attachment_observed_at=item.network_attachment_observed_at,
             ))
         return tuple(sorted(result,key=lambda device:device.device_id))
 
@@ -551,6 +554,11 @@ class PresenceResolver:
             if item.target_kind is not TargetKind.DEVICE or item.identity is None:
                 continue
             identity=item.identity.value
+            if item.source.family == "wifi_tracker":
+                # An AP attachment cannot create a body or room association.
+                if identity in people:
+                    people[identity].sources.add(item.source.source_id)
+                continue
             if identity in people:
                 candidate=people[identity]
                 candidate.sources.add(item.source.source_id)

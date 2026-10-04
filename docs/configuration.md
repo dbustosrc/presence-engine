@@ -190,6 +190,54 @@ los metadatos demuestran semántica suficiente. Ejemplos:
 No se escanean todos los estados en cada evento. Las suscripciones finales son
 la unión exacta de entidades y topics configurados/activados.
 
+### Dispositivo Wi-Fi y conexión a punto de acceso
+
+`wifi_tracker` se configura en **Fuentes → Añadir → Dispositivo Wi-Fi / conexión
+AP**, seleccionando un único `device_tracker` original. `options.device_id` es
+un identificador estable explícito; la identidad propietaria es opcional. No
+se deduce identidad por nombre, dirección IP o MAC, ni se activa esta fuente
+automáticamente. Los trackers GPS o Bluetooth no se reinterpretan como Wi-Fi.
+
+Para conservar el AP, indicar `options.ap_attribute`: el nombre exacto del
+atributo que publica la integración de red. `options.ap_area_map` puede asociar
+sus valores a áreas conocidas mediante filas del formulario; es el área del
+**punto de acceso**, no una medición de posición del dispositivo ni del dueño.
+No hay nombres de atributos o proveedores de router obligatorios. Un AP sin
+mapa conserva su identificador, pero no inventa un área. Sin atributo de AP,
+la fuente solo conserva conexión. No seleccionar atributos de credenciales,
+medios o coordenadas.
+
+`home` significa conectado: el dispositivo tiene alcance doméstico de calidad
+baja, sin habitación. `not_home`/`away` finaliza esa evidencia y descarta el AP,
+aunque el tracker conserve atributos anteriores. `unknown`, `unavailable`,
+un tipo GPS/Bluetooth o un estado no interpretable no aportan evidencia activa.
+La pérdida del teléfono no degrada cobertura ni borra evidencia física del
+propietario. Para salud de infraestructura usar `source_health` independiente.
+
+Los cambios de AP se leen incluso si el estado sigue en `home`. Se separan
+`last_changed` del estado y `last_updated` del atributo: esta última es la hora
+del cambio HA, no una medición radioeléctrica original. Repeticiones, ruido en
+otros atributos y restauración no renuevan el reloj del AP. Los mensajes
+anteriores al último estado semántico aceptado no resucitan la conexión.
+La persistencia valida dispositivo, entidad, propietario, atributo y mapa antes
+de reutilizar una asociación guardada.
+
+La salida `devices` de `presence_engine.get_snapshot` conserva `linked_identity`,
+`network_attachment`, `network_attachment_area` y
+`network_attachment_observed_at`, separados de `location`. El identificador AP
+se oculta en el diagnóstico descargable; no se copian payloads, IP, MAC,
+coordenadas o credenciales. La conexión no crea personas, cuerpos anónimos,
+ocupación de área, detecciones ni avisos. Tampoco traslada al propietario o
+reemplaza un rostro/radar; prepara evidencia de dispositivo para la asociación
+temporal posterior, no demuestra que el teléfono viaje con su dueño.
+
+Se usan las suscripciones y persistencia existentes: sin polling del router,
+otra integración o modificaciones de firmware. Se mantiene el esquema de
+configuración y las fuentes anteriores. No migra implícitamente una fuente
+`person_home` que estuviera leyendo un tracker.
+
+[Semántica oficial de trackers de conexión y posición](https://www.home-assistant.io/integrations/device_tracker/).
+
 ## Política de expiración
 
 Utilizar caducidad para eventos push que podrían perder el mensaje de fin. No

@@ -1,5 +1,13 @@
 # Historial de cambios
 
+## 0.5.17 — Dispositivos Wi-Fi y conexión a puntos de acceso
+
+- Añade una fuente Wi-Fi configurable desde los formularios nativos, con dispositivo estable, propietario opcional, atributo de AP explícito y mapa opcional de puntos de acceso a áreas.
+- Conserva conexión y cambios de AP aunque el tracker siga en `home`, sin confundir el área del AP con la habitación del dispositivo o de su propietario. Wi-Fi por sí solo no crea personas, ocupación de área, detecciones ni avisos.
+- Separa relojes de estado, cambio de atributo y recepción; descarta duplicados, ruido de atributos y mensajes anteriores al último estado aceptado. La restauración no renueva el AP y valida los vínculos configurados.
+- Retira el respaldo del dispositivo al desconectarse o quedar desconocido sin degradar cobertura ni invalidar evidencia corporal independiente. Rechaza interpretar trackers GPS/Bluetooth como Wi-Fi y oculta el AP en diagnósticos descargables.
+- Mantiene fuentes anteriores, configuración, reconocimiento, plazos y control PTZ. No incorpora todavía alertas de dispositivos nuevos, asociación temporal de teléfono transportado/separado ni posicionamiento interior por AP.
+
 ## 0.5.16 — Asociación de cuerpos y cobertura visual conjunta
 
 - Conserva la cámara y cobertura originales al resolver eventos para presencia, incluso después de restaurar el estado.
