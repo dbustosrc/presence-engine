@@ -28,6 +28,28 @@ current owner, a device sample no older than the associated body location,
 and physical area evidence; a phone alone never creates area
 occupancy. None of these fields confirms identity or changes historical images.
 
+### Shared visual coverage
+
+From 0.5.16, local tracked-object IDs are not assumed to be globally independent
+bodies across cameras. Current objects of the same class in the same precise
+area may overlap: the lower bound retains the strongest per-camera population,
+while the upper bound preserves all possible bodies. Distinct objects in one
+camera and different species remain separate. Unknown camera provenance or
+floor-only locations do not establish shared room coverage.
+
+An identified object cannot consume another local object from the same camera.
+Without an explicit object/identity link, a room correlation preserves visitor
+uncertainty. Home-scope identities can overlap current anonymous bodies; they
+do not establish an additional exact individual or acquire a room by elimination.
+The reasons `cross_camera_population_overlap`, `anonymous_body_identity_overlap`
+and `home_identity_may_overlap_current_body` explain these bounds. Object images,
+identity confidence, event timestamps and existing continuity limits are unchanged.
+
+An ACTIVE stationary object can have an old frame. Frame age alone is not a new
+individual or proof of absence; lifecycle, source availability and configured
+expiry remain authoritative. This is conservative population fusion, not visual
+appearance re-identification or a calibrated probability of identity.
+
 ## Coverage
 
 The canonical diagnostic binary sensor mirrors degraded coverage and exposes both

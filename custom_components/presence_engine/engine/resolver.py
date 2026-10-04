@@ -93,6 +93,7 @@ class _EvidenceGroup:
     target_id: str | None
     dependency_group: str | None
     coverage_group: str | None
+    observer_id: str | None = None
 
 
 class PresenceResolver:
@@ -133,6 +134,7 @@ class PresenceResolver:
         extra_max=0
         counted_groups=[]
         animal_consumption: dict[str, set[str]]={}
+        person_consumption: set[tuple[str, object]] = set()
 
         for group in groups:
             if group.kind is TargetKind.ANIMAL:
@@ -140,6 +142,8 @@ class PresenceResolver:
             group_min=group.minimum
             group_max=group.maximum
             if group.kind in {TargetKind.PERSON,TargetKind.UNKNOWN_LIVING}:
+                eligible = {key: person for key, person in people.items()
+                            if self._identity_can_cover(person, group, active, person_consumption)}
                 if group.kind is TargetKind.UNKNOWN_LIVING and group.location is not None:
                     overlap=next((animal for animal in animals if animal.minimum > 0
                                   and self._possible_trajectory(group.location,animal.location)
@@ -150,14 +154,17 @@ class PresenceResolver:
                         for source in group.source_ids:
                             animal_consumption.setdefault(source,set()).add(overlap.key)
                         reasons.append("anonymous_count_may_include_animal")
-                corroborated=self._device_corroboration_match(people,group,physical_areas)
+                corroborated=self._device_corroboration_match(eligible,group,physical_areas)
                 if corroborated is not None:
+                    person_consumption.add((corroborated.identity, self._identity_bucket(group)))
                     applied=self._apply_group_location(corroborated,group,True)
                     group_min=max(0,group_min-1)
-                    if applied:
+                    if applied and self._exact_identity_match(corroborated,group,active):
                         group_max=max(0,group_max-1)
-                    else:
+                    elif not applied:
                         reasons.append("older_location_did_not_rewind_person")
+                    else:
+                        reasons.append("anonymous_body_identity_overlap")
                 if corroborated is None:
                     separated=self._separate_device_proxy_from_physical_presence(
                         people,
@@ -171,7 +178,7 @@ class PresenceResolver:
                         # a possible visitor.
                         group_min=0
                         reasons.append("device_separated_from_physical_presence")
-                    same_area=[person for person in people.values()
+                    same_area=[person for person in eligible.values()
                                if self._same_area(person.location,group.location)]
                     if same_area:
                         if group_min >= len(same_area):
@@ -183,14 +190,20 @@ class PresenceResolver:
                                         and group.location.observed_at >= person.location.observed_at):
                                     self._apply_group_location(person, group, True)
                         consumed=min(len(same_area),group_max)
+                        for person in same_area[:consumed]:
+                            person_consumption.add((person.identity, self._identity_bucket(group)))
                         group_min=max(0,group_min-consumed)
-                        group_max=max(0,group_max-consumed)
+                        exact=sum(self._exact_identity_match(person,group,active) for person in same_area[:consumed])
+                        group_max=max(0,group_max-exact)
+                        if exact < consumed:
+                            reasons.append("anonymous_body_identity_overlap")
                     elif group.maximum:
-                        match,exact=self._movement_match(people,group,now)
+                        match,exact=self._movement_match(eligible,group,now)
                         if match is not None:
+                            person_consumption.add((match.identity, self._identity_bucket(group)))
                             applied=self._apply_group_location(match,group,exact)
                             group_min=max(0,group_min-1)
-                            if exact and applied:
+                            if exact and applied and self._exact_identity_match(match,group,active):
                                 group_max=max(0,group_max-1)
                             else:
                                 reasons.append("movement_correlation_kept_visitor_uncertainty")
@@ -215,18 +228,28 @@ class PresenceResolver:
 
         animal_hypotheses,animal_min,animal_max=self._resolve_animals(groups)
         person_hypotheses=tuple(self._to_hypothesis(candidate) for candidate in people.values())
-        presences=tuple(sorted(
-            (*person_hypotheses,*animal_hypotheses,*extras),
-            key=lambda item:(item.kind.value,item.identity or "",item.hypothesis_id),
-        ))
         population_min=self._population_minimum(counted_groups)
+        overlapping = self._overlapping_visual_keys(tuple(group for group, _ in counted_groups))
+        extras = [replace(item, location_status="possible", certainty=Quality.LOW)
+                  if item.hypothesis_id.rsplit(":", 1)[0] in overlapping else item for item in extras]
+        presences = tuple(sorted((*person_hypotheses, *animal_hypotheses, *extras),
+                         key=lambda item:(item.kind.value,item.identity or "",item.hypothesis_id)))
+        if self._overlapping_visual_keys(groups):
+            reasons.append("cross_camera_population_overlap")
         if population_min < extra_min:
             reasons.append("cross_area_population_overlap")
         continued=sum(person.status == "continued" for person in people.values())
-        minimum=max(len(person_hypotheses), len(person_hypotheses)-continued+population_min)+animal_min
+        unlocated=sum(person.status != "continued" and person.location is not None
+                      and person.location.level is SpatialLevel.HOME for person in people.values())
+        minimum=max(len(person_hypotheses), len(person_hypotheses)-continued-unlocated+population_min)+animal_min
+        if unlocated and population_min:
+            reasons.append("home_identity_may_overlap_current_body")
         if continued and population_min:
             reasons.append("continued_identity_may_overlap_current_presence")
         maximum=len(person_hypotheses)+animal_max+extra_max
+        occupancies=self._area_occupancies(groups, active, people)
+        minimum=max(minimum, max((area.count.minimum for area in occupancies), default=0))
+        maximum=max(maximum, minimum)
         if unavailable:
             reasons.append("coverage_degraded")
         if maximum > minimum:
@@ -244,7 +267,7 @@ class PresenceResolver:
             conflicts=tuple(dict.fromkeys(conflicts)),
             reasons=tuple(dict.fromkeys(reasons)),
             unavailable_source_ids=tuple(sorted(set(unavailable))),
-            area_occupancies=self._area_occupancies(groups, active, people),
+            area_occupancies=occupancies,
         )
 
     def _area_occupancies(
@@ -265,18 +288,33 @@ class PresenceResolver:
                      and people[item.identity.value].status != "continued"
                      and item.source.source_id in people[item.identity.value].location_sources
                      and self._same_area(item.location,people[item.identity.value].location))
-        missing={item.location.area for item in direct} - by_area.keys()
-        for group in self._evidence_groups(tuple(replace(
-                item,identity=None,target_id="identity:"+item.identity.value) for item in direct),self._clock.now()):
-            if group.location and group.location.area in missing and group.maximum:
-                by_area.setdefault(group.location.area, []).append(group)
+        for item in direct:
+            by_area.setdefault(item.location.area, [])
         result = []
         for area, items in sorted(by_area.items()):
+            sources={source for item in items for source in item.source_ids}
+            area_direct=tuple(item for item in direct if item.location.area == area)
+            inputs=tuple(item for item in observations if item.identity is None and item.location
+                         and item.location.area == area and item.source.source_id in sources)
+            inputs += tuple(replace(item,identity=None,target_id=item.target_id or "identity:"+item.identity.value,
+                                    classification=item.classification or "person")
+                            for item in area_direct if self._observer(item.source) or not any(
+                                group.kind is not TargetKind.ANIMAL for group in items))
+            items=list(self._reconcile_area_populations(self._evidence_groups(inputs, self._clock.now())))
+            if not items:
+                continue
             location = max(items, key=lambda item: item.location.observed_at).location
             # ponytail: conservative bounds for overlapping groups; refine
             # independence with the full population-fusion work, not identity guesses.
-            minimum = max(item.minimum for item in items)
+            minimum = max(max(item.minimum for item in items), self._tracked_minimum(
+                [(item, item.minimum) for item in items if item.target_id]),
+                self._tracked_minimum([(item,item.minimum) for item in items
+                    if item.target_id and item.kind is TargetKind.PERSON]) + self._resolve_animals(tuple(items))[1])
+            minimum = max(minimum, max((self._effective_interval(item, self._clock.now()).minimum
+                for item in inputs if item.count is not None and item.source.family in
+                {"mtr_count", "binary_presence", "count"}), default=0))
             maximum = sum(item.maximum for item in items)
+            maximum=max(maximum,minimum)
             sources={source for item in items for source in item.source_ids}
             support=[item for item in observations if item.location and item.location.area == area
                      and (item.source.source_id in sources or item in direct)
@@ -366,18 +404,87 @@ class PresenceResolver:
                             and (self._possibly_same_location(group.location,other.location)
                                  or (group.location.area and other.location.area
                                      and self._adjacent(group.location.area,other.location.area)))
-                            and abs(group.location.observed_at-other.location.observed_at)
-                                <= self._config.trajectory_window):
+                            and (abs(group.location.observed_at-other.location.observed_at)
+                                <= self._config.trajectory_window or (group.observer_id and other.observer_id
+                                and self._same_area(group.location,other.location)
+                                and group.kind is other.kind and group.classification == other.classification))):
                         cluster.append(candidate)
                         pending.remove(candidate)
             # ponytail: conservative connected overlap bounds, not geometric
             # triangulation; refine independence when measured coverage is available.
-            source_bounds={source:sum(count for group,count in cluster if source in group.source_ids)
-                           for group,_ in cluster for source in group.source_ids}
+            source_bounds={source:sum(count for group,count in cluster
+                                     if group.observer_id is None and source in group.source_ids)
+                           for group,_ in cluster if group.observer_id is None for source in group.source_ids}
             minimum+=max(max(count for _,count in cluster),
-                         sum(count for group,count in cluster if group.target_id),
+                         self._tracked_minimum([(group,count) for group,count in cluster if group.target_id]),
                          max(source_bounds.values(),default=0))
         return minimum
+
+    @staticmethod
+    def _observer(source: SourceRef) -> str | None:
+        if source.family not in {"frigate_event", "frigate_face", "resolved_event"}:
+            return None
+        return source.native_id or (source.coverage_group if source.coverage_group
+                                   and source.coverage_group.startswith("camera:") else None)
+
+    @staticmethod
+    def _identity_bucket(group: _EvidenceGroup) -> object:
+        return group.observer_id or group.coverage_group or group.source_ids
+
+    def _identity_can_cover(
+        self, person: _PersonCandidate, group: _EvidenceGroup,
+        observations: tuple[Observation, ...], consumed: set[tuple[str, object]],
+    ) -> bool:
+        if (person.identity, self._identity_bucket(group)) in consumed:
+            return False
+        if group.observer_id and group.target_id:
+            known_targets={item.target_id for item in observations if item.identity
+                           and item.identity.value == person.identity and item.target_id
+                           and self._observer(item.source) == group.observer_id}
+            if known_targets and group.target_id not in known_targets:
+                return False
+        return True
+
+    def _exact_identity_match(self, person: _PersonCandidate, group: _EvidenceGroup,
+                              observations: tuple[Observation, ...]) -> bool:
+        if group.observer_id is None:
+            return True  # Room aggregates may include an already located occupant.
+        return group.target_id is not None and any(item.identity and item.identity.value == person.identity
+                   and item.target_id == group.target_id
+                   and self._observer(item.source) == group.observer_id for item in observations)
+
+    def _visual_clusters(self, groups: tuple[_EvidenceGroup, ...]) -> Iterable[list[_EvidenceGroup]]:
+        # ponytail: current room/class bounds, not appearance re-identification.
+        # ACTIVE stationary objects may have old frames; age alone is not proof
+        # of another body. The runtime owns lifecycle, expiry and availability.
+        clusters={}
+        for group in groups:
+            key=("visual",group.location.area,group.kind,group.classification) if (
+                group.observer_id and group.location and group.location.area) else ("independent",group.key)
+            clusters.setdefault(key,[]).append(group)
+        return clusters.values()
+
+    def _tracked_minimum(self, counted: list[tuple[_EvidenceGroup, int]]) -> int:
+        counts={group.key:count for group,count in counted}
+        minimum=0
+        for cluster in self._visual_clusters(tuple(group for group,_ in counted)):
+            observers={}
+            for group in cluster:
+                observer=group.observer_id or group.key
+                observers[observer]=observers.get(observer,0)+counts[group.key]
+            minimum+=max(observers.values())
+        return minimum
+
+    def _overlapping_visual_keys(self, groups: tuple[_EvidenceGroup, ...]) -> set[str]:
+        possible=set()
+        for cluster in self._visual_clusters(groups):
+            observers={}
+            for group in cluster:
+                observers[group.observer_id]=observers.get(group.observer_id,0)+group.minimum
+            if len(observers) > 1:
+                anchor=min(observers,key=lambda observer:(-observers[observer],observer))
+                possible.update(group.key for group in cluster if group.observer_id != anchor)
+        return possible
 
     def _resolve_devices(self, observations: tuple[Observation, ...]) -> tuple[DeviceState, ...]:
         result=[]
@@ -586,6 +693,7 @@ class PresenceResolver:
                 target_id=representative.target_id,
                 dependency_group=representative.source.dependency_group,
                 coverage_group=representative.source.coverage_group,
+                observer_id=self._observer(representative.source),
             ))
         return tuple(sorted(results,key=lambda group:group.key))
 
@@ -620,7 +728,7 @@ class PresenceResolver:
                 continue
             aggregate_minimum = max(group.minimum for group in aggregates)
             aggregate_maximum = max(group.maximum for group in aggregates)
-            specific_minimum = sum(group.minimum for group in specific)
+            specific_minimum = self._tracked_minimum([(group, group.minimum) for group in specific])
             specific_maximum = sum(group.maximum for group in specific)
             residual_minimum = max(0, aggregate_minimum - specific_maximum)
             residual_maximum = max(0, aggregate_maximum - specific_minimum)
@@ -661,6 +769,7 @@ class PresenceResolver:
                     ),
                     target_id=None,
                     dependency_group=f"area-population:{area}",
+                    observer_id=None,
                 )
             )
         return tuple(sorted(passthrough, key=lambda group: group.key))
@@ -731,8 +840,11 @@ class PresenceResolver:
             return ((),0,0)
         by_coverage: dict[tuple[str, str | None],list[_EvidenceGroup]]={}
         independent=[]
+        visual=[]
         for group in animal_groups:
-            if group.coverage_group:
+            if group.observer_id:
+                visual.append(group)
+            elif group.coverage_group:
                 by_coverage.setdefault(
                     (group.coverage_group, group.classification),
                     [],
@@ -742,6 +854,16 @@ class PresenceResolver:
         hypotheses=[]
         minimum=0
         maximum=0
+        minimum+=self._tracked_minimum([(group,group.minimum) for group in visual])
+        maximum+=sum(group.maximum for group in visual)
+        overlapping=self._overlapping_visual_keys(visual)
+        for group in visual:
+            for index in range(group.minimum):
+                hypotheses.append(self._anonymous_hypothesis(group,index,
+                    "possible" if group.key in overlapping else "resolved",
+                    Quality.LOW if group.key in overlapping else Quality.MEDIUM))
+            if group.maximum > group.minimum:
+                hypotheses.append(self._anonymous_hypothesis(group,group.minimum,"possible",Quality.LOW))
         for group in independent:
             minimum+=group.minimum
             maximum+=group.maximum

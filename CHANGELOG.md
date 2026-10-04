@@ -1,5 +1,13 @@
 # Historial de cambios
 
+## 0.5.16 — Asociación de cuerpos y cobertura visual conjunta
+
+- Conserva la cámara y cobertura originales al resolver eventos para presencia, incluso después de restaurar el estado.
+- Limita la asociación de una identidad por observador y conserva un objeto anónimo distinto de otro objeto reconocido en la misma cámara. La coincidencia de habitación no prueba identidad ni elimina posibles visitantes.
+- Representa como intervalo las detecciones de la misma clase en una habitación compartida entre cámaras; mantiene los objetivos y sus imágenes, y conserva los límites inferiores de varios cuerpos en una misma cámara y los conteos físicos corroborantes.
+- Evita sumar una identidad conocida solo a alcance doméstico como otro cuerpo independiente exacto. Los objetos estacionarios activos no se convierten en duplicados únicamente por la edad de su último frame.
+- Mantiene configuración, reconocimiento, ciclos de vida, fuentes de señal BLE, plazos y control PTZ. No añade todavía incorporación asistida de trackers Wi-Fi ni asociación temporal de teléfono transportado/separado.
+
 ## 0.5.15 — Series BLE por dispositivo y receptor
 
 - Añade fuentes de señal BLE configurables desde los menús nativos: RSSI, distancia filtrada y distancia sin filtrar, con asociación explícita de dispositivo/receptor y unidad original.

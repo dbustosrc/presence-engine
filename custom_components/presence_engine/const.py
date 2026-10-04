@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "presence_engine"
 PLATFORMS = ("sensor", "binary_sensor", "event")
-INTEGRATION_VERSION = "0.5.15"
+INTEGRATION_VERSION = "0.5.16"
 
 CONF_CONFIGURATION = "configuration"
 CONF_COMPARISON_MODE = "comparison_mode"

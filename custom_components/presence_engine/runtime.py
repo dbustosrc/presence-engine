@@ -816,6 +816,7 @@ class PresenceRuntime:
             if primary_ended:
                 continue
             result = self._resolve_detection(event_id)
+            primary = next(item for item in items if item.source.family == "frigate_event")
             identity = (
                 IdentityClaim(
                     result.identity,
@@ -837,7 +838,9 @@ class PresenceRuntime:
                     source=SourceRef(
                         source_id=f"resolved-event:{event_id}",
                         family="resolved_event",
+                        native_id=primary.source.native_id,
                         dependency_group=f"frigate-target:{event_id}",
+                        coverage_group=primary.source.coverage_group,
                     ),
                     received_at=now,
                     detected_at=result.detected_at,

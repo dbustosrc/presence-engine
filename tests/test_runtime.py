@@ -16,6 +16,20 @@ from integration_helpers import integration_config
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_resolved_presence_preserves_primary_camera_provenance(self):
+        runtime = PresenceRuntime(integration_config(), now=lambda: at(10))
+        runtime.process(AdapterEnvelope("mqtt", "frigate/events", {"type":"update", "after": {
+            "id":"object_a", "camera":"camera_a", "label":"person", "start_time":at().timestamp(),
+            "frame_time":at(1).timestamp(), "current_zones":["zone_alpha"],
+        }}, at(1), at(1)))
+        item = next(o for o in runtime._presence_observations(at(10)) if o.event_id == "object_a")
+        self.assertEqual(item.source.native_id, "camera_a")
+        self.assertEqual(item.source.coverage_group, "camera:camera_a")
+        restored = PresenceRuntime(integration_config(), now=lambda: at(10))
+        restored.restore_state(runtime.export_state())
+        self.assertEqual(next(o for o in restored._presence_observations(at(10)) if o.event_id == "object_a").source,
+                         item.source)
+
     def test_snapshot_zones_survive_new_tracking_frames_and_restart(self):
         config = integration_config()
         camera = replace(config.cameras["camera_a"], profile_to_area={})
