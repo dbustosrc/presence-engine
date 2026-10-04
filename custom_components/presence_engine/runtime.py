@@ -51,6 +51,7 @@ from .engine import (
 )
 from .temporal import TemporalCameraRegistry
 from .association import DeviceAssociations
+from .radar import RadarHistory, RadarSample
 
 
 MAX_SIGNAL_SAMPLES = 1024
@@ -104,6 +105,7 @@ class PresenceRuntime:
             measurement_window=self._resolver_config.trajectory_window)
         self._signal_truncated: set[str] = set()
         self._max_signal_samples = min(max_records, MAX_SIGNAL_SAMPLES)
+        self._radar = RadarHistory(configuration.sources, now)
         self._contexts = TemporalCameraRegistry(dict(configuration.cameras))
         self._adapters = self._build_adapters()
         self._snapshot: PresenceSnapshot | None = None
@@ -180,6 +182,10 @@ class PresenceRuntime:
             except (KeyError, TypeError, ValueError) as err:
                 failure = AdapterFailure(adapter.source_id, type(err).__name__, str(err))
                 self._failures[adapter.source_id] = failure
+                definition = next((s for s in self.configuration.sources if s.source_id == adapter.source_id), None)
+                if definition and envelope.channel in definition.options.get("radar_channels", {}):
+                    # A malformed optional coordinate must not withdraw a valid count.
+                    continue
                 removed = bool(self._store.remove_source(adapter.source_id))
                 if (
                     adapter.source_id in self._coverage_source_ids
@@ -192,6 +198,12 @@ class PresenceRuntime:
                 changed = removed or changed
                 continue
             self._failures.pop(adapter.source_id, None)
+            if result.radar_signals:
+                for sample in result.radar_signals:
+                    self._radar.retain(sample)
+                self._enforce_signal_budget()
+                # Geometry is not another count, identity or synchronous frame.
+                continue
             if result.device_signals:
                 for sample in result.device_signals:
                     self._retain_signal(sample)
@@ -383,6 +395,10 @@ class PresenceRuntime:
         changed = False
         for source_id in source_ids:
             availability_changed = False
+            for key, latest in tuple(self._radar.latest.items()):
+                if key[0] == source_id:
+                    self._radar.retain(replace(latest, value=None, status="unavailable",
+                        observed_at=self._now(), received_at=self._now(), clock_basis="envelope"))
             if source_id in self._signal_latest:
                 self._retain_signal(replace(self._signal_latest[source_id], value=None, status="unavailable",
                                             observed_at=self._now(), received_at=self._now(), clock_basis="envelope"))
@@ -412,6 +428,8 @@ class PresenceRuntime:
     def export_state(self) -> dict[str, object]:
         """Return bounded JSON-compatible state for Home Assistant Store."""
         self._trim_signals()
+        self._radar.trim()
+        self._enforce_signal_budget()
         return {
             "contract_version": CONTRACT_VERSION,
             "configured_source_ids": sorted(
@@ -421,6 +439,9 @@ class PresenceRuntime:
             "device_signals": [encode_device_signal(sample) for history in self._signal_samples.values() for sample in history],
             "device_signal_latest": [encode_device_signal(sample) for sample in self._signal_latest.values()],
             "signal_truncated": sorted(self._signal_truncated),
+            "radar_signals": [sample.encode() for history in self._radar.samples.values() for sample in history],
+            "radar_signal_latest": [sample.encode() for sample in self._radar.latest.values()],
+            "radar_truncated": [list(key) for key in sorted(self._radar.truncated)],
             "camera_contexts": self._contexts.export(),
             "snapshot_contexts": {
                 adapter.source_id: adapter.export_snapshot_contexts()
@@ -453,6 +474,31 @@ class PresenceRuntime:
             for camera in self.configuration.cameras.values()
             if camera.availability_entity_ids
         }
+        samples = raw.get("radar_signals", [])
+        if isinstance(samples, list):
+            for item in samples[-self._max_signal_samples:]:
+                try:
+                    self._radar.retain(RadarSample.decode(item))
+                except (KeyError, TypeError, ValueError):
+                    continue
+        latest = raw.get("radar_signal_latest", [])
+        if isinstance(latest, list):
+            for item in latest:
+                try:
+                    sample = RadarSample.decode(item)
+                    if self._radar.matches(sample):
+                        key = (sample.source_id, sample.entity_id)
+                        prior = self._radar.latest.get(key)
+                        if prior is None or sample.observed_at > prior.observed_at:
+                            self._radar.latest[key] = sample
+                except (KeyError, TypeError, ValueError):
+                    continue
+        truncated = raw.get("radar_truncated", [])
+        if isinstance(truncated, list):
+            self._radar.truncated.update(tuple(key) for key in truncated if isinstance(key, list)
+                and len(key) == 2 and all(isinstance(value, str) for value in key)
+                and key[0] in self._radar.definitions
+                and key[1] in self._radar.definitions[key[0]].options["radar_channels"])
         samples = raw.get("device_signals", [])
         if isinstance(samples, list):
             for item in samples[-self._max_signal_samples:]:
@@ -594,12 +640,22 @@ class PresenceRuntime:
         if len(history) > limit:
             del history[:-limit]
             self._signal_truncated.add(definition.source_id)
-        # ponytail: one bounded global pool, not separate Recorder time series.
-        while sum(len(items) for items in self._signal_samples.values()) > self._max_signal_samples:
-            oldest = min((key for key, items in self._signal_samples.items() if items),
-                         key=lambda key: self._signal_samples[key][0].observed_at)
-            self._signal_samples[oldest].pop(0)
-            self._signal_truncated.add(oldest)
+        self._enforce_signal_budget()
+
+    def _enforce_signal_budget(self):
+        # One shared budget for BLE and radar, not unbounded per-family pools.
+        pools = ((self._signal_samples, self._signal_truncated),
+                 (self._radar.samples, self._radar.truncated))
+        while sum(len(items) for histories, _ in pools for items in histories.values()) > self._max_signal_samples:
+            histories, truncated, key = min(
+                ((histories, truncated, key) for histories, truncated in pools
+                 for key, items in histories.items() if items),
+                key=lambda entry: entry[0][entry[2]][0].observed_at)
+            histories[key].pop(0)
+            truncated.add(key)
+
+    def radar_history_payload(self, *, include_samples=False):
+        return self._radar.payload(include_samples=include_samples)
 
     def signal_history_payload(self, *, include_samples: bool = False) -> list[dict]:
         """Read bounded signal diagnostics without publishing them on presence entities."""

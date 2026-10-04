@@ -30,6 +30,7 @@ from ..engine import (
     require_aware,
 )
 from ..temporal import TemporalCameraRegistry
+from ..radar import radar_sample
 
 
 INVALID_STATES = frozenset({"unknown", "unavailable", "none", ""})
@@ -141,6 +142,8 @@ class EntityStateAdapter:
     def parse(self, envelope: AdapterEnvelope) -> AdapterResult:
         state = str(envelope.payload.get("state", ""))
         normalized = state.casefold()
+        if envelope.channel in self._definition.options.get("radar_channels", {}):
+            return AdapterResult(radar_signals=(radar_sample(self._definition, envelope),))
         if self._definition.adapter is AdapterType.WIFI_TRACKER:
             return self._wifi_tracker(envelope, normalized)
         if self._definition.adapter is AdapterType.BERMUDA_SIGNAL:

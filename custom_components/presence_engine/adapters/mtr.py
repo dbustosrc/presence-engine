@@ -10,6 +10,7 @@ from typing import Any, Mapping
 from .base import AdapterEnvelope, AdapterResult, SourceAvailability
 from .entity import INVALID_STATES
 from ..configuration import SourceDefinition
+from ..radar import radar_sample
 from ..engine import (
     CountClaim,
     Observation,
@@ -38,6 +39,7 @@ class MTRCountAdapter:
         self.source_id = definition.source_id
         self._definition = definition
         self._entities = frozenset(definition.entity_ids)
+        self._count_entities = self._entities - set(definition.options.get("radar_channels", {}))
         self._total_entity_id = str(definition.options["total_entity_id"])
         self._zone_areas = dict(definition.options["zone_areas"])
         self._states: dict[str, _CountState] = {}
@@ -52,6 +54,8 @@ class MTRCountAdapter:
         return envelope.channel_type == "state" and envelope.channel in self._entities
 
     def parse(self, envelope: AdapterEnvelope) -> AdapterResult:
+        if envelope.channel in self._definition.options.get("radar_channels", {}):
+            return AdapterResult(radar_signals=(radar_sample(self._definition, envelope),))
         previous = self._channel_times.get(envelope.channel)
         if previous is not None and envelope.observed_at <= previous:
             return AdapterResult(ignored=True)
@@ -73,7 +77,7 @@ class MTRCountAdapter:
             observed_at=envelope.observed_at,
             active_since=_state_time(envelope.payload, envelope.observed_at),
         )
-        if any(entity_id not in self._states for entity_id in self._entities):
+        if any(entity_id not in self._states for entity_id in self._count_entities):
             return AdapterResult(
                 source_availability=(SourceAvailability(self.source_id, False),),
                 ignored=True,

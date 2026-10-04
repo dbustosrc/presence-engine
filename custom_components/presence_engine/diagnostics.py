@@ -38,6 +38,7 @@ async def async_get_config_entry_diagnostics(
         },
         "snapshot": snapshot,
         "device_signal_histories": runtime.engine.signal_history_payload(),
+        "radar_signal_histories": runtime.engine.radar_history_payload(),
         "device_associations": runtime.engine.device_association_payload(),
         "event_diagnostics": [
             {

@@ -155,6 +155,7 @@
           "metric": "BLE measurement",
           "history_seconds": "History window (seconds)",
           "history_limit": "Maximum samples for this signal",
+          "radar_channels": "Optional radar telemetry channels",
           "total_entity_id": "Total count entity",
           "zone_areas": "Zone entities and calibrated areas",
           "ignored_source_ids": "Ignored person trackers",
@@ -175,6 +176,14 @@
               "expires_after_seconds": "Evidence lifetime (seconds)",
               "location_method": "Location method",
               "target_id": "Target ID"
+            }
+          },
+          "radar": {
+            "name": "Optional radar telemetry (not additional presence)",
+            "data": {
+              "radar_channels": "Sensor-frame channels and slots, not person IDs",
+              "history_seconds": "History window (seconds; default 120)",
+              "history_limit": "Maximum samples per channel (default 32)"
             }
           }
         }

@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any, Mapping, Protocol
 
 from ..engine import DeviceSignalSample, Observation, require_aware
+from ..radar import RadarSample
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +58,7 @@ class AdapterResult:
     source_availability: tuple[SourceAvailability, ...] = ()
     ignored: bool = False
     device_signals: tuple[DeviceSignalSample, ...] = ()
+    radar_signals: tuple[RadarSample, ...] = ()
 
 
 class SourceAdapter(Protocol):

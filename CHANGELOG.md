@@ -1,5 +1,13 @@
 # Historial de cambios
 
+## 0.5.21 — Telemetría radar con relojes y presupuesto acotados
+
+- Las fuentes físicas de ocupación/conteo pueden incluir canales opcionales de coordenadas, rango y velocidad mediante formularios nativos. Conserva las entradas originales y no requiere otra integración ni entidades nuevas.
+- Mantiene unidad, reloj de medición y recepción, ranura local y marco del sensor por canal. No inventa fotogramas sincronizados, identidades persistentes por número de objetivo ni ubicaciones globales a partir de coordenadas locales; cero, desconocido y desconexión permanecen distintos.
+- La telemetría no suma presencias, sustituye reconocimiento ni renueva el conteo original. Una coordenada ausente o defectuosa no retira una detección válida del mismo radar; la pérdida de la entrada física conserva su tratamiento de disponibilidad.
+- Series acotadas por tiempo/cantidad, con presupuesto global compartido con BLE, deduplicación y restauración sin renovar muestras. Renombres conservan vínculos estables de conteo, zonas y telemetría.
+- Expone resúmenes radar en diagnósticos y consulta de snapshot; las muestras completas son opcionales y no se publican como atributos de presencia de alta frecuencia. Mantiene asociación Bluetooth, plazos, avisos y control PTZ.
+
 ## 0.5.20 — Incorporación asistida de fuentes
 
 - Amplía Descubrimiento y exclusiones con revisión, incorporación explícita, ignorar, recuperar y revisar después. Abre formularios prellenados sin JSON; revisar o cancelar no añade fuentes incompletas, y los cambios se aplican únicamente al guardar.

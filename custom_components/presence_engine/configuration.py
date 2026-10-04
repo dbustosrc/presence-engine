@@ -10,6 +10,7 @@ from typing import Any, Mapping
 
 from .const import CONFIG_SCHEMA_VERSION, OUTPUT_ENTITY_IDS
 from .engine import Quality, TargetKind
+from .radar import RADAR_METRICS
 
 
 ENTITY_ID_PATTERN = re.compile(r"^[a-z_][a-z0-9_]*\.[a-z0-9_]+$")
@@ -335,6 +336,33 @@ class SourceDefinition:
             raise ConfigurationError(
                 f"source {self.source_id} expires_after_seconds must be positive"
             )
+        if "radar_channels" in self.options:
+            channels = self.options["radar_channels"]
+            if self.adapter not in {AdapterType.MTR_COUNT, AdapterType.BINARY_PRESENCE, AdapterType.COUNT}:
+                raise ConfigurationError("radar channels require a physical occupancy/count source")
+            if not isinstance(channels, Mapping) or not 1 <= len(channels) <= 64 or set(channels) - set(self.entity_ids):
+                raise ConfigurationError("radar channels must bind configured entities")
+            if not set(self.entity_ids) - set(channels):
+                raise ConfigurationError("radar telemetry cannot replace the occupancy input")
+            occupied = set()
+            for entity_id, binding in channels.items():
+                if not entity_id.startswith("sensor.") or not isinstance(binding, Mapping):
+                    raise ConfigurationError("radar telemetry requires sensor bindings")
+                _require_slug(binding.get("target_slot"), "target_slot")
+                metric = binding.get("metric")
+                if metric not in RADAR_METRICS or set(binding) != {"target_slot", "metric"}:
+                    raise ConfigurationError("invalid radar channel metric or fields")
+                key = (binding["target_slot"], metric)
+                if key in occupied:
+                    raise ConfigurationError("duplicate radar slot/metric")
+                occupied.add(key)
+            if self.adapter is AdapterType.MTR_COUNT and (self.options["total_entity_id"] in channels
+                    or set(self.options["zone_areas"]) & set(channels)):
+                raise ConfigurationError("radar telemetry cannot reinterpret count channels")
+            for name, default, maximum in (("history_seconds", 120, 3600), ("history_limit", 32, 256)):
+                value = self.options.get(name, default)
+                if type(value) not in (int, float) or not 1 <= value <= maximum or int(value) != value:
+                    raise ConfigurationError(f"radar {name} must be an integer from 1 to {maximum}")
         object.__setattr__(self, "entity_ids", tuple(dict.fromkeys(self.entity_ids)))
         object.__setattr__(
             self,

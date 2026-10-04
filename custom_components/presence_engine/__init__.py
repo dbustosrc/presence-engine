@@ -42,6 +42,8 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
         return {**snapshot_payload(runtime.engine.snapshot, runtime.engine.latest_images),
                 "device_associations": runtime.engine.device_association_payload(),
                 "device_signal_histories": runtime.engine.signal_history_payload(
+                    include_samples=call.data.get("include_signal_samples", False)),
+                "radar_signal_histories": runtime.engine.radar_history_payload(
                     include_samples=call.data.get("include_signal_samples", False))}
 
     async def async_get_detection(call: ServiceCall) -> ServiceResponse:

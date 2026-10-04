@@ -101,6 +101,36 @@ La carpeta de entrenamiento `train` no se presenta como nombre de persona.
 
 ## Secciones
 
+### Telemetría radar opcional
+
+En fuentes `binary_presence`, `count` o `mtr_count`, la sección nativa
+**Telemetría radar opcional** permite seleccionar canales y declarar su ranura
+local y métrica. Las entidades de ocupación/conteo se seleccionan por separado;
+el formulario une ambos conjuntos y conserva sus vínculos de registro. Retirar
+una fila de telemetría no convierte esa entidad en entrada de conteo.
+
+JSON opcional: `options.radar_channels` es un mapa
+`entity_id → {target_slot, metric}`. Los canales deben estar en `entity_ids`,
+ser sensores y no sustituir el total ni las zonas de `mtr_count`. Métricas:
+`x`, `y`, `distance`, `moving_distance`, `still_distance`, `speed`. Distancias y
+coordenadas requieren `m`, `cm` o `mm`; velocidad requiere `m/s`, `cm/s` o
+`mm/s`. Se conservan las unidades originales; no hay unidad inferida por nombre.
+Una ranura es local y reutilizable por el hardware, **no una identidad**.
+
+`history_seconds` (1–3600, defecto120) y `history_limit` (1–256, defecto32)
+acotan cada canal. BLE y radar comparten el límite global
+`min(max_records,1024)` de muestras. `dependency_group`, o el ID de fuente por
+defecto, identifica el marco físico; no comparar X/Y entre sensores sin una
+transformación espacial calibrada. Canales asíncronos conservan cada reloj:
+no se combinan automáticamente en un fotograma. Cero de coordenada, velocidad o
+rango por sí solo **no acredita ausencia, inmovilidad corporal o presencia**.
+
+Los diagnósticos y `get_snapshot` incluyen `radar_signal_histories`;
+`include_signal_samples: true` añade las muestras completas a la consulta.
+Las entidades de presencia no reciben arrays de telemetría ni revisiones por
+cada coordenada. La ocupación original sigue siendo la fuente física; no hay
+identificación o triangulación nueva implícita ni cambios de calibración.
+
 - `areas`: mapa `area_id → floor_id`.
 - `adjacency`: habitaciones físicamente contiguas; no expresa cobertura de un
   sensor.

@@ -155,6 +155,7 @@
           "metric": "Medición BLE",
           "history_seconds": "Ventana de historial (segundos)",
           "history_limit": "Máximo de muestras de esta señal",
+          "radar_channels": "Canales de telemetría radar opcionales",
           "total_entity_id": "Entidad de conteo total",
           "zone_areas": "Entidades de zona y áreas calibradas",
           "ignored_source_ids": "Trackers de persona ignorados",
@@ -175,6 +176,14 @@
               "expires_after_seconds": "Vigencia de evidencia (segundos)",
               "location_method": "Método de ubicación",
               "target_id": "ID del objetivo"
+            }
+          },
+          "radar": {
+            "name": "Telemetría radar opcional (no son presencias adicionales)",
+            "data": {
+              "radar_channels": "Canales y ranuras locales del sensor, no identidades",
+              "history_seconds": "Ventana de historial (segundos; por defecto 120)",
+              "history_limit": "Máximo de muestras por canal (por defecto 32)"
             }
           }
         }

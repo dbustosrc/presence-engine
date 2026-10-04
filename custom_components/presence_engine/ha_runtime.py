@@ -140,10 +140,11 @@ class HomeAssistantPresenceRuntime:
                 if state is not None:
                     await self._async_process_state(entity_id, state)
                 else:
+                    await self._async_state_removed(entity_id, ())
                     missing_source_ids.update(
                         source.source_id
                         for source in self.engine.configuration.sources
-                        if entity_id in source.entity_ids
+                        if entity_id in source.entity_ids and entity_id not in source.options.get("radar_channels", {})
                     )
             if missing_source_ids:
                 self.coordinator.async_set_updated_data(
@@ -319,7 +320,11 @@ class HomeAssistantPresenceRuntime:
             )
         )
         if source_ids:
-            await self._async_mark_unavailable(source_ids)
+            definitions = {source.source_id: source for source in self.engine.configuration.sources}
+            physical = tuple(source_id for source_id in source_ids if source_id not in definitions
+                or entity_id not in definitions[source_id].options.get("radar_channels", {}))
+            if physical:
+                await self._async_mark_unavailable(physical)
 
     async def _async_mqtt_message(self, message: Any) -> None:
         try:

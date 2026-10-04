@@ -219,6 +219,14 @@ def resolve_raw_registry_bindings(
             by_registry_id.get(registry_id, entity_id)
             for registry_id, entity_id in zip(registry_ids, entity_ids, strict=True)
         ]
+        renames = dict(zip(entity_ids, source["entity_ids"], strict=True))
+        options = source.get("options", {})
+        for field in ("zone_areas", "radar_channels"):
+            if isinstance(options.get(field), Mapping):
+                options[field] = {renames.get(entity_id, entity_id): value
+                                  for entity_id, value in options[field].items()}
+        if options.get("total_entity_id") in renames:
+            options["total_entity_id"] = renames[options["total_entity_id"]]
     for camera in resolved.get("cameras", {}).values():
         for role in ("profile", "preset", "movement", "telemetry"):
             registry_id = camera.get(f"{role}_registry_id")

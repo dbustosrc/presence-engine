@@ -22,6 +22,7 @@ from .configuration_ui import (
 from .discovery import apply_discovery, resolve_raw_registry_bindings, review_candidates, candidate_source_draft
 from .ha_discovery import collect_entity_descriptors
 from .engine import Quality, TargetKind
+from .radar import RADAR_METRICS
 from .const import (
     CONF_COMPARISON_MODE,
     CONF_CONFIGURATION,
@@ -317,6 +318,9 @@ class PresenceEngineConfigFlow(ConfigFlow, domain=DOMAIN):
         item = deepcopy(next((item for item in self._draft["sources"] if item["source_id"] == self._key), self._suggested_source))
         adapter = item.get("adapter", self._adapter)
         values = {"id": item.get("id", self._key), **item}
+        if item.get("options", {}).get("radar_channels"):
+            values["entity_ids"] = [entity for entity in item.get("entity_ids", [])
+                                    if entity not in item["options"]["radar_channels"]]
         schema = {}
         _field(schema, "id", _text(), values, required=True)
         _field(schema, "enabled", bool, values, required=True, default=True)
@@ -368,12 +372,25 @@ class PresenceEngineConfigFlow(ConfigFlow, domain=DOMAIN):
         if adapter == "person_home":
             option_fields["ignored_source_ids"] = selector({"entity": {"multiple": True}})
             option_fields["ignored_source_prefixes"] = _text(multiple=True)
+        if adapter in {"mtr_count", "binary_presence", "count"}:
+            option_fields["radar_channels"] = selector({"object": {"multiple": True,
+                "label_field": "entity_id", "fields": {
+                    "entity_id": {"label": "Telemetry entity", "required": True,
+                                  "selector": {"entity": {"domain": "sensor"}}},
+                    "target_slot": {"label": "Sensor slot (not a person ID)", "required": True,
+                                    "selector": {"text": {}}},
+                    "metric": {"label": "Metric", "required": True,
+                               "selector": {"select": {"options": list(RADAR_METRICS)}}}}}})
+            option_fields["history_seconds"] = selector({"number": {"min": 1, "max": 3600, "mode": "box"}})
+            option_fields["history_limit"] = selector({"number": {"min": 1, "max": 256, "mode": "box"}})
         if adapter == "source_health":
             option_fields["healthy_states"] = _text(multiple=True)
             option_fields["unhealthy_states"] = _text(multiple=True)
         mapping_fields = {"identity_map", "zone_areas", "area_map", "ap_area_map"}
         for field, control in option_fields.items():
             value = options.get(field)
+            if field == "radar_channels":
+                value = [{"entity_id": entity_id, **binding} for entity_id, binding in (value or {}).items()]
             if field in mapping_fields:
                 value = mapping_rows({key: value if value is not None else "" for key, value in (value or {}).items()})
             required = field in {"recognition_threshold", "total_entity_id"} or (
@@ -381,6 +398,8 @@ class PresenceEngineConfigFlow(ConfigFlow, domain=DOMAIN):
                 adapter == "wifi_tracker" and field == "device_id")
             _field(schema, field, control, {field: value}, required=required)
         _group(schema, "advanced_source", {"target_kind", "spatial_quality", "availability_role", "dependency_group", "coverage_group", "expires_after_seconds", "location_method", "target_id"})
+        if adapter in {"mtr_count", "binary_presence", "count"}:
+            _group(schema, "radar", {"radar_channels", "history_seconds", "history_limit"})
         def edit(data):
             key = self._key or data["id"]
             if not self._key and any(source["source_id"] == key for source in self._draft["sources"]):
@@ -393,16 +412,27 @@ class PresenceEngineConfigFlow(ConfigFlow, domain=DOMAIN):
             if mqtt_source:
                 changes["topics"] = data["topics"]
             else:
-                bind_entities(item, "entity_ids", "entity_registry_ids", data["entity_ids"], self._descriptors())
+                entity_ids = list(data["entity_ids"])
+                if "radar_channels" in option_fields:
+                    rows = data.get("radar_channels") or []
+                    channels = {row["entity_id"]: {"target_slot": row["target_slot"], "metric": row["metric"]} for row in rows}
+                    if len(channels) != len(rows) or set(channels) & set(entity_ids):
+                        raise ConfigurationError("Telemetry entities must be unique and separate from occupancy inputs")
+                    entity_ids.extend(channels)
+                bind_entities(item, "entity_ids", "entity_registry_ids", entity_ids, self._descriptors())
                 changes["entity_ids"] = item["entity_ids"]
                 changes["entity_registry_ids"] = item.get("entity_registry_ids", [])
             for field in option_fields:
                 value = data.get(field)
+                if field == "radar_channels":
+                    value = channels
                 if field in mapping_fields:
                     value = rows_mapping(value or [])
                     if field == "zone_areas":
                         value = {key: area or None for key, area in value.items()}
-                if value not in (None, "", [], {}) or value == {} and field in options:
+                if field == "radar_channels" and not value:
+                    options.pop(field, None)
+                elif value not in (None, "", [], {}) or value == {} and field in options:
                     options[field] = value
                 else:
                     options.pop(field, None)
@@ -415,7 +445,7 @@ class PresenceEngineConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             suggested = user_input
             user_input = dict(user_input)
-            for name in ("ptz", "health", "advanced_source"):
+            for name in ("ptz", "health", "advanced_source", "radar"):
                 user_input.update(user_input.pop(name, {}))
             try:
                 if self._key and user_input.get("id") != self._key:

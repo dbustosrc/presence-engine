@@ -364,6 +364,57 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
                 {"unit_of_measurement": "m", "friendly_name": "Updated"}, last_changed=observed, last_updated=at(13)))
         listener.assert_called_once()
 
+    async def test_native_radar_form_preserves_and_removes_optional_channels(self):
+        self.flow._adapter = "binary_presence"
+        form = await self.flow.async_step_source_edit()
+        self.assertTrue(convert(form["data_schema"], custom_serializer=custom_serializer))
+        created = await self.flow.async_step_source_edit({"id": "radar_a", "enabled": True,
+            "entity_ids": ["binary_sensor.body"], "area": "alpha", "floor": "ground",
+            "advanced_source": {"target_kind": "unknown_living", "spatial_quality": "unknown", "availability_role": "auto"},
+            "radar": {"radar_channels": [{"entity_id": "sensor.x", "target_slot": "slot_1", "metric": "x"}],
+                      "history_seconds": 20, "history_limit": 3}})
+        self.assertEqual(created["type"], "menu", created.get("description_placeholders"))
+        source = self.flow._draft["sources"][0]
+        self.assertEqual(source["entity_ids"], ["binary_sensor.body", "sensor.x"])
+        self.assertEqual(source["options"]["radar_channels"]["sensor.x"], {"target_slot": "slot_1", "metric": "x"})
+        self.flow._key = "radar_a"
+        form = await self.flow.async_step_source_edit()
+        entities = next(field for field in convert(form["data_schema"], custom_serializer=custom_serializer) if field["name"] == "entity_ids")
+        self.assertEqual(entities["default"], ["binary_sensor.body"])
+        await self.flow.async_step_source_edit({"id": "radar_a", "enabled": True,
+            "entity_ids": ["binary_sensor.body"], "area": "alpha", "floor": "ground",
+            "advanced_source": {"target_kind": "unknown_living", "spatial_quality": "unknown", "availability_role": "auto"},
+            "radar": {"radar_channels": []}})
+        source = self.flow._draft["sources"][0]
+        self.assertEqual(source["entity_ids"], ["binary_sensor.body"])
+        self.assertNotIn("radar_channels", source["options"])
+
+    async def test_native_missing_radar_telemetry_keeps_body_and_does_not_publish(self):
+        from presence_engine.configuration import parse_configuration
+        from homeassistant.core import State
+        from homeassistant.util import dt as dt_util
+        configuration = parse_configuration({"schema_version": 1, "areas": {"alpha": "ground"}, "sources": [{
+            "source_id": "radar_a", "adapter": "binary_presence", "area": "alpha",
+            "entity_ids": ["binary_sensor.body", "sensor.x"],
+            "options": {"radar_channels": {"sensor.x": {"target_slot": "slot_1", "metric": "x"}}}}]})
+        hass = HomeAssistant("/tmp/presence-engine-no-io")
+        entry = catalogue_entry()
+        runtime = HomeAssistantPresenceRuntime(hass, entry, configuration, max_records=2000, save_delay_seconds=15)
+        runtime._store = Mock(async_save=AsyncMock())
+        runtime._reschedule_expiration = Mock()
+        now = dt_util.utcnow()
+        await runtime._async_process_state("binary_sensor.body", State("binary_sensor.body", "on", last_changed=now, last_updated=now))
+        snapshot = runtime.engine.snapshot
+        listener = Mock()
+        runtime.coordinator.async_add_listener(listener)
+        await runtime._async_process_state("sensor.x", State("sensor.x", "2", {"unit_of_measurement": "mm"}, last_changed=now, last_updated=now))
+        await runtime._async_state_removed("sensor.x", ("radar_a",))
+        self.assertEqual(runtime.engine.snapshot, snapshot)
+        self.assertEqual(runtime.engine.snapshot.count_minimum, 1)
+        self.assertFalse(runtime.engine.snapshot.coverage_degraded)
+        listener.assert_not_called()
+        self.assertEqual(runtime.engine.radar_history_payload()[0]["status"], "unavailable")
+
     async def test_native_physical_clear_keeps_home_identity_and_separate_history(self):
         from datetime import timedelta
         from presence_engine.configuration import parse_configuration
