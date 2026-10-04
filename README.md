@@ -45,10 +45,9 @@ automatizaciones consumidoras.
 
 ## Estado de la versión
 
-`0.5.20` añade incorporación asistida y avisos opcionales de fuentes nuevas
-desde los formularios existentes. Wi-Fi/BLE se revisan antes de añadir;
-ignorar y recuperar no cambia sensores físicos ni crea presencia. El motor
-mantiene los contratos y los consumidores anteriores.
+`0.5.22` evita sumar la lectura agregada que ya respalda una asociación
+temporal probable como otro individuo. Conserva objetivos distintos,
+población adicional, confianza, relojes y contratos anteriores.
 
 La versión `0.5.0` incorpora configuración guiada nativa, JSON avanzado opcional
 y descubrimiento de identidades por reconocimientos Frigate aceptados. Conserva

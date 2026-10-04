@@ -5,7 +5,7 @@ import unittest
 
 from presence_engine.adapters import AdapterEnvelope
 from presence_engine.configuration import parse_configuration
-from presence_engine.engine import ObservationStatus, Quality
+from presence_engine.engine import CountClaim, ObservationStatus, Quality, RevisionStamp
 from presence_engine.runtime import PresenceRuntime
 from helpers import at, area, identity, observation
 
@@ -89,6 +89,46 @@ class DeviceAssociationTests(unittest.TestCase):
         self.setUp(); self.seed()
         self.move(physical=False)
         self.assertNotEqual(self.owner().location.area, "beta")
+
+    def test_probable_owner_and_supporting_aggregate_are_not_extra_individuals(self):
+        self.seed()
+        update = self.move()
+        self.assertEqual((update.snapshot.count_minimum, update.snapshot.count_maximum), (1, 2))
+        self.assertEqual(self.owner().location_status, "device_carried_probable")
+        self.assertEqual(self.owner().location.quality, Quality.MEDIUM)
+        self.assertEqual(self.owner().identity_observed_at, at(2))
+        self.assertTrue(any(p.identity is None and p.location.area == "alpha"
+                            for p in update.snapshot.presences), "the held origin may contain a visitor")
+        self.assertEqual({o.location.area for o in update.snapshot.area_occupancies}, {"alpha", "beta"})
+        self.assertEqual(update.detections, ())
+
+    def test_supporting_aggregate_preserves_its_additional_population(self):
+        self.seed()
+        self.move()
+        stored = next(o for o in self.runtime._store.values() if o.source.source_id == "radar_beta")
+        self.runtime._store.upsert(replace(stored, count=CountClaim(2, 2, at(14), True, Quality.HIGH),
+            location=replace(stored.location, observed_at=at(14)), received_at=at(14),
+            revisions={key: RevisionStamp(stamp.sequence + 1, at(14))
+                       for key, stamp in stored.revisions.items()}))
+        self.second = 14
+        self.runtime._snapshot = self.runtime._resolve_snapshot()
+        self.assertEqual((self.runtime.snapshot.count_minimum, self.runtime.snapshot.count_maximum), (2, 3))
+        self.assertTrue(any(p.identity is None and p.location.area == "beta"
+                            for p in self.runtime.snapshot.presences))
+
+    def test_old_destination_not_used_as_handoff_support_keeps_uncertainty(self):
+        self.deliver("binary_sensor.beta", "on", 0)
+        self.seed()
+        self.deliver("binary_sensor.alpha", "off", 8)
+        self.deliver("sensor.phone", "Beta", 40)
+        for name, value, second in (("alpha", 5, 41), ("beta", 1.2, 41.1),
+                                    ("alpha", 6, 42), ("beta", 1, 42.1)):
+            self.deliver(f"sensor.distance_{name}", value, second)
+        self.assertEqual(self.owner().location_status, "device_carried_probable")
+        self.assertNotIn("radar_beta", self.owner().location_source_ids)
+        self.assertEqual((self.runtime.snapshot.count_minimum, self.runtime.snapshot.count_maximum), (1, 2))
+        self.assertTrue(any(p.identity is None and p.location.area == "beta"
+                            for p in self.runtime.snapshot.presences))
 
     def test_stationary_phone_area_jump_and_overlapping_noise_do_not_transfer(self):
         self.seed()

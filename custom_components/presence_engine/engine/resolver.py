@@ -507,7 +507,13 @@ class PresenceResolver:
     def _exact_identity_match(self, person: _PersonCandidate, group: _EvidenceGroup,
                               observations: tuple[Observation, ...]) -> bool:
         if person.status == "device_carried_probable":
-            return False  # Radio/body coincidence is not an exact identity link.
+            # The aggregate that supported this handoff already bounds the
+            # selected room's population. Counting it again as a visitor is
+            # not extra identity uncertainty. Never consume a distinct track
+            # or an aggregate that did not actually support the association.
+            return (group.observer_id is None and group.target_id is None
+                    and self._same_area(person.location, group.location)
+                    and bool(set(group.source_ids) & person.location_sources))
         if group.observer_id is None:
             return True  # Room aggregates may include an already located occupant.
         return group.target_id is not None and any(item.identity and item.identity.value == person.identity

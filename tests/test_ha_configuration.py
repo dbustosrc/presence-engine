@@ -356,6 +356,8 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
                 {"unit_of_measurement": "m"}, last_changed=observed, last_updated=observed))
         listener.assert_called_once()
         self.assertEqual(fixture.owner().location_status, "device_carried_probable")
+        self.assertEqual((runtime.coordinator.data.count_minimum, runtime.coordinator.data.count_maximum), (1, 2))
+        self.assertEqual(fixture.owner().location.quality.value, "medium")
         diagnostic = await async_get_config_entry_diagnostics(hass, entry)
         self.assertEqual(diagnostic["device_associations"][0]["person_association"], "probable")
         fixture.second = 13

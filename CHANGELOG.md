@@ -1,5 +1,11 @@
 # Historial de cambios
 
+## 0.5.22 — Conteo coherente con una asociación temporal probable
+
+- Evita contar dos veces la población agregada que respalda una asociación temporal entre dispositivo y persona. La incertidumbre de identidad no añade por sí sola otro individuo a esa misma lectura de ocupación.
+- Conserva la confianza probable de la asociación, sus relojes y los positivos retenidos de otras áreas. Un contador con población adicional mantiene sus ocupantes posibles; objetivos visuales distintos y agregados que no respaldaron la asociación siguen independientes.
+- No altera reconocimiento, imágenes, admisión de detecciones, configuración, telemetría, límites de continuidad ni control PTZ. La corrección reutiliza el resolvedor compartido, sin nuevos sensores, acciones o consultas.
+
 ## 0.5.21 — Telemetría radar con relojes y presupuesto acotados
 
 - Las fuentes físicas de ocupación/conteo pueden incluir canales opcionales de coordenadas, rango y velocidad mediante formularios nativos. Conserva las entradas originales y no requiere otra integración ni entidades nuevas.
