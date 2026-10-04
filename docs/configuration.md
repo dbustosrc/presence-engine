@@ -243,3 +243,35 @@ configuración y las fuentes anteriores. No migra implícitamente una fuente
 Utilizar caducidad para eventos push que podrían perder el mensaje de fin. No
 usarla por defecto en `person.*`, radares o contadores de estado: Home Assistant
 ya mantiene su valor actual aunque no cambie.
+# Asociación temporal Bluetooth (0.5.19)
+
+La asociación es opcional por disponibilidad de fuentes, no una nueva fuente.
+Configure `bermuda_area` con propietario y `options.target_id` igual al
+`options.device_id` de sus fuentes `bermuda_signal`. Estas deben usar
+`metric: distance`, receptores distintos y sus áreas explícitas. Una fuente
+de señal con otro propietario no participa. RSSI y distancia sin filtrar se
+conservan como diagnóstico, pero no se suman como votos independientes.
+
+Una observación corporal identificada aceptada, con habitación de calidad al
+menos media, y el área concordante del dispositivo permiten registrar una
+co-localización. El motor requiere dos mediciones recientes de distancia por
+receptor para comparar intervalos; no usa límites geométricos de habitaciones.
+El origen debe alejarse y el destino acercarse, con rangos sin solapamiento y
+predominio del receptor de destino. Si este no tenía referencia al registrar
+el ancla, necesita dos mediciones decrecientes de llegada y evidencia física
+positiva en destino; un cero en origen por sí solo no basta en ese caso.
+
+Esto es una inferencia probable de confianza media, no prueba de que el
+teléfono vaya en la mano. Ruido radioeléctrico puede imitar un desplazamiento.
+Una detección identificada activa prevalece y las detecciones anónimas
+continúan respaldando intervalos de conteo, no desaparecen por la asociación.
+Para un destino sin detector físico se exige referencia de ambos receptores
+y un cero físico válido en origen posterior al ancla.
+
+Los relojes de las mediciones deben estar dentro de la ventana de trayectoria
+(20 segundos); el ancla vence a los 90 segundos originales. Las actualizaciones
+de atributos no son mediciones nuevas. El vínculo no se persiste; tras reiniciar
+se exige nueva co-localización corporal, aunque señales e imágenes se restauren.
+`get_snapshot` y los diagnósticos incluyen `device_associations` para inspeccionar
+los vínculos. No se publican arrays de señal en entidades de alta frecuencia
+ni se generan avisos de reconocimiento por estas inferencias.

@@ -1,5 +1,13 @@
 # Historial de cambios
 
+## 0.5.19 — Asociación temporal de dispositivo y presencia
+
+- Conserva una co-localización corporal aceptada y reciente con un dispositivo Bluetooth vinculado explícitamente. Combina cambios coherentes de distancia entre receptores y evidencia física, sin trasladar a la persona por un salto de área o por la propiedad del teléfono.
+- Permite una habitación probable pese a una detección anónima retenida en origen. Si existe una referencia de ambos receptores, un cero físico válido en origen puede respaldar un destino solo Bluetooth. Si falta la referencia del receptor de destino, exige recepción de llegada coherente y detección corporal allí.
+- Mantiene prioridad de la evidencia corporal identificada activa, incertidumbre de visitantes y conteos por observador. La asociación es de confianza media, no certeza facial ni probabilidad calibrada; no borra detecciones activas por su edad.
+- Conserva el límite original de 90 segundos, caducidad de las mediciones, unidades y relojes. No renueva el vínculo por atributos repetidos; una señal inválida o caída retira la inferencia. Tras un reinicio exige nueva co-localización, sin restaurar un vínculo antiguo como actual.
+- Expone ancla, destino, fuentes y vencimiento en la consulta de snapshot y diagnósticos. No incorpora polling, nuevos avisos, acciones físicas ni cambios de control PTZ. Las fuentes de señal por sí solas siguen sin crear presencias.
+
 ## 0.5.18 — Evidencia de vaciado y ubicación histórica separada
 
 - Conserva conteos cero medidos de detectores físicos hasta el resolvedor. Un detector operativo puede retirar la continuidad del punto que él mismo respaldaba, sin afirmar que toda la habitación o la casa estén vacías.

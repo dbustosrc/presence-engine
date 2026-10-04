@@ -12,6 +12,7 @@ from .model import (
     AreaOccupancy,
     CountClaim,
     DeviceState,
+    DeviceHandoff,
     Observation,
     ObservationStatus,
     PresenceHypothesis,
@@ -110,6 +111,7 @@ class PresenceResolver:
         revision: int,
         previous: PresenceSnapshot | None = None,
         unavailable_sources: Iterable[str] = (),
+        device_handoffs: Iterable[DeviceHandoff] = (),
     ) -> PresenceSnapshot:
         now = self._clock.now()
         unavailable = tuple(unavailable_sources)
@@ -134,12 +136,15 @@ class PresenceResolver:
         guarded_groups=self._guard_spatial_inferences(groups,previous,now)
         inferences_guarded=guarded_groups != groups
         groups=guarded_groups
+        self._apply_device_handoffs(people, tuple(device_handoffs), groups, clears, active, now)
         animals=tuple(group for group in groups if group.kind is TargetKind.ANIMAL)
         physical_areas={group.location.area for group in groups
                         if group.kind is not TargetKind.ANIMAL and group.location
                         and group.location.area and group.maximum}
         conflicts: list[str]=[]
         reasons: list[str]=[]
+        if any(person.status == "device_carried_probable" for person in people.values()):
+            reasons.append("anchored_device_handoff_with_physical_support")
         if any(person.status == "location_cleared" for person in people.values()):
             reasons.append("previous_location_support_cleared")
         if inferences_guarded:
@@ -253,7 +258,7 @@ class PresenceResolver:
             reasons.append("cross_camera_population_overlap")
         if population_min < extra_min:
             reasons.append("cross_area_population_overlap")
-        continued=sum(person.status == "continued" for person in people.values())
+        continued=sum(person.status in {"continued", "device_carried_probable"} for person in people.values())
         unlocated=sum(person.status != "continued" and person.location is not None
                       and person.location.level is SpatialLevel.HOME for person in people.values())
         minimum=max(len(person_hypotheses), len(person_hypotheses)-continued-unlocated+population_min)+animal_min
@@ -284,6 +289,45 @@ class PresenceResolver:
             unavailable_source_ids=tuple(sorted(set(unavailable))),
             area_occupancies=occupancies,
         )
+
+    def _apply_device_handoffs(self, people: dict[str, _PersonCandidate], handoffs: tuple[DeviceHandoff, ...],
+                              groups: tuple[_EvidenceGroup, ...], clears: tuple[Observation, ...],
+                              active: tuple[Observation, ...], now: datetime) -> None:
+        for handoff in handoffs:
+            person = people.get(handoff.identity)
+            if (person is None or handoff.observed_at > now or handoff.anchored_at > handoff.observed_at
+                    or now - handoff.anchored_at >= self._config.previous_continuity_window
+                    or any(o.target_kind is TargetKind.PERSON and o.identity and o.identity.value == handoff.identity
+                           and o.location and o.location.area for o in active)
+                    or handoff.destination not in self._config.area_floors
+                    or not any(d.area == handoff.destination for d in person.device_locations)):
+                continue
+            # Physical evidence or a measured clear is required in addition
+            # to radio motion. A held anonymous origin remains possible.
+            support = {sid for g in groups if g.kind in {TargetKind.PERSON, TargetKind.UNKNOWN_LIVING}
+                       and g.minimum and g.location and g.location.area == handoff.destination
+                       and g.location.quality.rank >= Quality.MEDIUM.rank
+                       and abs(g.location.observed_at - handoff.observed_at) <= self._config.trajectory_window
+                       for sid in g.source_ids}
+            support.update(o.source.source_id for o in clears if not handoff.requires_destination_body
+                           and o.location.area == handoff.origin
+                           and handoff.anchored_at < o.count.observed_at <= handoff.observed_at)
+            if not support:
+                continue
+            if person.location and person.location.area:
+                if person.location.observed_at > handoff.observed_at:
+                    continue
+                person.candidate_areas.add(person.location.area)
+            person.candidate_areas.update((handoff.origin, handoff.destination))
+            person.location = SpatialClaim(SpatialLevel.AREA, handoff.observed_at,
+                area=handoff.destination, floor=self._config.area_floors[handoff.destination],
+                method="anchored_device_handoff", quality=Quality.MEDIUM)
+            person.location_sources = set(handoff.source_ids) | support
+            person.sources = set(person.identity_sources) | person.location_sources
+            person.status = "device_carried_probable"
+            person.from_device = False
+            person.last_location = None
+            person.clear_sources.clear()
 
     def _area_occupancies(
         self, groups: tuple[_EvidenceGroup, ...], observations: tuple[Observation, ...],
@@ -462,6 +506,8 @@ class PresenceResolver:
 
     def _exact_identity_match(self, person: _PersonCandidate, group: _EvidenceGroup,
                               observations: tuple[Observation, ...]) -> bool:
+        if person.status == "device_carried_probable":
+            return False  # Radio/body coincidence is not an exact identity link.
         if group.observer_id is None:
             return True  # Room aggregates may include an already located occupant.
         return group.target_id is not None and any(item.identity and item.identity.value == person.identity
@@ -605,6 +651,12 @@ class PresenceResolver:
                 if prior.kind is not TargetKind.PERSON or not prior.identity:
                     continue
                 current=people.get(prior.identity)
+                if ((prior.location and prior.location.method == "anchored_device_handoff")
+                        or prior.location_status == "device_association_unconfirmed"):
+                    if current and current.location and current.location.level is SpatialLevel.HOME:
+                        current.status = "device_association_unconfirmed"
+                        current.from_device = False
+                    continue  # Revalidate the anchor, not ordinary phone/room coincidence.
                 if (current is not None and current.location is not None and current.location.level is SpatialLevel.HOME
                         and prior.last_location is not None
                         and now-prior.last_location.observed_at < self._config.previous_continuity_window):
@@ -683,7 +735,8 @@ class PresenceResolver:
         candidates = [
             person
             for person in people.values()
-            if ((person.from_device and not (person.location and person.location.area))
+            if person.status != "device_association_unconfirmed"
+            and ((person.from_device and not (person.location and person.location.area))
                 or (person.status == "continued" and person.location is not None
                     and person.location.area not in physical_areas and group.minimum > 0))
             and any(

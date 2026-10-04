@@ -40,6 +40,7 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     async def async_get_snapshot(call: ServiceCall) -> ServiceResponse:
         runtime = _loaded_runtime(hass, call.data.get("config_entry_id"))
         return {**snapshot_payload(runtime.engine.snapshot, runtime.engine.latest_images),
+                "device_associations": runtime.engine.device_association_payload(),
                 "device_signal_histories": runtime.engine.signal_history_payload(
                     include_samples=call.data.get("include_signal_samples", False))}
 

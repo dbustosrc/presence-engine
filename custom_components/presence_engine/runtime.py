@@ -50,6 +50,7 @@ from .engine import (
     resolve_detection,
 )
 from .temporal import TemporalCameraRegistry
+from .association import DeviceAssociations
 
 
 MAX_SIGNAL_SAMPLES = 1024
@@ -93,8 +94,14 @@ class PresenceRuntime:
                                  if source.enabled and source.adapter is AdapterType.WIFI_TRACKER}
         self._signal_definitions = {source.source_id: source for source in configuration.sources
                                     if source.enabled and source.adapter is AdapterType.BERMUDA_SIGNAL}
+        self._association_enabled = any(s.enabled and s.adapter is AdapterType.BERMUDA_AREA and s.identity
+            and any(d.options["device_id"] == s.options.get("target_id") for d in self._signal_definitions.values())
+            for s in configuration.sources)
         self._signal_samples: dict[str, list[DeviceSignalSample]] = {}
         self._signal_latest: dict[str, DeviceSignalSample] = {}
+        self._associations = DeviceAssociations(self._signal_definitions,
+            lifetime=self._resolver_config.previous_continuity_window,
+            measurement_window=self._resolver_config.trajectory_window)
         self._signal_truncated: set[str] = set()
         self._max_signal_samples = min(max_records, MAX_SIGNAL_SAMPLES)
         self._contexts = TemporalCameraRegistry(dict(configuration.cameras))
@@ -188,8 +195,17 @@ class PresenceRuntime:
             if result.device_signals:
                 for sample in result.device_signals:
                     self._retain_signal(sample)
-                # Signal changes are saved by the existing HA runtime, but do
-                # not revise presence, renew identities or produce detections.
+                # Only a semantic handoff may revise presence. Signal-only
+                # installations still do not publish bodies or detections.
+                if not self._association_enabled:
+                    continue
+                prior = self._snapshot
+                candidate = self._resolve_snapshot()
+                if prior is not None and replace(candidate, evaluated_at=prior.evaluated_at) != prior:
+                    self._store.advance_revision()
+                    changed = True
+                else:
+                    self._snapshot = prior or candidate
                 continue
             explicit_availability = {
                 availability.source_id: availability.available
@@ -316,7 +332,12 @@ class PresenceRuntime:
         history_expired = any(p.last_location is not None and now >= (
             p.last_location.observed_at + self._resolver_config.previous_continuity_window)
             for p in self.snapshot.presences)
+        association_expired = any(p.location and p.location.method == "anchored_device_handoff"
+                                  for p in self.snapshot.presences)
         changed = source_expired or continuity_expired or history_expired
+        if association_expired or self._associations.anchors:
+            candidate = self._resolve_snapshot()
+            changed = changed or replace(candidate, evaluated_at=self.snapshot.evaluated_at) != self.snapshot
         if changed:
             self._store.advance_revision()
             self._snapshot = self._resolve_snapshot(
@@ -349,10 +370,16 @@ class PresenceRuntime:
                 + self._resolver_config.previous_continuity_window
             ) > now
         )
+        if (deadline := self._associations.next_expiration(now)) is not None:
+            expirations.append(deadline)
+        expirations.extend(sample.observed_at + self._resolver_config.trajectory_window
+            for history in self._signal_samples.values() for sample in history[-2:]
+            if self._associations.handoffs and sample.observed_at + self._resolver_config.trajectory_window > now)
         return min(expirations, default=None)
 
     def mark_channel_unavailable(self, source_ids: Iterable[str]) -> RuntimeUpdate:
         """Invalidate configured sources without turning missing coverage into empty home."""
+        previous = self.snapshot
         changed = False
         for source_id in source_ids:
             availability_changed = False
@@ -369,7 +396,12 @@ class PresenceRuntime:
             if availability_changed and not changed:
                 self._store.advance_revision()
             changed = availability_changed or changed
-        self._snapshot = self._resolve_snapshot()
+        candidate = self._resolve_snapshot()
+        if not changed and replace(candidate, evaluated_at=previous.evaluated_at) != previous:
+            self._store.advance_revision()
+            changed = True
+            candidate = self._resolve_snapshot()
+        self._snapshot = candidate
         return RuntimeUpdate(self.snapshot, (), self.failures, changed)
 
     def detection(self, detection_id: str) -> DetectionResult | None:
@@ -408,6 +440,9 @@ class PresenceRuntime:
 
     def restore_state(self, raw: Mapping[str, object]) -> None:
         """Restore compatible bounded state; one corrupt item does not abort setup."""
+        self._associations.anchors.clear()
+        self._associations.handoffs.clear()
+        self._associations.capture_after = self._now()
         if int(raw.get("contract_version", 0)) != CONTRACT_VERSION:
             return
         configured_source_ids = {
@@ -589,6 +624,19 @@ class PresenceRuntime:
                 item["samples"] = [encode_device_signal(sample) for sample in history]
             result.append(item)
         return result
+
+    def device_association_payload(self) -> list[dict]:
+        """Expose clocks/bindings, not a calibrated probability or raw payload."""
+        return [{"identity": a.identity, "device_id": a.device_id, "origin_area": a.area,
+                 "anchored_at": a.observed_at.isoformat(),
+                 "expires_at": (a.observed_at + self._resolver_config.previous_continuity_window).isoformat(),
+                 "destination_area": h.destination if (h := self._associations.handoffs.get(key)) else None,
+                 "handoff_observed_at": h.observed_at.isoformat() if h else None,
+                 "source_ids": list(h.source_ids) if h else [a.body_source, a.phone_source],
+                 "requires_destination_body": h.requires_destination_body if h else None,
+                 "person_association": "probable" if any(p.identity == a.identity
+                     and p.location_status == "device_carried_probable" for p in self.snapshot.presences) else "not_confirmed"}
+                for key, a in sorted(self._associations.anchors.items())]
 
     def _build_adapters(self) -> tuple[SourceAdapter, ...]:
         adapters: list[SourceAdapter] = []
@@ -801,11 +849,15 @@ class PresenceRuntime:
         now = self._now()
         self._freshness_signature = self._current_freshness_signature(now)
         resolver = PresenceResolver(self._resolver_config, FrozenClock(now))
+        observations = self._presence_observations(now)
+        self._trim_signals()
+        handoffs = self._associations.update(observations, self._signal_samples, now) if self._association_enabled else ()
         return resolver.resolve(
-            self._presence_observations(now),
+            observations,
             revision=self._store.revision,
             previous=self._snapshot if allow_previous else None,
             unavailable_sources=self._unavailable_sources,
+            device_handoffs=handoffs,
         )
 
     def _presence_observations(self, now: datetime) -> tuple[Observation, ...]:

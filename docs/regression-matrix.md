@@ -32,6 +32,10 @@ private installation corpus belongs outside this repository.
 | A confirmed image survives restart and later non-visual updates | `test_export_restore_keeps_last_confirmed_image` |
 | Stable registry IDs survive entity renames and ambiguous discovery stays pending | `test_raw_registry_binding_survives_rename`, `test_ready_known_family_is_added_but_ambiguous_mtr_is_pending` |
 | The core has no platform, network or installation coupling | `test_core_has_no_platform_or_network_imports`, `test_core_does_not_contain_installation_identifiers` |
+| An anchored radio handoff can refine a probable room without clearing held physical detections | `test_held_origin_does_not_block_corroborated_probable_handoff`, `test_ble_only_destination_requires_valid_origin_clear` |
+| A static-phone area jump, radio noise, owner mismatch or active face cannot relocate the owner | `test_stationary_phone_area_jump_and_overlapping_noise_do_not_transfer`, `test_current_face_wins_even_if_its_coordinates_have_not_changed`, `test_other_owner_receiver_binding_cannot_carry_this_owner` |
+| Probable radio association never consumes distinct visual visitors or renews its original clock | `test_distinct_visual_visitors_are_not_consumed_by_radio_identity`, `test_repeated_radio_does_not_roll_anchor_or_handoff_clocks` |
+| Invalid/expired radio retires the association; restart requires new co-location | `test_channel_loss_retires_association_and_notifies_without_degrading_home`, `test_measurement_expiry_is_scheduled_before_anchor_deadline`, `test_restart_does_not_rebuild_anchor_from_saved_face_and_radio` |
 
 Notification replacement and recipient policy are deliberately not implemented
 in the core. The core supplies stable detection identity and revision so that a

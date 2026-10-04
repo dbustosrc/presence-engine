@@ -283,6 +283,20 @@ class DeviceSignalSample:
 
 
 @dataclass(frozen=True, slots=True)
+class DeviceHandoff:
+    """A radio handoff anchored to a previously accepted body observation."""
+
+    identity: str
+    device_id: str
+    origin: str
+    destination: str
+    anchored_at: datetime
+    observed_at: datetime
+    source_ids: tuple[str, ...]
+    requires_destination_body: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class PresenceHypothesis:
     hypothesis_id: str
     kind: TargetKind

@@ -165,6 +165,43 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
         diagnostic = await async_get_config_entry_diagnostics(hass, entry)
         self.assertEqual(diagnostic["snapshot"]["devices"][0]["network_attachment"], "[redacted]")
 
+    async def test_native_radio_handoff_publishes_only_semantic_change_without_detection(self):
+        from test_device_association import DeviceAssociationTests
+        from homeassistant.core import State
+        from presence_engine.diagnostics import async_get_config_entry_diagnostics
+        fixture = DeviceAssociationTests()
+        fixture.setUp()
+        fixture.seed()
+        fixture.deliver("binary_sensor.beta", "on", 9)
+        fixture.deliver("sensor.phone", "Beta", 10)
+        fixture.deliver("sensor.distance_alpha", 5, 11)
+        fixture.deliver("sensor.distance_beta", 1.2, 11.1)
+        fixture.deliver("sensor.distance_alpha", 6, 12)
+        hass = HomeAssistant("/tmp/presence-engine-no-io")
+        entry = catalogue_entry()
+        runtime = HomeAssistantPresenceRuntime(hass, entry, fixture.runtime.configuration,
+            max_records=2000, save_delay_seconds=15)
+        runtime.engine = fixture.runtime
+        entry.runtime_data = runtime
+        runtime._store = Mock(async_save=AsyncMock())
+        runtime._reschedule_expiration = Mock()
+        listener = Mock()
+        runtime.coordinator.async_add_listener(listener)
+        fixture.second = 12.1
+        observed = at(12.1)
+        with patch("presence_engine.ha_runtime.dt_util.utcnow", return_value=observed):
+            await runtime._async_process_state("sensor.distance_beta", State("sensor.distance_beta", "1",
+                {"unit_of_measurement": "m"}, last_changed=observed, last_updated=observed))
+        listener.assert_called_once()
+        self.assertEqual(fixture.owner().location_status, "device_carried_probable")
+        diagnostic = await async_get_config_entry_diagnostics(hass, entry)
+        self.assertEqual(diagnostic["device_associations"][0]["person_association"], "probable")
+        fixture.second = 13
+        with patch("presence_engine.ha_runtime.dt_util.utcnow", return_value=at(13)):
+            await runtime._async_process_state("sensor.distance_beta", State("sensor.distance_beta", "1",
+                {"unit_of_measurement": "m", "friendly_name": "Updated"}, last_changed=observed, last_updated=at(13)))
+        listener.assert_called_once()
+
     async def test_native_physical_clear_keeps_home_identity_and_separate_history(self):
         from datetime import timedelta
         from presence_engine.configuration import parse_configuration
