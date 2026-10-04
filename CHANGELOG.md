@@ -1,5 +1,14 @@
 # Historial de cambios
 
+## 0.5.20 — Incorporación asistida de fuentes
+
+- Amplía Descubrimiento y exclusiones con revisión, incorporación explícita, ignorar, recuperar y revisar después. Abre formularios prellenados sin JSON; revisar o cancelar no añade fuentes incompletas, y los cambios se aplican únicamente al guardar.
+- Sugiere trackers Wi-Fi con capacidad de conexión verificada y distancias Bermuda por receptor. Conserva vínculos explícitos de dispositivo, propietario y receptor cuando son inequívocos; no infiere propietarios por nombres ni convierte AP, área administrativa o último lugar visto en ubicación corporal.
+- Muestra canales relacionados sin incorporarlos como un bloque ni contarlos como votos independientes. Las fuentes ignoradas conservan su vínculo estable ante renombres/reinicios, y recuperarlas no las activa. Mantiene las fuentes explícitas, deshabilitadas y exclusiones anti-realimentación existentes.
+- Añade un aviso opcional agrupado dentro de Home Assistant, enlazado a la configuración, solo para candidatos nuevos: no hay avalancha por el inventario inicial ni repetición por estados, renombres o reinicios. Se actualiza o cierra al resolver los candidatos; no envía avisos al teléfono ni utiliza Repairs para fuentes opcionales.
+- Un candidato que aparezca antes de su primer estado útil puede revisarse cuando estén disponibles sus metadatos. Utiliza suscripciones temporales concretas, sin listener global, polling o recargas del motor por trackers nuevos. Conserva reconciliación de entradas configuradas y descubrimiento automático de familias inequívocas anteriores.
+- Conserva fusión, reconocimiento, imágenes, plazos y control PTZ. GPS, tecnologías desconocidas y entidades del motor no se anuncian como nuevas fuentes Wi-Fi; los avisos se suprimen en modo comparación.
+
 ## 0.5.19 — Asociación temporal de dispositivo y presencia
 
 - Conserva una co-localización corporal aceptada y reciente con un dispositivo Bluetooth vinculado explícitamente. Combina cambios coherentes de distancia entre receptores y evidencia física, sin trasladar a la persona por un salto de área o por la propiedad del teléfono.

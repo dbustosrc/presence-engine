@@ -9,7 +9,7 @@ import json
 import logging
 from typing import Any
 
-from homeassistant.components import mqtt
+from homeassistant.components import mqtt, persistent_notification
 from aiohttp import ClientError, ClientSession, DummyCookieJar
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_COMPONENT_LOADED, EVENT_HOMEASSISTANT_STOP
@@ -23,10 +23,10 @@ from homeassistant.util import dt as dt_util
 
 from .adapters import AdapterEnvelope
 from .configuration import EngineConfiguration
-from .const import CONF_CONFIGURATION, EVENT_RESULT, STORAGE_KEY_PREFIX, STORAGE_VERSION
+from .const import CONF_CONFIGURATION, CONF_COMPARISON_MODE, DEFAULT_COMPARISON_MODE, EVENT_RESULT, STORAGE_KEY_PREFIX, STORAGE_VERSION
 from .face_discovery import FaceDiscovery
 from .ha_face_catalogue import fetch_face_catalogue
-from .discovery import DiscoveryCandidate, discover_candidate
+from .discovery import DiscoveryCandidate, apply_discovery, review_candidates
 from .engine import DetectionResult, PresenceSnapshot
 from .ha_discovery import collect_entity_descriptors
 from .projection import detection_payload
@@ -93,6 +93,10 @@ class HomeAssistantPresenceRuntime:
         self._stopping = False
         self.activated_discovery = activated_discovery
         self.pending_discovery = pending_discovery
+        self._review_settings = dict(entry.data[CONF_CONFIGURATION].get("discovery", {}))
+        self._review_seen: set[str] = set()
+        self._review_announced: set[str] = set()
+        self._review_state_unsubscribe: Callable[[], None] | None = None
         self._mqtt_subscribed = False
         self._mqtt_task: asyncio.Task | None = None
         self._cancel_expiration: Callable[[], None] | None = None
@@ -115,6 +119,11 @@ class HomeAssistantPresenceRuntime:
             self.engine.restore_state(restored)
             self.faces.restore(restored.get("face_discovery"))
             self.coordinator.async_set_updated_data(self.engine.snapshot)
+            for key, destination in (("source_review_seen", self._review_seen), ("source_review_announced", self._review_announced)):
+                values = restored.get(key, [])
+                if isinstance(values, list):
+                    destination.update(i for i in values if isinstance(i, str))
+        self._refresh_source_review(baseline=not restored or not isinstance(restored.get("source_review_seen"), list))
 
         entity_ids = self.engine.configuration.entity_ids
         if entity_ids:
@@ -183,6 +192,9 @@ class HomeAssistantPresenceRuntime:
             self._cancel_expiration = None
         while self._unsubscribers:
             self._unsubscribers.pop()()
+        if self._review_state_unsubscribe:
+            self._review_state_unsubscribe()
+            self._review_state_unsubscribe = None
         self._identity_listeners.clear()
         await self._store.async_save(self._export_state())
 
@@ -195,11 +207,19 @@ class HomeAssistantPresenceRuntime:
             self._face_task = None
 
     def _export_state(self) -> dict:
-        return {**self.engine.export_state(), "face_discovery": self.faces.export()}
+        return {**self.engine.export_state(), "face_discovery": self.faces.export(),
+                "source_review_seen": sorted(self._review_seen), "source_review_announced": sorted(self._review_announced)}
 
     @property
     def identity_ids(self) -> tuple[str, ...]:
         return tuple(sorted(set(self.engine.configuration.identity_ids) | set(self.faces.observed.values())))
+
+    @property
+    def source_review_status(self) -> dict[str, int | bool]:
+        return {"ignored_source_count": len(self._review_settings.get("ignored_registry_ids", [])),
+                "notify_new_sources": self._review_settings.get("notify_new_sources", True),
+                "notifications_suppressed_by_comparison": self.entry.options.get(CONF_COMPARISON_MODE, DEFAULT_COMPARISON_MODE),
+                "announced_source_count": len(self._review_announced)}
 
     @callback
     def async_add_identity_listener(self, listener: IdentityListener) -> Callable[[], None]:
@@ -349,6 +369,8 @@ class HomeAssistantPresenceRuntime:
 
     @callback
     def _async_registry_changed(self, event: Event) -> None:
+        if self._stopping:
+            return
         entity_ids = {
             value
             for value in (
@@ -363,21 +385,84 @@ class HomeAssistantPresenceRuntime:
         current_entity_id = event.data.get("entity_id")
         if not isinstance(current_entity_id, str):
             return
-        candidate = next(
-            (
-                descriptor
-                for descriptor in collect_entity_descriptors(self.hass)
-                if descriptor.entity_id == current_entity_id
-            ),
-            None,
-        )
-        if candidate is not None and discover_candidate(candidate) is not None:
+        descriptors = collect_entity_descriptors(self.hass)
+        plan = apply_discovery(self.engine.configuration, descriptors,
+            ignored_registry_ids=self._review_settings.get("ignored_registry_ids", []),
+            review_registry_ids=self._review_settings.get("review_registry_ids", []))
+        if plan.activated:
+            # Preserve existing unambiguous automatic families, not new
+            # Wi-Fi/BLE channels requiring a user's semantic bindings.
             self.hass.config_entries.async_schedule_reload(self.entry.entry_id)
+        else:
+            self._refresh_source_review(descriptors=descriptors)
 
     @callback
     def _async_device_registry_changed(self, event: Event) -> None:
-        """Re-evaluate capabilities and inherited areas after rare registry changes."""
-        self.hass.config_entries.async_schedule_reload(self.entry.entry_id)
+        """Only configured device changes can require reconciliation/reload."""
+        if self._stopping:
+            return
+        descriptors = collect_entity_descriptors(self.hass)
+        configured_devices = {d.device_id for d in descriptors if d.entity_id in self.engine.configuration.entity_ids}
+        if (isinstance(event.data.get("device_id"), str) and event.data["device_id"] in configured_devices
+                and (event.data.get("action") != "update" or {"area_id", "model"}.intersection(event.data.get("changes", {})))):
+            self.hass.config_entries.async_schedule_reload(self.entry.entry_id)
+        else:
+            self._refresh_source_review(descriptors=descriptors)
+
+    @callback
+    def _refresh_source_review(self, *, baseline=False, descriptors=None) -> None:
+        if self._stopping:
+            return
+        descriptors = tuple(descriptors) if descriptors is not None else collect_entity_descriptors(self.hass)
+        ignored = set(self._review_settings.get("ignored_registry_ids", []))
+        self.pending_discovery = tuple(c for c in review_candidates(self.engine.configuration, descriptors)
+                                       if c.descriptor.registry_id not in ignored)
+        current = {c.descriptor.registry_id for c in self.pending_discovery}
+        new = current - self._review_seen
+        self._review_seen.intersection_update({d.registry_id for d in descriptors})
+        self._review_seen.update(current)
+        self._review_seen.update(ignored & {d.registry_id for d in descriptors})
+        old_announced = set(self._review_announced)
+        self._review_announced.intersection_update(current)
+        alerts_enabled = (self._review_settings.get("notify_new_sources", True)
+                          and not self.entry.options.get(CONF_COMPARISON_MODE, DEFAULT_COMPARISON_MODE))
+        if alerts_enabled and not baseline:
+            self._review_announced.update(new)
+        notification_id = "presence_engine_sources_" + self.entry.entry_id
+        if alerts_enabled and self._review_announced and (new and not baseline or old_announced != self._review_announced):
+            groups = {c.descriptor.device_id or c.descriptor.registry_id for c in self.pending_discovery
+                      if c.descriptor.registry_id in self._review_announced}
+            spanish = self.hass.config.language.startswith("es")
+            noun = ("dispositivo" if len(groups) == 1 else "dispositivos") if spanish else ("device" if len(groups) == 1 else "devices")
+            message = (f"{len(groups)} {noun} con fuentes compatibles por revisar. "
+                       "No se incorporan ni cuentan como personas automáticamente. " if spanish else
+                       f"{len(groups)} {noun}: compatible sources to review. They are not added or counted as people automatically. ")
+            message += "[Presence Engine](/config/integrations/integration/presence_engine)"
+            persistent_notification.async_create(self.hass, message, "Presence Engine", notification_id)
+        elif not alerts_enabled or old_announced and not self._review_announced:
+            persistent_notification.async_dismiss(self.hass, notification_id)
+        if self._review_state_unsubscribe:
+            self._review_state_unsubscribe()
+            self._review_state_unsubscribe = None
+        # Exact, temporary subscriptions only for capability metadata not yet
+        # available. No global state listener and no per-sample inventory scan.
+        waiting = tuple(d.entity_id for d in descriptors if not d.disabled and d.platform != "presence_engine"
+                        and d.entity_id not in self.engine.configuration.entity_ids and d.registry_id not in ignored
+                        and d.registry_id not in current
+                        and (d.domain == "device_tracker" and d.source_type is None and d.tracking_type != "position"
+                             or d.platform == "bermuda" and d.domain == "sensor" and d.unit is None
+                             and d.unique_id.endswith(("_range", "_range_raw"))
+                             and (d.original_name or "").casefold().startswith(("distance to ", "unfiltered distance to "))))
+        if waiting:
+            self._review_state_unsubscribe = async_track_state_change_event(self.hass, waiting, self._async_review_state_changed)
+        self._store.async_delay_save(self._export_state, self._save_delay_seconds)
+
+    @callback
+    def _async_review_state_changed(self, event: Event[EventStateChangedData]) -> None:
+        new, old = event.data.get("new_state"), event.data.get("old_state")
+        fields = ("source_type", "tracking_type", "unit_of_measurement", "area_id")
+        if new is not None and (old is None or any(new.attributes.get(k) != old.attributes.get(k) for k in fields)):
+            self._refresh_source_review()
 
     async def _async_process(self, envelope: AdapterEnvelope) -> None:
         async with self._lock:

@@ -31,6 +31,12 @@ class EntityDescriptor:
     device_class: str | None = None
     original_name: str | None = None
     device_id: str | None = None
+    disabled: bool = False
+    source_type: str | None = None
+    tracking_type: str | None = None
+    unit: str | None = None
+    receiver_area_id: str | None = None
+    ap_attribute: str | None = None
 
     @property
     def stable_key(self) -> str:
@@ -72,11 +78,25 @@ class DiscoveryPlan:
 
 def discover_candidate(descriptor: EntityDescriptor) -> DiscoveryCandidate | None:
     """Classify only source families whose semantics are actually known."""
+    if descriptor.disabled or descriptor.platform == "presence_engine":
+        return None
     platform = descriptor.platform.casefold()
     unique_id = descriptor.unique_id.casefold()
     searchable_id = f"{unique_id} {descriptor.entity_id.casefold()}"
     name = (descriptor.original_name or "").casefold()
     model = (descriptor.device_model or "").casefold()
+
+    if descriptor.domain == "device_tracker" and descriptor.source_type == "router" and descriptor.tracking_type != "position":
+        return DiscoveryCandidate(descriptor, AdapterType.WIFI_TRACKER, None, ("review",),
+            "Network connection and optional AP attachment; not body presence or a person's room.")
+
+    if platform == "bermuda" and descriptor.domain == "sensor" and descriptor.unit in ("m", "cm", "mm"):
+        # Bermuda's original entity name and unique-id suffix identify its
+        # per-receiver capability, not a user's display name or room guess.
+        if (unique_id.endswith("_range") and name.startswith("distance to ")
+                or unique_id.endswith("_range_raw") and name.startswith("unfiltered distance to ")):
+            return DiscoveryCandidate(descriptor, AdapterType.BERMUDA_SIGNAL, None,
+                ("device_id", "receiver_id"), "Receiver distance describes a device; receiver area is optional and must be reviewed.")
 
     if descriptor.domain == "person":
         return DiscoveryCandidate(
@@ -88,7 +108,8 @@ def discover_candidate(descriptor: EntityDescriptor) -> DiscoveryCandidate | Non
         )
 
     if platform == "bermuda" and descriptor.domain == "sensor" and (
-        "area" in searchable_id or name.endswith(" area") or name == "area"
+        name == "area" or name.endswith(" area")
+        or not name and (unique_id.endswith("_area") or descriptor.entity_id.casefold().endswith("_area"))
     ):
         missing = ["identity"]
         return DiscoveryCandidate(
@@ -216,6 +237,7 @@ def resolve_raw_registry_bindings(
 def apply_discovery(
     configuration: EngineConfiguration,
     descriptors: Iterable[EntityDescriptor],
+    *, ignored_registry_ids: Iterable[str] = (), review_registry_ids: Iterable[str] = (),
 ) -> DiscoveryPlan:
     """Activate unambiguous known sources and expose every other candidate."""
     descriptors = tuple(descriptors)
@@ -237,14 +259,22 @@ def apply_discovery(
         )
     }
     sources = list(configuration.sources)
+    ignored = set(ignored_registry_ids)
+    review_only = set(review_registry_ids)
     activated: list[DiscoveryCandidate] = []
     pending: list[DiscoveryCandidate] = []
     for candidate in discover_candidates(descriptors):
+        if candidate.descriptor.registry_id in ignored:
+            continue
+        if _excluded_endpoint(candidate.descriptor.entity_id, configuration):
+            continue
         if candidate.descriptor.entity_id in existing_entities:
             continue
         if candidate.descriptor.device_id in represented_device_ids:
             continue
         normalized = _normalize_candidate(candidate, configuration)
+        if candidate.descriptor.registry_id in review_only:
+            normalized = replace(normalized, missing_configuration=(*normalized.missing_configuration, "review"))
         source = _candidate_source(normalized, configuration)
         if source is None:
             pending.append(normalized)
@@ -261,6 +291,81 @@ def apply_discovery(
         sources=tuple(sources),
     )
     return DiscoveryPlan(effective, tuple(activated), tuple(pending))
+
+
+def review_candidates(configuration: EngineConfiguration, descriptors: Iterable[EntityDescriptor]) -> tuple[DiscoveryCandidate, ...]:
+    """Offer original compatible channels, not already configured/disabled inputs.
+
+    Unlike legacy automatic radar discovery, manual review may offer a new
+    capability on the same device (e.g. receiver distance beside BLE area).
+    """
+    descriptors = tuple(descriptors)
+    represented = {rid for s in configuration.sources for rid in s.entity_registry_ids}
+    entities = {eid for s in configuration.sources for eid in s.entity_ids}
+    devices = {d.device_id for d in descriptors if d.device_id and (d.registry_id in represented or d.entity_id in entities)}
+    camera_entities = {eid for c in configuration.cameras.values() for eid in c.entity_ids}
+    return tuple(c for c in discover_candidates(descriptors)
+                 if c.descriptor.registry_id not in represented
+                 and c.descriptor.entity_id not in entities | camera_entities
+                 and not _excluded_endpoint(c.descriptor.entity_id, configuration)
+                 and (c.descriptor.device_id not in devices
+                      or c.adapter in {AdapterType.WIFI_TRACKER, AdapterType.BERMUDA_AREA, AdapterType.BERMUDA_SIGNAL}))
+
+
+def _excluded_endpoint(entity_id: str, configuration: EngineConfiguration) -> bool:
+    """Honor existing explicit anti-feedback exclusions, not name heuristics."""
+    return any(entity_id in s.options.get("ignored_source_ids", ())
+               or any(entity_id.startswith(prefix) for prefix in s.options.get("ignored_source_prefixes", ()))
+               for s in configuration.sources if s.adapter is AdapterType.PERSON_HOME)
+
+
+def candidate_source_draft(candidate: DiscoveryCandidate, configuration: EngineConfiguration,
+                           descriptors: Iterable[EntityDescriptor]) -> dict:
+    """Prefill only verified bindings; ownership and geometry stay reviewable."""
+    d = candidate.descriptor
+    descriptors = tuple(descriptors)
+    draft = {"id": "manual_" + hashlib.sha256(d.registry_id.encode()).hexdigest()[:12],
+             "adapter": candidate.adapter.value, "enabled": True,
+             "entity_ids": [d.entity_id], "entity_registry_ids": [d.registry_id]}
+    options = {}
+    if candidate.adapter in {AdapterType.WIFI_TRACKER, AdapterType.BERMUDA_AREA, AdapterType.BERMUDA_SIGNAL}:
+        device = "device_" + hashlib.sha256((d.device_id or d.registry_id).encode()).hexdigest()[:12]
+        by_entity = {item.entity_id: item for item in descriptors}
+        linked = [s for s in configuration.sources if s.adapter in {AdapterType.WIFI_TRACKER, AdapterType.BERMUDA_AREA}
+                  and d.device_id and any(by_entity.get(eid) and by_entity[eid].device_id == d.device_id for eid in s.entity_ids)]
+        identities = {s.identity for s in linked if s.identity}
+        device_ids = {s.options.get("device_id") or s.options.get("target_id") for s in linked} - {None}
+        if len(identities) == 1:
+            draft["identity"] = identities.pop()
+        if configuration.identities.get(d.stable_key):
+            draft["identity"] = configuration.identities[d.stable_key]
+        if len(device_ids) == 1:
+            device = device_ids.pop()
+        options["target_id" if candidate.adapter is AdapterType.BERMUDA_AREA else "device_id"] = device
+    if candidate.adapter is AdapterType.WIFI_TRACKER:
+        draft.update(target_kind="device", spatial_quality="low", availability_role="observation")
+        if d.ap_attribute:
+            options["ap_attribute"] = d.ap_attribute
+    elif candidate.adapter is AdapterType.BERMUDA_SIGNAL:
+        raw = d.unique_id.endswith("_range_raw")
+        suffix = d.unique_id.removesuffix("_range_raw" if raw else "_range").rsplit("_", 1)[-1]
+        options.update(receiver_id="receiver_" + hashlib.sha256(suffix.encode()).hexdigest()[:12],
+                       metric="distance_unfiltered" if raw else "distance", history_seconds=120, history_limit=32)
+        # Preserve an existing explicit physical receiver binding across phones.
+        known_receivers = {s.options["receiver_id"] for s in configuration.sources if s.adapter is AdapterType.BERMUDA_SIGNAL
+            for eid in s.entity_ids if by_entity.get(eid) and by_entity[eid].platform == "bermuda"
+            and by_entity[eid].unique_id.removesuffix("_range_raw").removesuffix("_range").rsplit("_", 1)[-1] == suffix}
+        if len(known_receivers) == 1:
+            options["receiver_id"] = known_receivers.pop()
+        if d.receiver_area_id in configuration.areas:
+            draft["area"] = d.receiver_area_id
+            draft["floor"] = configuration.areas[d.receiver_area_id]
+        draft.update(target_kind="device", availability_role="observation")
+    elif candidate.adapter is not AdapterType.BERMUDA_AREA and candidate.suggested_area in configuration.areas:
+        draft["area"] = candidate.suggested_area
+        draft["floor"] = configuration.areas[candidate.suggested_area]
+    draft["options"] = options
+    return draft
 
 
 def _normalize_candidate(

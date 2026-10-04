@@ -81,7 +81,7 @@ async def async_setup_entry(
     try:
         from .discovery import apply_discovery, resolve_raw_registry_bindings
         from .ha_discovery import collect_entity_descriptors
-        from .configuration_ui import validate_frigate_settings
+        from .configuration_ui import validate_frigate_settings, validate_discovery_settings
 
         descriptors = collect_entity_descriptors(hass)
         raw_configuration = resolve_raw_registry_bindings(
@@ -90,7 +90,11 @@ async def async_setup_entry(
         )
         configured = parse_configuration(raw_configuration)
         validate_frigate_settings(raw_configuration.get("frigate", {}))
-        discovery_plan = apply_discovery(configured, descriptors)
+        settings = raw_configuration.get("discovery", {})
+        validate_discovery_settings(settings)
+        discovery_plan = apply_discovery(configured, descriptors,
+            ignored_registry_ids=settings.get("ignored_registry_ids", []),
+            review_registry_ids=settings.get("review_registry_ids", []))
         configuration = discovery_plan.configuration
     except (KeyError, ConfigurationError) as err:
         raise ConfigEntryError(f"Invalid Presence Engine configuration: {err}") from err

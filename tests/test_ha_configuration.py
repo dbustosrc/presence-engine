@@ -38,6 +38,9 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
         session_factory = patch("presence_engine.ha_runtime.async_create_clientsession", return_value=Mock())
         session_factory.start()
         self.addCleanup(session_factory.stop)
+        registry_factory = patch("presence_engine.ha_runtime.collect_entity_descriptors", return_value=())
+        self.registry_factory = registry_factory.start()
+        self.addCleanup(registry_factory.stop)
         self.flow = PresenceEngineConfigFlow()
         self.flow.hass = SimpleNamespace(config_entries=SimpleNamespace(async_entries=lambda *args: []))
         self.flow._descriptors = lambda: ()
@@ -64,6 +67,143 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.flow._draft["cameras"]["cam"]["extension"], {"preserve": True})
         self.assertEqual(self.flow._draft["cameras"]["cam"]["fixed_area"], "alpha")
 
+    async def test_discovery_add_is_explicit_prefilled_and_cancellable_without_stub(self):
+        from presence_engine.discovery import EntityDescriptor
+        descriptor = EntityDescriptor("registry_wifi", "device_tracker.endpoint", "router_example", "endpoint", "device_tracker",
+            device_id="device_a", source_type="router", ap_attribute="connected_ap")
+        self.flow._descriptors = lambda: (descriptor,)
+        before = deepcopy(self.flow._draft)
+        result = await self.flow.async_step_discovery({"item": descriptor.registry_id})
+        self.assertEqual(result["step_id"], "discovery_review")
+        self.assertEqual(self.flow._draft, before)
+        result = await self.flow.async_step_discovery_review({"action": "add"})
+        self.assertEqual(result["step_id"], "source_edit")
+        self.assertEqual(self.flow._draft, before)
+        values = result["data_schema"]({})
+        self.assertNotIn("identity", values)
+        self.assertNotIn("area", values)
+        await self.flow.async_step_menu()  # Cancel this form without saving.
+        self.assertEqual(self.flow._draft, before)
+        await self.flow.async_step_discovery({"item": descriptor.registry_id})
+        result = await self.flow.async_step_discovery_review({"action": "add"})
+        result = await self.flow.async_step_source_edit(result["data_schema"]({}))
+        self.assertFalse(result.get("errors"), result)
+        self.assertEqual(len(self.flow._draft["sources"]), 1)
+        source = self.flow._draft["sources"][0]
+        self.assertEqual(source["adapter"], "wifi_tracker")
+        self.assertEqual(source["entity_registry_ids"], [descriptor.registry_id])
+        self.assertEqual(source["options"]["ap_attribute"], "connected_ap")
+        self.assertEqual(self.flow._draft["cameras"], before["cameras"])
+
+    async def test_discovery_ignore_restore_and_later_only_change_explicit_draft_decisions(self):
+        from presence_engine.discovery import EntityDescriptor
+        descriptor = EntityDescriptor("registry_wifi", "device_tracker.endpoint", "router_example", "endpoint", "device_tracker", source_type="router")
+        self.flow._descriptors = lambda: (descriptor,)
+        await self.flow.async_step_discovery({"item": descriptor.registry_id})
+        await self.flow.async_step_discovery_review({"action": "ignore"})
+        self.assertEqual(self.flow._draft["discovery"]["ignored_registry_ids"], [descriptor.registry_id])
+        self.assertEqual(self.flow._draft["sources"], [])
+        await self.flow.async_step_discovery({"item": descriptor.registry_id})
+        await self.flow.async_step_discovery_review({"action": "restore"})
+        self.assertEqual(self.flow._draft["discovery"]["ignored_registry_ids"], [])
+        before = deepcopy(self.flow._draft)
+        await self.flow.async_step_discovery({"item": descriptor.registry_id})
+        await self.flow.async_step_discovery_review({"action": "later"})
+        self.assertEqual(self.flow._draft, before)
+
+    async def test_new_tracker_first_state_alert_is_grouped_without_reload_or_presence(self):
+        from dataclasses import replace
+        from presence_engine.discovery import EntityDescriptor
+        from homeassistant.core import State
+        descriptor = EntityDescriptor("registry_wifi", "device_tracker.endpoint", "router_example", "endpoint", "device_tracker", device_id="device_a")
+        hass = HomeAssistant("/tmp/presence-engine-no-io")
+        hass.config_entries = SimpleNamespace(async_schedule_reload=Mock())
+        entry = catalogue_entry()
+        entry.options = {"comparison_mode": False}
+        runtime = HomeAssistantPresenceRuntime(hass, entry, integration_config(), max_records=2000, save_delay_seconds=15)
+        runtime._store = Mock(async_save=AsyncMock())
+        with patch("presence_engine.ha_runtime.persistent_notification.async_create") as create, \
+             patch("presence_engine.ha_runtime.persistent_notification.async_dismiss"):
+            runtime._refresh_source_review(baseline=True)
+            self.registry_factory.return_value = (descriptor,)
+            runtime._async_registry_changed(SimpleNamespace(data={"entity_id": descriptor.entity_id}))
+            create.assert_not_called()
+            self.assertIsNotNone(runtime._review_state_unsubscribe)
+            descriptor = replace(descriptor, source_type="router")
+            self.registry_factory.return_value = (descriptor,)
+            runtime._async_review_state_changed(SimpleNamespace(data={"old_state": None,
+                "new_state": State(descriptor.entity_id, "home", {"source_type": "router"})}))
+            create.assert_called_once()
+            self.assertIsNone(runtime._review_state_unsubscribe)
+            self.assertEqual(runtime.engine.snapshot.count_maximum, 0)
+            descriptor = replace(descriptor, entity_id="device_tracker.renamed")
+            self.registry_factory.return_value = (descriptor,)
+            runtime._async_registry_changed(SimpleNamespace(data={"entity_id": descriptor.entity_id, "old_entity_id": "device_tracker.endpoint"}))
+            runtime._async_device_registry_changed(SimpleNamespace(data={"device_id": "unrelated"}))
+            create.assert_called_once()
+            hass.config_entries.async_schedule_reload.assert_not_called()
+            restored = runtime._export_state()
+            restarted = HomeAssistantPresenceRuntime(hass, entry, integration_config(), max_records=2000, save_delay_seconds=15)
+            restarted._store = Mock(async_load=AsyncMock(return_value=restored), async_save=AsyncMock())
+            await restarted.async_setup()
+            create.assert_called_once()
+            await restarted.async_shutdown()
+            await runtime.async_shutdown()
+
+    async def test_initial_inventory_ignored_and_comparison_mode_do_not_alert(self):
+        from presence_engine.discovery import EntityDescriptor
+        descriptor = EntityDescriptor("registry_wifi", "device_tracker.endpoint", "router_example", "endpoint", "device_tracker", source_type="router")
+        self.registry_factory.return_value = (descriptor,)
+        hass = HomeAssistant("/tmp/presence-engine-no-io")
+        entry = catalogue_entry()
+        entry.options = {"comparison_mode": False}
+        runtime = HomeAssistantPresenceRuntime(hass, entry, integration_config(), max_records=2000, save_delay_seconds=15)
+        runtime._store = Mock(async_save=AsyncMock())
+        with patch("presence_engine.ha_runtime.persistent_notification.async_create") as create, \
+             patch("presence_engine.ha_runtime.persistent_notification.async_dismiss") as dismiss:
+            runtime._refresh_source_review(baseline=True)
+            runtime._refresh_source_review()
+            create.assert_not_called()
+            self.assertEqual(len(runtime.pending_discovery), 1)
+            runtime._review_settings["ignored_registry_ids"] = [descriptor.registry_id]
+            runtime._refresh_source_review()
+            self.assertEqual(runtime.pending_discovery, ())
+            runtime._review_settings["ignored_registry_ids"] = []
+            runtime._refresh_source_review()
+            create.assert_not_called()
+            entry.options = {"comparison_mode": True}
+            runtime._review_seen.clear()
+            runtime._refresh_source_review()
+            create.assert_not_called()
+            self.assertTrue(dismiss.called)
+            await runtime.async_shutdown()
+
+    async def test_same_device_channels_group_alert_and_removed_candidates_update_it(self):
+        from presence_engine.discovery import EntityDescriptor
+        from dataclasses import replace
+        first = EntityDescriptor("registry_wifi", "device_tracker.endpoint", "router_example", "endpoint", "device_tracker", source_type="router", device_id="device_a")
+        second = EntityDescriptor("registry_ble", "sensor.endpoint_area", "bermuda", "endpoint_area", "sensor", original_name="Area", device_id="device_a")
+        hass = HomeAssistant("/tmp/presence-engine-no-io")
+        entry = catalogue_entry()
+        entry.options = {"comparison_mode": False}
+        runtime = HomeAssistantPresenceRuntime(hass, entry, integration_config(), max_records=2000, save_delay_seconds=15)
+        runtime._store = Mock(async_save=AsyncMock())
+        with patch("presence_engine.ha_runtime.persistent_notification.async_create") as create, \
+             patch("presence_engine.ha_runtime.persistent_notification.async_dismiss") as dismiss:
+            runtime._refresh_source_review(baseline=True)
+            self.registry_factory.return_value = (first, second)
+            runtime._refresh_source_review()
+            create.assert_called_once()
+            self.assertIn("1 device:", create.call_args.args[1])
+            self.assertEqual(runtime.engine.snapshot.count_maximum, 0)
+            self.registry_factory.return_value = (second,)
+            runtime._refresh_source_review()
+            self.assertEqual(create.call_count, 2)
+            self.registry_factory.return_value = ()
+            runtime._refresh_source_review()
+            dismiss.assert_called_with(hass, "presence_engine_sources_isolated")
+            await runtime.async_shutdown()
+
     async def test_all_source_forms_validate_and_round_trip(self):
         config = integration_config()
         self.flow._draft = {
@@ -89,6 +229,28 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
             self.flow._adapter = adapter.value
             result = await self.flow.async_step_source_edit()
             convert(result["data_schema"], custom_serializer=custom_serializer)
+
+    async def test_registry_bridge_reads_only_capability_metadata(self):
+        from homeassistant.helpers import device_registry as dr, entity_registry as er
+        from homeassistant.core import State
+        from presence_engine.ha_discovery import collect_entity_descriptors
+        entity = SimpleNamespace(id="registry_wifi", entity_id="device_tracker.endpoint", platform="router_example",
+            unique_id="endpoint", domain="device_tracker", area_id=None, device_id="device_a",
+            device_class=None, original_device_class=None, original_name="Endpoint", disabled_by=None)
+        registry = SimpleNamespace(entities={entity.entity_id: entity})
+        devices = SimpleNamespace(async_get=lambda key: SimpleNamespace(area_id="alpha", model="Endpoint"))
+        state = State(entity.entity_id, "home", {"source_type": "router", "connected_ap": "private_attachment",
+            "latitude": 1, "longitude": 2, "access_token": "not-a-real-token", "unit_of_measurement": {"invalid": True}})
+        hass = HomeAssistant("/tmp/presence-engine-no-io")
+        hass.data[er.DATA_REGISTRY] = registry
+        hass.data[dr.DATA_REGISTRY] = devices
+        hass.states = SimpleNamespace(get=lambda key: state)
+        descriptor = collect_entity_descriptors(hass)[0]
+        self.assertEqual(descriptor.source_type, "router")
+        self.assertEqual(descriptor.ap_attribute, "connected_ap")
+        self.assertIsNone(descriptor.unit)
+        self.assertFalse(hasattr(descriptor, "latitude"))
+        self.assertFalse(hasattr(descriptor, "access_token"))
 
     async def test_ble_signal_form_round_trips_without_json(self):
         self.flow._key=""
@@ -459,6 +621,7 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
         waiter = None
         try:
             await runtime.async_setup()
+            runtime._store.async_delay_save.reset_mock()  # Exclude the startup review ledger.
             with patch("presence_engine.ha_runtime.fetch_face_catalogue", side_effect=fetch):
                 waiter = asyncio.create_task(runtime.async_refresh_faces())
                 await asyncio.sleep(0)

@@ -15,6 +15,11 @@ def collect_entity_descriptors(hass: HomeAssistant) -> tuple[EntityDescriptor, .
     descriptors: list[EntityDescriptor] = []
     for entry in entity_registry.entities.values():
         device = device_registry.async_get(entry.device_id) if entry.device_id else None
+        state = hass.states.get(entry.entity_id)
+        attributes = state.attributes if state else {}
+        def text(key):
+            value = attributes.get(key)
+            return value if isinstance(value, str) else None
         descriptors.append(
             EntityDescriptor(
                 registry_id=entry.id,
@@ -27,6 +32,12 @@ def collect_entity_descriptors(hass: HomeAssistant) -> tuple[EntityDescriptor, .
                 device_class=entry.device_class or entry.original_device_class,
                 original_name=entry.original_name,
                 device_id=entry.device_id,
+                disabled=entry.disabled_by is not None,
+                source_type=text("source_type") if entry.domain == "device_tracker" else None,
+                tracking_type=text("tracking_type") if entry.domain == "device_tracker" else None,
+                unit=text("unit_of_measurement"),
+                receiver_area_id=text("area_id") if entry.platform == "bermuda" else None,
+                ap_attribute="connected_ap" if entry.domain == "device_tracker" and "connected_ap" in attributes else None,
             )
         )
     return tuple(descriptors)

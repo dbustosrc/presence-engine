@@ -22,6 +22,18 @@ def validate_draft(raw: Mapping[str, Any]) -> None:
     """Apply the same contract and adapter validation to every input path."""
     PresenceRuntime(parse_configuration(raw), now=lambda: datetime.now(timezone.utc))
     validate_frigate_settings(raw.get("frigate", {}))
+    validate_discovery_settings(raw.get("discovery", {}))
+
+
+def validate_discovery_settings(settings: object) -> None:
+    if not isinstance(settings, dict):
+        raise ConfigurationError("discovery must be an object")
+    if "notify_new_sources" in settings and not isinstance(settings["notify_new_sources"], bool):
+        raise ConfigurationError("notify_new_sources must be boolean")
+    for key in ("ignored_registry_ids", "review_registry_ids"):
+        ids = settings.get(key, [])
+        if not isinstance(ids, list) or any(not isinstance(i, str) or not i.strip() or len(i) > 128 for i in ids):
+            raise ConfigurationError(f"{key} must contain stable registry IDs")
 
 
 def validate_frigate_settings(settings: object) -> None:

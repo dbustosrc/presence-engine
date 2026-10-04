@@ -43,9 +43,17 @@
       "discovery": {
         "title": "Descubrimiento y exclusiones",
         "data": {
-          "item": "Componente"
+          "item": "Componente",
+          "notify_new_sources": "Avisar de fuentes nuevas por revisar"
         },
-        "description": "Los candidatos activos se pueden editar o deshabilitar. Los pendientes requieren las asociaciones o calibración indicadas. Las fuentes explícitas, incluidas las deshabilitadas, se mantienen en Fuentes."
+        "description": "Revisa, añade o ignora canales compatibles; recuperar un ignorado no lo activa. Los cambios solo se aplican al guardar. El aviso opcional agrupa dispositivos nuevos dentro de Home Assistant, no al teléfono; no se emite en modo comparación ni por el inventario inicial."
+      },
+      "discovery_review": {
+        "title": "Revisar fuente",
+        "data": {
+          "action": "Qué quieres hacer"
+        },
+        "description": "Entidad: {entity}\nIntegración: {platform}\nCapacidad: {adapter}\nCanales relacionados: {channels}\n\n{detail}\n\nAñadir abre un formulario prellenado; no incorpora automáticamente otros canales. Ignorar se conserva por vínculo estable. Revisar después no cambia las fuentes. Todo permanece en borrador hasta guardar."
       },
       "frigate": {
         "title": "Frigate y descubrimiento de rostros",
@@ -223,6 +231,10 @@
   "selector": {
     "choices": {
       "options": {
+        "add": "Añadir esta fuente",
+        "ignore": "Ignorar esta fuente",
+        "restore": "Volver a ofrecer",
+        "later": "Revisar después",
         "__add__": "Agregar nuevo",
         "__back__": "Volver",
         "any_detection": "Cualquier detección",

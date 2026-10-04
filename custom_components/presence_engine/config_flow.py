@@ -19,7 +19,7 @@ from .configuration_ui import (
     EMPTY_CONFIGURATION, bind_entities, delete_item, mapping_rows, patch_item,
     rows_mapping, validate_draft,
 )
-from .discovery import apply_discovery, resolve_raw_registry_bindings
+from .discovery import apply_discovery, resolve_raw_registry_bindings, review_candidates, candidate_source_draft
 from .ha_discovery import collect_entity_descriptors
 from .engine import Quality, TargetKind
 from .const import (
@@ -81,6 +81,8 @@ class PresenceEngineConfigFlow(ConfigFlow, domain=DOMAIN):
         self._key = ""
         self._section = ""
         self._adapter = "binary_presence"
+        self._suggested_source = {}
+        self._review_registry_id = None
 
     def _descriptors(self):
         return collect_entity_descriptors(self.hass)
@@ -135,6 +137,8 @@ class PresenceEngineConfigFlow(ConfigFlow, domain=DOMAIN):
         return await self.async_step_menu()
 
     async def async_step_menu(self, user_input=None):
+        self._suggested_source = {}
+        self._review_registry_id = None
         return self.async_show_menu(step_id="menu", menu_options=[
             "areas", "identities", "cameras", "sources", "discovery", "frigate", "advanced", "save",
         ])
@@ -310,9 +314,9 @@ class PresenceEngineConfigFlow(ConfigFlow, domain=DOMAIN):
         return await self._edit("camera_edit", schema, user_input, edit, "cameras")
 
     async def async_step_source_edit(self, user_input=None):
-        item = deepcopy(next((item for item in self._draft["sources"] if item["source_id"] == self._key), {}))
+        item = deepcopy(next((item for item in self._draft["sources"] if item["source_id"] == self._key), self._suggested_source))
         adapter = item.get("adapter", self._adapter)
-        values = {"id": self._key, **item}
+        values = {"id": item.get("id", self._key), **item}
         schema = {}
         _field(schema, "id", _text(), values, required=True)
         _field(schema, "enabled", bool, values, required=True, default=True)
@@ -428,16 +432,37 @@ class PresenceEngineConfigFlow(ConfigFlow, domain=DOMAIN):
                 return self.async_show_form(step_id=step_id, data_schema=self.add_suggested_values_to_schema(vol.Schema(schema), suggested), errors=errors,
                                             description_placeholders={"detail": str(err)})
             self._draft = draft
+            if step_id == "source_edit" and self._review_registry_id:
+                settings = self._draft.setdefault("discovery", {})
+                settings["ignored_registry_ids"] = [i for i in settings.get("ignored_registry_ids", []) if i != self._review_registry_id]
+                settings["review_registry_ids"] = [i for i in settings.get("review_registry_ids", []) if i != self._review_registry_id]
             return await self.async_step_menu()
         return self.async_show_form(step_id=step_id, data_schema=vol.Schema(schema), errors=errors, description_placeholders={"detail": ""})
 
     async def async_step_discovery(self, user_input=None):
-        plan = apply_discovery(parse_configuration(self._draft), self._descriptors())
+        settings = self._draft.get("discovery", {})
+        ignored = settings.get("ignored_registry_ids", [])
+        config = parse_configuration(self._draft)
+        descriptors = self._descriptors()
+        plan = apply_discovery(config, descriptors, ignored_registry_ids=ignored,
+            review_registry_ids=settings.get("review_registry_ids", []))
         configured = {item["source_id"] for item in self._draft["sources"]}
         automatic = [item for item in plan.configuration.sources if item.source_id not in configured]
         choices = [{"value": item.source_id, "label": f"{item.entity_ids[0]} · active"} for item in automatic]
-        choices.extend({"value": item.descriptor.registry_id, "label": f"{item.descriptor.entity_id} · {', '.join(item.missing_configuration)}"} for item in plan.pending)
+        candidates = review_candidates(plan.configuration, descriptors)
+        spanish = getattr(getattr(self.hass, "config", None), "language", "en").startswith("es")
+        device_sizes = {}
+        for c in candidates:
+            group = c.descriptor.device_id or c.descriptor.registry_id
+            device_sizes[group] = device_sizes.get(group, 0) + 1
+        choices.extend({"value": c.descriptor.registry_id,
+                        "label": f"{c.descriptor.entity_id} · {c.adapter.value} · {device_sizes[c.descriptor.device_id or c.descriptor.registry_id]} " + ("canales" if spanish else "channels")}
+                       for c in candidates if c.descriptor.registry_id not in ignored)
+        choices.extend({"value": rid, "label": (next((d.entity_id for d in descriptors if d.registry_id == rid), rid)) + (" · ignorada" if spanish else " · ignored")} for rid in ignored)
         if user_input is not None:
+            notify = user_input.get("notify_new_sources", settings.get("notify_new_sources", True))
+            if notify != settings.get("notify_new_sources", True):
+                self._draft.setdefault("discovery", {})["notify_new_sources"] = notify
             selected = user_input["item"]
             if selected == "__back__":
                 return await self.async_step_menu()
@@ -448,15 +473,62 @@ class PresenceEngineConfigFlow(ConfigFlow, domain=DOMAIN):
                 self._draft["sources"].append(source_to_raw(source))
                 self._key = source.source_id
             else:
-                candidate = next(item for item in plan.pending if item.descriptor.registry_id == selected)
+                self._review_registry_id = selected
+                return await self.async_step_discovery_review()
+            return await self.async_step_source_edit()
+        return self.async_show_form(step_id="discovery", data_schema=vol.Schema({
+            vol.Required("item"): _select([*self._navigation(add=False), *choices]),
+            vol.Required("notify_new_sources", default=settings.get("notify_new_sources", True)): bool}))
+
+    async def async_step_discovery_review(self, user_input=None):
+        rid = self._review_registry_id
+        settings = self._draft.get("discovery", {})
+        ignored = rid in settings.get("ignored_registry_ids", [])
+        descriptors = self._descriptors()
+        candidate = next((c for c in review_candidates(parse_configuration(self._draft), descriptors) if c.descriptor.registry_id == rid), None)
+        if user_input is not None:
+            action = user_input["action"]
+            if action == "later":
+                return await self.async_step_menu()
+            if action in {"ignore", "restore"}:
+                settings = self._draft.setdefault("discovery", {})
+                ids = set(settings.get("ignored_registry_ids", []))
+                ids.discard(rid) if action == "restore" else ids.add(rid)
+                settings["ignored_registry_ids"] = sorted(ids)
+                settings["review_registry_ids"] = sorted(set(settings.get("review_registry_ids", [])) | {rid})
+                return await self.async_step_discovery()
+            if action == "add" and candidate:
                 self._key = ""
                 self._adapter = candidate.adapter.value
-                self._draft["sources"].append({"source_id": f"manual_{selected.replace('-', '')[:12]}", "adapter": self._adapter,
-                                                "entity_ids": [candidate.descriptor.entity_id], "entity_registry_ids": [candidate.descriptor.registry_id],
-                                                "enabled": False})
-                self._key = self._draft["sources"][-1]["source_id"]
-            return await self.async_step_source_edit()
-        return self.async_show_form(step_id="discovery", data_schema=vol.Schema({vol.Required("item"): _select([*self._navigation(add=False), *choices])}))
+                self._suggested_source = candidate_source_draft(candidate, parse_configuration(self._draft), descriptors)
+                return await self.async_step_source_edit()
+        choices = ["restore", "later"] if ignored else ["add", "ignore", "later"] if candidate else ["later"]
+        related = [c.descriptor.entity_id for c in review_candidates(parse_configuration(self._draft), descriptors)
+                   if candidate and candidate.descriptor.device_id and c.descriptor.device_id == candidate.descriptor.device_id]
+        return self.async_show_form(step_id="discovery_review", data_schema=vol.Schema({
+            vol.Required("action"): _select(choices)}), description_placeholders={
+                "entity": candidate.descriptor.entity_id if candidate else rid or "",
+                "platform": candidate.descriptor.platform if candidate else "",
+                "adapter": candidate.adapter.value if candidate else "",
+                "channels": ", ".join(related),
+                "detail": self._review_detail(candidate)})
+
+    def _review_detail(self, candidate):
+        spanish = getattr(getattr(self.hass, "config", None), "language", "en").startswith("es")
+        if not candidate:
+            return "Vínculo ignorado; la entidad puede haber sido retirada del registro." if spanish else "Ignored binding; the entity may no longer be registered."
+        descriptions = {
+            "wifi_tracker": ("Conexión doméstica del dispositivo y AP opcional. No identifica un cuerpo ni prueba la habitación del propietario.",
+                             "Device home connection and optional AP attachment. This does not identify a body or prove the owner's room."),
+            "bermuda_area": ("Área Bluetooth del dispositivo. No demuestra que la persona lleve el teléfono; revisa propietario y correspondencia de áreas.",
+                             "Device Bluetooth area. It does not prove that the owner carries the phone; review ownership and area mapping."),
+            "bermuda_signal": ("Distancia del dispositivo por receptor, no presencia corporal. Revisa dispositivo, receptor y área del receptor; no son votos independientes del área Bluetooth.",
+                               "Per-receiver device distance, not body presence. Review device, receiver and receiver area; this is not an independent vote from Bluetooth area."),
+            "person_home": ("Alcance doméstico e identidad configurada, no habitación interior.", "Configured identity at home scope, not an indoor room."),
+        }
+        fallback = ("Detección o conteo físico sin identificar propietario ni especie. Revisa alcance y calibración.",
+                    "Physical detection or count without owner/species identification. Review coverage and calibration.")
+        return descriptions.get(candidate.adapter.value, fallback)[0 if spanish else 1]
 
     async def async_step_frigate(self, user_input=None):
         values = self._draft.get("frigate", {})

@@ -62,6 +62,7 @@ async def async_get_config_entry_diagnostics(
             for failure in runtime.engine.failures
         ],
         "discovery": {
+            **runtime.source_review_status,
             "face_catalogue_status": runtime.face_catalogue_status,
             "registered_face_count": len(runtime.faces.catalogue),
             "observed_face_count": len(runtime.faces.observed),

@@ -1,5 +1,37 @@
 # Configuración
 
+## Revisión de fuentes nuevas (0.5.20)
+
+En **Reconfigurar → Descubrimiento y exclusiones**, seleccione un canal para
+ver la integración de origen, capacidad, canales relacionados y límites de
+su evidencia. **Añadir** abre un formulario prellenado; **Ignorar** conserva
+el vínculo del registro; **Volver a ofrecer** lo devuelve a revisión sin
+activarlo; **Revisar después** no cambia las fuentes. Cancelar un formulario
+no crea una fuente incompleta. Nada se guarda antes de **Revisar y guardar**.
+La incorporación e ignorado son por canal; el aviso agrupa dispositivos.
+
+Un tracker debe demostrar `source_type: router`, no posición GPS, para sugerirse
+como Wi-Fi. El propietario es opcional: conexión/AP no prueba un cuerpo ni su
+habitación. Bermuda ofrece distancias por receptor con unidad compatible;
+distancia al receptor más cercano y área histórica no son un receptor fijo
+ni ubicación actual. Dispositivo, propietario y receptor se prellenan solo
+desde vínculos explícitos inequívocos; revise su correspondencia física.
+Los canales deshabilitados en el registro no se habilitan silenciosamente.
+
+El aviso opcional aparece **dentro de Home Assistant**, con enlace a Presence
+Engine; abrir Reconfigurar y Descubrimiento para revisar. No es una avería de
+Repairs ni un aviso móvil. El primer inventario se muestra sin avisar; después
+solo se agrupan novedades. Los vistos/anunciados se guardan con el Store
+existente para no repetir alertas por estados, renombres o reinicios. Resolver
+todos los candidatos cierra el aviso; puede desactivar avisos y seguir usando
+la lista. El modo comparación no emite estos avisos.
+
+JSON opcional: `discovery.notify_new_sources` (booleano, true por defecto),
+`discovery.ignored_registry_ids` y `discovery.review_registry_ids` (listas de
+vínculos estables). Esta última conserva revisión explícita de canales
+ignorados/recuperados que antes habrían sido auto-configurables. Las fuentes
+anteriores y sus extensiones no se migran ni desactivan por este menú.
+
 La integración se configura mediante formularios nativos. Para editar una
 instalación existente, abrir **Ajustes → Dispositivos y servicios → Presence
 Engine → ⋮ → Reconfigurar**. El menú separa áreas, identidades, cámaras, fuentes,

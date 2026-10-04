@@ -43,9 +43,17 @@
       "discovery": {
         "title": "Discovery and exclusions",
         "data": {
-          "item": "Component"
+          "item": "Component",
+          "notify_new_sources": "Notify about new sources to review"
         },
-        "description": "Active candidates can be edited or disabled. Pending candidates require the listed associations or physical calibration. Explicit sources, including disabled ones, remain in Sources."
+        "description": "Review, add or ignore compatible channels; restoring an ignored one does not activate it. Changes apply only when saved. Optional notices group new devices inside Home Assistant, not on a phone; comparison mode and the first inventory do not notify."
+      },
+      "discovery_review": {
+        "title": "Review source",
+        "data": {
+          "action": "What would you like to do"
+        },
+        "description": "Entity: {entity}\nIntegration: {platform}\nCapability: {adapter}\nRelated channels: {channels}\n\n{detail}\n\nAdd opens a prefilled form; other channels are not added automatically. Ignore is retained by stable binding. Review later leaves sources unchanged. Everything remains a draft until saved."
       },
       "frigate": {
         "title": "Frigate and face discovery",
@@ -223,6 +231,10 @@
   "selector": {
     "choices": {
       "options": {
+        "add": "Add this source",
+        "ignore": "Ignore this source",
+        "restore": "Offer again",
+        "later": "Review later",
         "__add__": "Add new",
         "__back__": "Back",
         "any_detection": "Any detection",
