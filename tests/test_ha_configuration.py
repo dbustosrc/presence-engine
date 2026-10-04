@@ -165,6 +165,37 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
         diagnostic = await async_get_config_entry_diagnostics(hass, entry)
         self.assertEqual(diagnostic["snapshot"]["devices"][0]["network_attachment"], "[redacted]")
 
+    async def test_native_physical_clear_keeps_home_identity_and_separate_history(self):
+        from datetime import timedelta
+        from presence_engine.configuration import parse_configuration
+        from presence_engine.public_projection import public_presence_projection, identity_projection
+        from homeassistant.core import State
+        from homeassistant.util import dt as dt_util
+        configuration = parse_configuration({"schema_version": 1, "areas": {"alpha": "ground"},
+            "sources": [
+                {"source_id": "home", "adapter": "person_home", "entity_ids": ["person.owner"], "identity": "person_a"},
+                {"source_id": "phone", "adapter": "bermuda_area", "entity_ids": ["sensor.area"], "identity": "person_a", "spatial_quality": "medium"},
+                {"source_id": "radar", "adapter": "binary_presence", "entity_ids": ["binary_sensor.radar"], "area": "alpha", "spatial_quality": "high"}]})
+        hass = HomeAssistant("/tmp/presence-engine-no-io")
+        runtime = HomeAssistantPresenceRuntime(hass, catalogue_entry(), configuration, max_records=2000, save_delay_seconds=15)
+        runtime._store = Mock(async_save=AsyncMock())
+        runtime._reschedule_expiration = Mock()
+        start = dt_util.utcnow() - timedelta(seconds=20)
+        for entity, value in (("person.owner", "home"), ("sensor.area", "alpha"), ("binary_sensor.radar", "on")):
+            await runtime._async_process_state(entity, State(entity, value, last_changed=start, last_updated=start))
+        self.assertEqual(runtime.engine.snapshot.presences[0].location.area, "alpha")
+        cleared = start + timedelta(seconds=10)
+        await runtime._async_process_state("binary_sensor.radar", State("binary_sensor.radar", "off",
+            last_changed=cleared, last_updated=cleared))
+        public = public_presence_projection(runtime.engine.snapshot)
+        self.assertEqual(public["active_areas"], [])
+        identity = identity_projection(runtime.engine.snapshot, "person_a")
+        self.assertEqual(identity["state"], "home")
+        self.assertEqual(identity["last_known_area"], "alpha")
+        self.assertEqual(identity["last_location_observed_at"], start.isoformat())
+        self.assertIn("previous_location_support_cleared", public["reasons"])
+        self.assertEqual(public["count_estimate"]["maximum"], 1)
+
     async def test_ble_state_updates_save_history_without_presence_publications(self):
         from presence_engine.configuration import parse_configuration
         from homeassistant.core import State

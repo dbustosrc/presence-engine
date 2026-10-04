@@ -329,7 +329,10 @@ class EntityStateAdapter:
         )
 
     def _count(self, envelope: AdapterEnvelope, state: str) -> AdapterResult:
-        value = int(float(state))
+        numeric = float(state)
+        if not math.isfinite(numeric) or numeric < 0 or not numeric.is_integer():
+            raise ValueError("count must be a finite nonnegative integer")
+        value = int(numeric)
         active = value > 0
         location = self._configured_location(envelope.observed_at)
         observation = self._observation(
@@ -341,7 +344,7 @@ class EntityStateAdapter:
                 minimum=value,
                 maximum=value,
                 observed_at=envelope.observed_at,
-                stable=False,
+                stable=not active,
                 quality=self._definition.spatial_quality,
             ),
             active=active,
@@ -451,6 +454,10 @@ class EntityStateAdapter:
             revisions[RevisionDimension.COUNT] = RevisionStamp(sequence, envelope.observed_at)
         if identity is not None:
             revisions[RevisionDimension.IDENTITY] = RevisionStamp(sequence, envelope.observed_at)
+        facts = {}
+        if self._definition.adapter in {AdapterType.COUNT, AdapterType.BINARY_PRESENCE}:
+            facts["measured_clear"] = count is not None and count.maximum == 0
+            revisions[RevisionDimension.DIAGNOSTICS] = RevisionStamp(sequence, envelope.observed_at)
         return Observation(
             observation_id=self.source_id,
             source=SourceRef(
@@ -476,6 +483,7 @@ class EntityStateAdapter:
             identity=identity,
             location=location,
             count=count,
+            source_diagnostics=facts,
             active_since=_state_time(envelope.payload, "last_changed", envelope.observed_at),
             ended_at=envelope.observed_at if not active else None,
             revisions=revisions,

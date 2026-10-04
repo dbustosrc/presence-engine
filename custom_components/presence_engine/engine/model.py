@@ -299,6 +299,8 @@ class PresenceHypothesis:
     identity_score: float | None = None
     identity_source_ids: tuple[str, ...] = ()
     location_source_ids: tuple[str, ...] = ()
+    last_location: SpatialClaim | None = None
+    location_clear_source_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.identity_observed_at is not None:

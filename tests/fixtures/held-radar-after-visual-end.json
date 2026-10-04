@@ -171,10 +171,7 @@
         "state": "0"
       },
       "expect": {
-        "active_area": {
-          "area": "alpha",
-          "current_minimum_count": 0
-        }
+        "count": [1, 1]
       }
     }
   ],

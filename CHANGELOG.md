@@ -1,5 +1,13 @@
 # Historial de cambios
 
+## 0.5.18 — Evidencia de vaciado y ubicación histórica separada
+
+- Conserva conteos cero medidos de detectores físicos hasta el resolvedor. Un detector operativo puede retirar la continuidad del punto que él mismo respaldaba, sin afirmar que toda la habitación o la casa estén vacías.
+- Mantiene la identidad y el alcance doméstico respaldados, y separa la última ubicación conocida de la ubicación actual. Publica el motivo y las fuentes del vaciado; los metadatos históricos en memoria conservan la ventana de 90 segundos sin renovar su reloj.
+- No interpreta como vaciado una desconexión, datos antiguos/futuros, el fin de un evento visual o los ceros sintetizados al resolver zonas de radar solapadas. Conserva detecciones físicas independientes, visitantes y animales sin adjudicarlos al propietario.
+- Rechaza conteos negativos, fraccionarios o no finitos en lugar de truncarlos o convertirlos en cero. Conserva el comportamiento de conteos enteros válidos.
+- Mantiene reconocimiento, imágenes, fuentes Wi-Fi/BLE y control PTZ. Un cambio de área Bluetooth no demuestra por sí solo traslado de la persona; la inferencia temporal de teléfono transportado/separado sigue pendiente.
+
 ## 0.5.17 — Dispositivos Wi-Fi y conexión a puntos de acceso
 
 - Añade una fuente Wi-Fi configurable desde los formularios nativos, con dispositivo estable, propietario opcional, atributo de AP explícito y mapa opcional de puntos de acceso a áreas.

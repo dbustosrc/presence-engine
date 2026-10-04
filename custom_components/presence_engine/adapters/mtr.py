@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
+import math
 from typing import Any, Mapping
 
 from .base import AdapterEnvelope, AdapterResult, SourceAvailability
@@ -62,7 +63,10 @@ class MTRCountAdapter:
                 remove_source_ids=(self.source_id,),
                 source_availability=(SourceAvailability(self.source_id, False),),
             )
-        value = max(0, int(float(raw_state)))
+        numeric = float(raw_state)
+        if not math.isfinite(numeric) or numeric < 0 or not numeric.is_integer():
+            raise ValueError("MTR count must be a finite nonnegative integer")
+        value = int(numeric)
         self._channel_times[envelope.channel] = envelope.observed_at
         self._states[envelope.channel] = _CountState(
             value=value,
@@ -169,7 +173,10 @@ class MTRCountAdapter:
             entity_id: _CountState(0, state.observed_at, state.active_since)
             for entity_id in self._zone_areas
         }
-        return self._area_bucket_observations(empty_states, received_at)
+        # These zeros retire precise buckets when zones overlap. They are not
+        # measurements of an empty zone; the floor population remains active.
+        return tuple(replace(item, source_diagnostics={"measured_clear": False})
+                     for item in self._area_bucket_observations(empty_states, received_at))
 
     def _ambiguous_observation(
         self,
@@ -251,13 +258,15 @@ class MTRCountAdapter:
             status=ObservationStatus.ACTIVE if active else ObservationStatus.ENDED,
             target_id=None,
             location=location,
-            count=CountClaim(value, value, state.observed_at, False, location.quality),
+            count=CountClaim(value, value, state.observed_at, not active, location.quality),
+            source_diagnostics={"measured_clear": not active},
             active_since=state.active_since,
             ended_at=None if active else state.observed_at,
             revisions={
                 RevisionDimension.LOCATION: revision,
                 RevisionDimension.COUNT: revision,
                 RevisionDimension.LIFECYCLE: revision,
+                RevisionDimension.DIAGNOSTICS: revision,
             },
         )
 

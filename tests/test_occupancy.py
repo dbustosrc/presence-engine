@@ -54,8 +54,11 @@ class OccupancyTests(unittest.TestCase):
         for step in self.fixture["steps"][7:]:
             self.deliver(step)
         public = public_presence_projection(self.runtime.snapshot)
-        self.assertEqual(public["active_areas"][0]["current_minimum_count"], 0)
+        self.assertEqual(public["active_areas"], [])
         self.assertEqual(self.runtime.snapshot.area_occupancies, ())
+        person = self.runtime.snapshot.presences[0]
+        self.assertIsNone(person.location.area)
+        self.assertEqual(person.last_location.area, "alpha")
 
     def test_unavailable_radar_removes_occupancy(self):
         self.seed_held_radar()

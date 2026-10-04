@@ -79,6 +79,8 @@ class _PersonCandidate:
     status: str = "resolved"
     candidate_areas: set[str] = field(default_factory=set)
     device_locations: list[SpatialClaim] = field(default_factory=list)
+    last_location: SpatialClaim | None = None
+    clear_sources: set[str] = field(default_factory=set)
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,12 +113,23 @@ class PresenceResolver:
     ) -> PresenceSnapshot:
         now = self._clock.now()
         unavailable = tuple(unavailable_sources)
+        observations = tuple(observations)
         active = tuple(sorted(
             (item for item in observations if item.status is ObservationStatus.ACTIVE),
             key=lambda item:(item.detected_at,item.source.source_id,item.observation_id),
         ))
         devices=self._resolve_devices(active)
-        people=self._known_people(active,previous,now)
+        clears = tuple(item for item in observations if item.status is ObservationStatus.ENDED
+            and item.target_kind in {TargetKind.PERSON, TargetKind.UNKNOWN_LIVING}
+            and item.source.family in {"binary_presence", "count", "mtr_count"}
+            and item.source.source_id not in unavailable and item.received_at <= now
+            and item.source_diagnostics.get("measured_clear") is True
+            and item.count is not None and item.count.maximum == 0 and item.count.stable
+            and item.location is not None and item.location.area
+            and item.location.quality.rank >= Quality.MEDIUM.rank
+            and item.location.observed_at <= now
+            and item.count.observed_at <= now)
+        people=self._known_people(active,previous,now,clears)
         groups=self._reconcile_area_populations(self._evidence_groups(active,now))
         guarded_groups=self._guard_spatial_inferences(groups,previous,now)
         inferences_guarded=guarded_groups != groups
@@ -127,6 +140,8 @@ class PresenceResolver:
                         and group.location.area and group.maximum}
         conflicts: list[str]=[]
         reasons: list[str]=[]
+        if any(person.status == "location_cleared" for person in people.values()):
+            reasons.append("previous_location_support_cleared")
         if inferences_guarded:
             reasons.append("older_spatial_inference_kept_at_floor_scope")
         extras: list[PresenceHypothesis]=[]
@@ -507,6 +522,7 @@ class PresenceResolver:
         observations: tuple[Observation, ...],
         previous: PresenceSnapshot | None,
         now: datetime,
+        clears: tuple[Observation, ...] = (),
     ) -> dict[str, _PersonCandidate]:
         people: dict[str,_PersonCandidate]={}
         direct=[item for item in observations
@@ -588,12 +604,29 @@ class PresenceResolver:
             for prior in previous.presences:
                 if prior.kind is not TargetKind.PERSON or not prior.identity:
                     continue
+                current=people.get(prior.identity)
+                if (current is not None and current.location is not None and current.location.level is SpatialLevel.HOME
+                        and prior.last_location is not None
+                        and now-prior.last_location.observed_at < self._config.previous_continuity_window):
+                    current.last_location = prior.last_location
+                    current.clear_sources.update(prior.location_clear_source_ids)
+                    current.status = "location_cleared"
                 if prior.location is None:
                     continue
                 if now-prior.location.observed_at >= self._config.previous_continuity_window:
                     continue
-                current=people.get(prior.identity)
                 if current is not None:
+                    clear_sources = self._cleared_support(prior, observations, clears)
+                    if clear_sources and current.location is not None and current.location.level is SpatialLevel.HOME:
+                        # Retire the remembered room, not the identity/home
+                        # evidence. A phone's new area is not a body transfer.
+                        current.candidate_areas.update(prior.candidate_areas)
+                        current.candidate_areas.add(prior.location.area)
+                        current.sources.update(clear_sources)
+                        current.status = "location_cleared"
+                        current.last_location = prior.location
+                        current.clear_sources.update(clear_sources)
+                        continue
                     if (current.location is not None
                             and (current.from_device
                                  or (prior.location.area and current.location.area
@@ -610,6 +643,28 @@ class PresenceResolver:
                         current.sources.update(prior.source_ids)
                     continue
         return people
+
+    @staticmethod
+    def _cleared_support(
+        prior: PresenceHypothesis, active: tuple[Observation, ...], clears: tuple[Observation, ...],
+    ) -> set[str]:
+        """A measured clear can retire only its own previously supported point.
+
+        This is not proof that a whole room/home is empty. Coverage loss,
+        ended visual tracks and zeros synthesized from overlapping zones do
+        not provide negatives. Current physical support in the room wins.
+        """
+        if prior.location is None or prior.location.area is None:
+            return set()
+        if any(item.target_kind in {TargetKind.PERSON, TargetKind.UNKNOWN_LIVING}
+               and (item.identity is None or item.identity.value == prior.identity) and item.location
+               and item.location.area == prior.location.area
+               and (item.count is None or item.count.maximum > 0) for item in active):
+            return set()
+        return {item.source.source_id for item in clears
+                if item.source.source_id in prior.location_source_ids
+                and item.location.area == prior.location.area
+                and item.count.observed_at > prior.location.observed_at}
 
     def _device_corroboration_match(
         self,
@@ -834,6 +889,8 @@ class PresenceResolver:
         if group.location.area:
             person.candidate_areas.add(group.location.area)
         person.location=group.location
+        person.last_location=None
+        person.clear_sources.clear()
         person.location_sources=set(group.source_ids)
         person.sources.update(group.source_ids)
         person.status="correlated_movement" if exact else "ambiguous_movement"
@@ -943,6 +1000,8 @@ class PresenceResolver:
             identity_score=candidate.identity_score,
             identity_source_ids=tuple(sorted(candidate.identity_sources)),
             location_source_ids=tuple(sorted(candidate.location_sources)),
+            last_location=candidate.last_location,
+            location_clear_source_ids=tuple(sorted(candidate.clear_sources)),
         )
 
     @staticmethod

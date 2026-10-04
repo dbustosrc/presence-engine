@@ -313,7 +313,10 @@ class PresenceRuntime:
             )
             for presence in self.snapshot.presences
         )
-        changed = source_expired or continuity_expired
+        history_expired = any(p.last_location is not None and now >= (
+            p.last_location.observed_at + self._resolver_config.previous_continuity_window)
+            for p in self.snapshot.presences)
+        changed = source_expired or continuity_expired or history_expired
         if changed:
             self._store.advance_revision()
             self._snapshot = self._resolve_snapshot(
@@ -331,6 +334,11 @@ class PresenceRuntime:
             is not None
             and observation.received_at + lifetime > now
         ]
+        expirations.extend(
+            p.last_location.observed_at + self._resolver_config.previous_continuity_window
+            for p in self.snapshot.presences if p.last_location is not None
+            and p.last_location.observed_at + self._resolver_config.previous_continuity_window > now
+        )
         expirations.extend(
             deadline
             for presence in self.snapshot.presences
@@ -867,7 +875,7 @@ class PresenceRuntime:
             )
         non_event = tuple(
             item for item in current
-            if item.status is ObservationStatus.ACTIVE and item.event_id is None
+            if item.event_id is None
         )
         return (*non_event, *event_observations)
 

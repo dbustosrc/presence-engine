@@ -74,6 +74,26 @@ coverage never asserts an empty home.
 
 ## Identity records
 
+From 0.5.18, `location_cleared` means the physical detector that supported a
+remembered point has measured a newer zero, with no current human-compatible
+support at that point. The current room is unknown; independent home/identity
+evidence is retained. The canonical presence includes `last_location` and
+`location_clear_source_ids`; compatibility/identity records expose
+`last_known_area`, `last_location_observed_at` and `location_clear_sources`.
+Historical metadata does not create an active area or current occupancy.
+
+This early exit preserves the original 90-second memory window and observation
+time. Its expiry is scheduled without polling; no new sensor change is needed.
+The metadata is snapshot continuity, not a new durable room-history store;
+Recorder and historical images retain their separate behavior on restart.
+
+A clear is restricted to a previously supporting source, matching precise area,
+usable quality and measured zero newer than the remembered point. Current
+human-compatible evidence protects the location. A different identified person
+or animal does not prove that this owner remains there. Missing coverage,
+ended camera tracks and zeros synthesized from overlapping zones are not
+negatives. Nor does a clear assign the owner to the phone's new room.
+
 Each configured canonical identity receives an atomic record. It
 exposes location, identity, timing, source and image metadata from one
 revision. The compatibility `confidence` attribute describes the resolved

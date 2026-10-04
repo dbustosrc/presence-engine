@@ -52,6 +52,8 @@ def snapshot_payload(
                 "identity_score": presence.identity_score,
                 "identity_source_ids": list(presence.identity_source_ids),
                 "location": _location(presence.location),
+                "last_location": _location(presence.last_location),
+                "location_clear_source_ids": list(presence.location_clear_source_ids),
                 "location_source_ids": list(presence.location_source_ids),
                 "location_status": presence.location_status,
                 "certainty": presence.certainty.value,

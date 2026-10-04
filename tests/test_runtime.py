@@ -847,8 +847,9 @@ class RuntimeTests(unittest.TestCase):
             item for item in continued.snapshot.presences
             if item.identity == "person_a"
         )
-        self.assertEqual(person.location.area, "alpha")
-        self.assertEqual(person.location_status, "continued")
+        self.assertIsNone(person.location.area)
+        self.assertEqual(person.last_location.area, "alpha")
+        self.assertEqual(person.location_status, "location_cleared")
         self.assertEqual(runtime.next_expiration(), at(91))
 
         current[0] = at(91)
@@ -861,6 +862,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertTrue(expired.changed)
         self.assertIsNone(person.location.area)
         self.assertNotEqual(person.location_status, "continued")
+        self.assertIsNone(person.last_location)
         self.assertIsNone(runtime.next_expiration())
 
     def test_same_entity_state_and_observation_time_do_not_advance_revision(self) -> None:
