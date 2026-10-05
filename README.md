@@ -45,9 +45,11 @@ automatizaciones consumidoras.
 
 ## Estado de la versión
 
-`0.5.22` evita sumar la lectura agregada que ya respalda una asociación
-temporal probable como otro individuo. Conserva objetivos distintos,
-población adicional, confianza, relojes y contratos anteriores.
+`0.5.23` mantiene una llegada corroborada al caducar su anclaje de origen.
+La llegada dispone de una ventana propia de 90 segundos, sin renovar
+reconocimiento, reloj espacial ni plazo mediante señales repetidas. Exige
+radio reciente y apoyo corporal actual; no permite nuevos traslados con un
+anclaje vencido. Conserva población adicional y confianza probable.
 
 La versión `0.5.0` incorpora configuración guiada nativa, JSON avanzado opcional
 y descubrimiento de identidades por reconocimientos Frigate aceptados. Conserva

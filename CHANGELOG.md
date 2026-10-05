@@ -1,5 +1,12 @@
 # Historial de cambios
 
+## 0.5.23 — Continuidad de una llegada corroborada
+
+- Separa la vigencia del anclaje que permite iniciar un traslado de la ventana de una llegada ya corroborada por radio y presencia corporal. La caducidad del origen no borra inmediatamente un destino que acaba de ser validado.
+- Conserva una única ventana de 90 segundos desde la aceptación corporal de esa llegada. No se renueva por cambios repetidos de distancia, atributos o receptores, no habilita traslados nuevos con el anclaje caducado y mantiene los relojes originales de reconocimiento y ubicación.
+- Exige señal reciente y válida en destino y apoyo corporal actual. Un cambio de área del dispositivo, un vaciado medido, pérdida de señal o evidencia corporal identificada contradictoria retira la inferencia; un reinicio no restaura la asociación como actual.
+- Expone por separado aceptación y vencimiento de llegada en diagnósticos. Conserva confianza probable, conteos independientes, PTZ y configuración, sin nuevas consultas, avisos ni sensores.
+
 ## 0.5.22 — Conteo coherente con una asociación temporal probable
 
 - Evita contar dos veces la población agregada que respalda una asociación temporal entre dispositivo y persona. La incertidumbre de identidad no añade por sí sola otro individuo a esa misma lectura de ocupación.

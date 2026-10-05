@@ -7,11 +7,11 @@ Anchors deliberately are not restored: a restart requires new co-location.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Mapping, TYPE_CHECKING
 
-from .engine.model import DeviceHandoff, DeviceSignalSample, Observation, ObservationStatus, Quality, TargetKind
+from .engine.model import DeviceHandoff, DeviceSignalSample, Observation, ObservationStatus, PresenceSnapshot, Quality, TargetKind
 
 if TYPE_CHECKING:
     from .configuration import SourceDefinition
@@ -26,6 +26,7 @@ class _Anchor:
     phone_source: str
     body_source: str
     ranges: Mapping[str, tuple[float, float]]
+    accepted_at: datetime | None = None
 
 
 class DeviceAssociations:
@@ -88,9 +89,24 @@ class DeviceAssociations:
                     if any(definitions[sid].area == body.location.area for sid in ranges):
                         self.anchors[key] = _Anchor(phone.identity.value, phone.target_id,
                             body.location.area, body.location.observed_at, phone.source.source_id, body.source.source_id, ranges)
+        # A completed arrival has its own bounded clock. Expiry of the origin
+        # anchor forbids new transfers, not this already supported destination.
         confirmed = {}
         for phone in phones:
             key = (phone.identity.value, phone.target_id)
+            prior = self.handoffs.get(key)
+            if (prior and prior.accepted_at is not None
+                    and prior.accepted_at <= now < prior.accepted_at + self.lifetime
+                    and phone.location.area == prior.destination
+                    and not any(b.identity.value == prior.identity for b in bodies)
+                    and any(d.area == prior.destination and sid in prior.source_ids
+                            and self._range(histories.get(sid, []), now, now - self.measurement_window, now)
+                            for sid, d in self.definitions.items())):
+                confirmed[key] = prior
+        for phone in phones:
+            key = (phone.identity.value, phone.target_id)
+            if key in confirmed:
+                continue
             anchor = self.anchors.get(key)
             if anchor is None or anchor.area == phone.location.area:
                 continue
@@ -129,7 +145,7 @@ class DeviceAssociations:
                         prior = self.handoffs.get(key)
                         confirmed[key] = prior if prior and prior.destination == phone.location.area and prior.source_ids == sources else DeviceHandoff(
                             anchor.identity, anchor.device_id, anchor.area, phone.location.area,
-                            anchor.observed_at, observed, sources, destination_before is None)
+                            anchor.observed_at, observed, sources, destination_before is None, anchor.accepted_at)
                         break
                 if key in confirmed:
                     break
@@ -140,6 +156,26 @@ class DeviceAssociations:
             destinations.setdefault(handoff.identity, set()).add(handoff.destination)
         return tuple(h for h in confirmed.values() if len(destinations[h.identity]) == 1)
 
+    def accept(self, snapshot: PresenceSnapshot, now: datetime) -> None:
+        """Latch only a resolved arrival with independent current body support.
+
+        Radio refreshes, receiver/area oscillations and held body callbacks
+        cannot renew this deadline or the original identity/spatial clocks.
+        """
+        for key, handoff in tuple(self.handoffs.items()):
+            supported = any(p.identity == handoff.identity and p.location
+                and p.location.area == handoff.destination and p.location_status == "device_carried_probable"
+                and any(a.location.area == handoff.destination and a.count.minimum > 0
+                        and set(a.source_ids) & set(p.location_source_ids) for a in snapshot.area_occupancies)
+                for p in snapshot.presences)
+            if supported and handoff.accepted_at is None:
+                self.handoffs[key] = replace(handoff, accepted_at=now)
+                if (anchor := self.anchors.get(key)) is not None and anchor.observed_at == handoff.anchored_at:
+                    self.anchors[key] = replace(anchor, accepted_at=now)
+            elif not supported and handoff.accepted_at is not None:
+                del self.handoffs[key]
+
     def next_expiration(self, now: datetime) -> datetime | None:
         deadlines = [a.observed_at + self.lifetime for a in self.anchors.values()]
+        deadlines.extend(h.accepted_at + self.lifetime for h in self.handoffs.values() if h.accepted_at is not None)
         return min((d for d in deadlines if d > now), default=None)

@@ -179,6 +179,12 @@ class DeviceAssociationTests(unittest.TestCase):
         self.assertFalse(self.runtime._associations.anchors)
         self.move()
         self.assertFalse(self.runtime._associations.handoffs)
+        self.setUp(); self.late_arrival()
+        saved = self.runtime.export_state()
+        self.runtime = PresenceRuntime(configuration(), now=lambda: at(93.1))
+        self.runtime.restore_state(saved)
+        self.assertFalse(self.runtime._associations.handoffs)
+        self.assertNotEqual(self.owner().location_status, "device_carried_probable")
 
     def test_owner_binding_and_receiver_identity_are_required(self):
         for key, value in (("device_id", "other_phone"), ("receiver_id", "alpha")):
@@ -215,10 +221,90 @@ class DeviceAssociationTests(unittest.TestCase):
         self.seed(); self.move()
         self.assertEqual(self.runtime.next_expiration(), at(31))
         self.second = 31
+        self.assertFalse(self.runtime.refresh().changed, "old origin range no longer cancels a completed arrival")
+        self.assertEqual(self.runtime.next_expiration(), at(31.1))
+        self.second = 31.1
         self.assertTrue(self.runtime.refresh().changed)
         self.assertIsNone(self.owner().location.area)
         self.deliver("sensor.phone", "Beta", 33)
         self.assertIsNone(self.owner().location.area)
+
+    def late_arrival(self):
+        self.seed()
+        self.deliver("sensor.phone", "Beta", 90)
+        self.deliver("sensor.distance_alpha", 5, 90.1)
+        self.deliver("sensor.distance_beta", 1.2, 90.2)
+        self.deliver("sensor.distance_alpha", 6, 91)
+        self.deliver("sensor.distance_beta", 1, 91.1)
+        self.deliver("binary_sensor.beta", "on", 92.9)
+        self.assertEqual(self.owner().location_status, "device_carried_probable")
+
+    def test_completed_arrival_survives_origin_anchor_expiry_without_renewing_clocks(self):
+        self.late_arrival()
+        spatial = self.owner().location.observed_at
+        self.second = 93.1
+        self.assertFalse(self.runtime.refresh().changed)
+        self.assertFalse(self.runtime._associations.anchors)
+        self.assertEqual(self.owner().location.area, "beta")
+        for second in range(100, 181, 10):
+            self.deliver("sensor.distance_beta", 1 + second / 1000, second)
+            self.assertEqual(self.owner().location.area, "beta")
+            self.assertEqual(self.owner().location.observed_at, spatial)
+            self.assertEqual(self.owner().identity_observed_at, at(2))
+        detail = self.runtime.device_association_payload()[0]
+        self.assertEqual(detail["anchored_at"], at(3).isoformat())
+        self.assertEqual(detail["arrival_accepted_at"], at(92.9).isoformat())
+        self.assertEqual(detail["arrival_expires_at"], at(182.9).isoformat())
+        self.assertEqual(self.runtime.next_expiration(), at(182.9))
+        self.second = 182.9
+        self.assertTrue(self.runtime.refresh().changed)
+        self.assertIsNone(self.owner().location.area, "positive radio cannot renew the arrival indefinitely")
+
+    def test_completed_arrival_cancels_on_clear_device_departure_invalid_radio_or_new_body(self):
+        for cause in ("clear", "departure", "invalid", "body"):
+            with self.subTest(cause=cause):
+                self.setUp(); self.late_arrival()
+                self.second = 93.1
+                self.runtime.refresh()
+                if cause == "body":
+                    self.body("alpha", 93.2)
+                    self.assertEqual(self.owner().location.area, "alpha")
+                else:
+                    channel, value = {"clear": ("binary_sensor.beta", "off"),
+                        "departure": ("sensor.phone", "Alpha"),
+                        "invalid": ("sensor.distance_beta", "unavailable")}[cause]
+                    self.deliver(channel, value, 93.2)
+                    self.assertIsNone(self.owner().location.area)
+                self.assertFalse(self.runtime._associations.handoffs)
+
+    def test_uncompleted_transfer_does_not_extend_origin_deadline(self):
+        self.seed()
+        self.deliver("sensor.phone", "Beta", 90)
+        for name, value, second in (("alpha", 5, 90.1), ("beta", 1.2, 90.2),
+                                   ("alpha", 6, 91), ("beta", 1, 91.1)):
+            self.deliver(f"sensor.distance_{name}", value, second)
+        self.second = 93.1
+        self.runtime.refresh()
+        self.deliver("binary_sensor.beta", "on", 93.2)
+        self.assertNotEqual(self.owner().location.area, "beta")
+        self.assertFalse(self.runtime._associations.handoffs)
+
+    def test_origin_clear_cannot_restore_arrival_after_destination_clears(self):
+        self.seed()
+        self.deliver("binary_sensor.alpha", "off", 8)
+        self.move()
+        self.deliver("binary_sensor.beta", "off", 14)
+        self.assertIsNone(self.owner().location.area)
+        self.deliver("sensor.distance_beta", .9, 15)
+        self.assertIsNone(self.owner().location.area)
+
+    def test_area_oscillation_cannot_roll_accepted_arrival_deadline(self):
+        self.seed(); self.move()
+        accepted = next(iter(self.runtime._associations.handoffs.values())).accepted_at
+        self.deliver("sensor.phone", "Alpha", 14)
+        self.deliver("sensor.phone", "Beta", 15)
+        self.assertFalse(self.runtime._associations.handoffs, "an area flip is not a new corroborated arrival")
+        self.assertEqual(next(iter(self.runtime._associations.anchors.values())).accepted_at, accepted)
 
     def test_distinct_visual_visitors_are_not_consumed_by_radio_identity(self):
         self.seed(); self.move()

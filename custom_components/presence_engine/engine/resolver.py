@@ -296,7 +296,8 @@ class PresenceResolver:
         for handoff in handoffs:
             person = people.get(handoff.identity)
             if (person is None or handoff.observed_at > now or handoff.anchored_at > handoff.observed_at
-                    or now - handoff.anchored_at >= self._config.previous_continuity_window
+                    or (handoff.accepted_at is not None and not handoff.observed_at <= handoff.accepted_at <= now)
+                    or now - (handoff.accepted_at or handoff.anchored_at) >= self._config.previous_continuity_window
                     or any(o.target_kind is TargetKind.PERSON and o.identity and o.identity.value == handoff.identity
                            and o.location and o.location.area for o in active)
                     or handoff.destination not in self._config.area_floors
@@ -309,7 +310,9 @@ class PresenceResolver:
                        and g.location.quality.rank >= Quality.MEDIUM.rank
                        and abs(g.location.observed_at - handoff.observed_at) <= self._config.trajectory_window
                        for sid in g.source_ids}
-            support.update(o.source.source_id for o in clears if not handoff.requires_destination_body
+            if not support and any(o.location.area == handoff.destination for o in clears):
+                continue  # A measured destination clear cannot be replaced by radio alone.
+            support.update(o.source.source_id for o in clears if handoff.accepted_at is None and not handoff.requires_destination_body
                            and o.location.area == handoff.origin
                            and handoff.anchored_at < o.count.observed_at <= handoff.observed_at)
             if not support:

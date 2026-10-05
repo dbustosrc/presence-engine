@@ -366,6 +366,26 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
                 {"unit_of_measurement": "m", "friendly_name": "Updated"}, last_changed=observed, last_updated=at(13)))
         listener.assert_called_once()
 
+    async def test_native_arrival_deadline_is_separate_from_origin_anchor(self):
+        from test_device_association import DeviceAssociationTests
+        from presence_engine.diagnostics import async_get_config_entry_diagnostics
+        fixture = DeviceAssociationTests()
+        fixture.setUp()
+        fixture.late_arrival()
+        hass = HomeAssistant("/tmp/presence-engine-no-io")
+        entry = catalogue_entry()
+        runtime = HomeAssistantPresenceRuntime(hass, entry, fixture.runtime.configuration,
+            max_records=2000, save_delay_seconds=15)
+        runtime.engine = fixture.runtime
+        entry.runtime_data = runtime
+        fixture.second = 93.1
+        fixture.runtime.refresh()
+        diagnostic = await async_get_config_entry_diagnostics(hass, entry)
+        self.assertEqual(diagnostic["device_associations"][0]["person_association"], "probable")
+        self.assertEqual(diagnostic["device_associations"][0]["arrival_accepted_at"], at(92.9).isoformat())
+        self.assertEqual(diagnostic["device_associations"][0]["arrival_expires_at"], at(182.9).isoformat())
+        self.assertEqual(fixture.owner().location.area, "beta")
+
     async def test_native_radar_form_preserves_and_removes_optional_channels(self):
         self.flow._adapter = "binary_presence"
         form = await self.flow.async_step_source_edit()

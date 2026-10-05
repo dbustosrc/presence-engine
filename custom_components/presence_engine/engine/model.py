@@ -294,6 +294,7 @@ class DeviceHandoff:
     observed_at: datetime
     source_ids: tuple[str, ...]
     requires_destination_body: bool = False
+    accepted_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)

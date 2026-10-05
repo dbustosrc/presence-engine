@@ -683,16 +683,24 @@ class PresenceRuntime:
 
     def device_association_payload(self) -> list[dict]:
         """Expose clocks/bindings, not a calibrated probability or raw payload."""
-        return [{"identity": a.identity, "device_id": a.device_id, "origin_area": a.area,
-                 "anchored_at": a.observed_at.isoformat(),
-                 "expires_at": (a.observed_at + self._resolver_config.previous_continuity_window).isoformat(),
-                 "destination_area": h.destination if (h := self._associations.handoffs.get(key)) else None,
+        records = []
+        for key in sorted(self._associations.anchors.keys() | self._associations.handoffs.keys()):
+            a = self._associations.anchors.get(key)
+            h = self._associations.handoffs.get(key)
+            anchored = a.observed_at if a else h.anchored_at
+            records.append({"identity": key[0], "device_id": key[1], "origin_area": a.area if a else h.origin,
+                 "anchored_at": anchored.isoformat(),
+                 "expires_at": (anchored + self._resolver_config.previous_continuity_window).isoformat(),
+                 "arrival_accepted_at": h.accepted_at.isoformat() if h and h.accepted_at else None,
+                 "arrival_expires_at": (h.accepted_at + self._resolver_config.previous_continuity_window).isoformat()
+                     if h and h.accepted_at else None,
+                 "destination_area": h.destination if h else None,
                  "handoff_observed_at": h.observed_at.isoformat() if h else None,
                  "source_ids": list(h.source_ids) if h else [a.body_source, a.phone_source],
                  "requires_destination_body": h.requires_destination_body if h else None,
-                 "person_association": "probable" if any(p.identity == a.identity
-                     and p.location_status == "device_carried_probable" for p in self.snapshot.presences) else "not_confirmed"}
-                for key, a in sorted(self._associations.anchors.items())]
+                 "person_association": "probable" if any(p.identity == key[0]
+                     and p.location_status == "device_carried_probable" for p in self.snapshot.presences) else "not_confirmed"})
+        return records
 
     def _build_adapters(self) -> tuple[SourceAdapter, ...]:
         adapters: list[SourceAdapter] = []
@@ -908,13 +916,15 @@ class PresenceRuntime:
         observations = self._presence_observations(now)
         self._trim_signals()
         handoffs = self._associations.update(observations, self._signal_samples, now) if self._association_enabled else ()
-        return resolver.resolve(
+        snapshot = resolver.resolve(
             observations,
             revision=self._store.revision,
             previous=self._snapshot if allow_previous else None,
             unavailable_sources=self._unavailable_sources,
             device_handoffs=handoffs,
         )
+        self._associations.accept(snapshot, now)
+        return snapshot
 
     def _presence_observations(self, now: datetime) -> tuple[Observation, ...]:
         current = tuple(
