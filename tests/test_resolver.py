@@ -7,6 +7,7 @@ from presence_engine.engine import (
     CONTRACT_VERSION,
     CountClaim,
     FrozenClock,
+    IdentityClaim,
     PresenceConfig,
     PresenceHypothesis,
     PresenceResolver,
@@ -538,6 +539,63 @@ class ResolverTests(unittest.TestCase):
         self.assertEqual(person.location_status, "resolved")
         self.assertEqual(person.location.observed_at, at(-1))
         self.assertEqual(person.identity_method, "face")
+
+    def test_radio_gap_retains_supported_room_without_rolling_deadline(self) -> None:
+        home = observation("home", family="person_home",
+            location=SpatialClaim(SpatialLevel.HOME, at(-200), method="home_scope", quality=Quality.LOW),
+            identity_claim=IdentityClaim("person_a", at(-200), "home_scope", Quality.MEDIUM))
+        phone = observation("phone", family="bermuda_area", kind=TargetKind.DEVICE,
+            location=area("beta", 0, quality=Quality.MEDIUM), identity_claim=identity(method="registered_owner"))
+        def body(seconds):
+            return observation("body", family="resolved_event", target_id="body-track",
+                coverage_group="camera:beta", location=area("beta", seconds),
+                count=CountClaim(1, 1, at(seconds), True))
+        previous = self.resolve(home, phone, body(0))
+        original = next(p for p in previous.presences if p.identity)
+        for seconds in (15, 30, 89, 90):
+            with self.subTest(seconds=seconds):
+                self.resolver = PresenceResolver(self.resolver._config, FrozenClock(at(seconds)))
+                result = self.resolve(home, body(seconds), previous=previous)
+                person = next(p for p in result.presences if p.identity)
+                self.assertEqual(person.location.area, "beta" if seconds < 90 else None)
+                if seconds < 90:
+                    self.assertEqual(person.location_status, "continued")
+                    self.assertEqual(person.location.observed_at, original.location.observed_at)
+                self.assertEqual(person.identity_observed_at, original.identity_observed_at)
+                self.assertEqual((result.count_minimum, result.count_maximum), (1, 2))
+                previous = result
+
+    def test_radio_gap_needs_original_positive_support_and_does_not_hide_visitors(self) -> None:
+        home = observation("home", family="person_home",
+            location=SpatialClaim(SpatialLevel.HOME, at(-200), method="home_scope", quality=Quality.LOW),
+            identity_claim=IdentityClaim("person_a", at(-200), "home_scope", Quality.MEDIUM))
+        phone = observation("phone", family="bermuda_area", kind=TargetKind.DEVICE,
+            location=area("beta", 0), identity_claim=identity(method="registered_owner"))
+        original = observation("body", family="resolved_event", target_id="body-track",
+            coverage_group="camera:beta", location=area("beta", 0), count=CountClaim(1, 1, at(0), True))
+        prior = self.resolve(home, phone, original)
+        self.resolver = PresenceResolver(self.resolver._config, FrozenClock(at(15)))
+        cases = (
+            (),
+            (observation("other", location=area("beta", 15)),),
+            (observation("body", kind=TargetKind.ANIMAL, location=area("beta", 15)),),
+            (observation("body", location=area("beta", 15), count=CountClaim(0, 1, at(15), True)),),
+            (observation("body", location=area("beta", 16)),),
+            (observation("body", location=area("beta", 15), count=CountClaim(1, 1, at(16), True)),),
+            (observation("body", location=area("beta", 15, quality=Quality.LOW)),),
+            (observation("body", location=area("beta", 15), identity_claim=identity("visitor", 15)),),
+        )
+        for items in cases:
+            with self.subTest(items=items):
+                result = self.resolve(home, *items, previous=prior)
+                owner = next(p for p in result.presences if p.identity == "person_a")
+                self.assertIsNone(owner.location.area)
+                if items and items[0].identity:
+                    self.assertTrue(any(p.identity == "visitor" for p in result.presences))
+        fresh_start = self.resolve(home, original)
+        self.assertIsNone(next(p for p in fresh_start.presences if p.identity).location.area)
+        unavailable = self.resolve(home, original, previous=prior, unavailable=("source.body",))
+        self.assertIsNone(next(p for p in unavailable.presences if p.identity).location.area)
 
     def test_previous_snapshot_without_current_evidence_does_not_create_presence(self) -> None:
         previous=PresenceSnapshot(

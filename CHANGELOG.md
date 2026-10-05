@@ -1,5 +1,12 @@
 # Historial de cambios
 
+## 0.5.24 — Continuidad prudente ante huecos de ubicación radio
+
+- Conserva temporalmente una ubicación previamente corroborada cuando desaparece el área radio del dispositivo y las fuentes corporales originales siguen respaldándola. La muestra ausente no se interpreta por sí sola como traslado o abandono.
+- Mantiene el reloj original y el límite de 90 segundos. Un positivo anónimo, sin área radio disponible, no renueva esa ubicación. Conserva el contrato existente de corroboración cuando vuelve la señal radio.
+- Rechaza soporte perdido, débil, de otro objetivo o con tiempos futuros. Conserva negativos válidos, incertidumbre de identidad, visitantes y conteos independientes; no restaura asociaciones por una ubicación histórica sola.
+- Reutiliza el resolvedor común sin nuevas entidades, consultas, opciones ni cambios en reconocimiento, imágenes o control PTZ. La continuidad de traslados con anclaje mantiene su contrato independiente.
+
 ## 0.5.23 — Continuidad de una llegada corroborada
 
 - Separa la vigencia del anclaje que permite iniciar un traslado de la ventana de una llegada ya corroborada por radio y presencia corporal. La caducidad del origen no borra inmediatamente un destino que acaba de ser validado.

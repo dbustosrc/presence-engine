@@ -131,7 +131,7 @@ class PresenceResolver:
             and item.location.quality.rank >= Quality.MEDIUM.rank
             and item.location.observed_at <= now
             and item.count.observed_at <= now)
-        people=self._known_people(active,previous,now,clears)
+        people=self._known_people(active,previous,now,clears,unavailable)
         groups=self._reconcile_area_populations(self._evidence_groups(active,now))
         guarded_groups=self._guard_spatial_inferences(groups,previous,now)
         inferences_guarded=guarded_groups != groups
@@ -207,6 +207,7 @@ class PresenceResolver:
                                 # Corroborate location, not identity; active evidence
                                 # may repeat, but must not rewind the retained path.
                                 if (person.status == "continued"
+                                        and person.device_locations
                                         and group.location.observed_at >= person.location.observed_at):
                                     self._apply_group_location(person, group, True)
                         consumed=min(len(same_area),group_max)
@@ -578,6 +579,7 @@ class PresenceResolver:
         previous: PresenceSnapshot | None,
         now: datetime,
         clears: tuple[Observation, ...] = (),
+        unavailable: tuple[str, ...] = (),
     ) -> dict[str, _PersonCandidate]:
         people: dict[str,_PersonCandidate]={}
         direct=[item for item in observations
@@ -672,7 +674,7 @@ class PresenceResolver:
                     current.last_location = prior.last_location
                     current.clear_sources.update(prior.location_clear_source_ids)
                     current.status = "location_cleared"
-                if prior.location is None:
+                if prior.location is None or prior.location.observed_at > now:
                     continue
                 if now-prior.location.observed_at >= self._config.previous_continuity_window:
                     continue
@@ -690,6 +692,24 @@ class PresenceResolver:
                         continue
                     if (current.location is not None
                             and (current.from_device
+                                 # A missing radio area is not a body departure.
+                                 # Retain only the original physical support; the
+                                 # room clock stays fixed while radio is missing.
+                                 or (current.location.level is SpatialLevel.HOME
+                                     and not current.device_locations
+                                     and prior.location_status in {"correlated_movement", "continued"}
+                                     and prior.location.area
+                                     and any(item.target_kind in {TargetKind.PERSON, TargetKind.UNKNOWN_LIVING}
+                                             and (item.identity is None or item.identity.value == prior.identity)
+                                             and item.source.source_id in prior.location_source_ids
+                                             and item.source.source_id not in unavailable
+                                             and item.source.coverage_group not in unavailable
+                                             and item.location and item.location.area == prior.location.area
+                                             and item.location.quality.rank >= Quality.MEDIUM.rank
+                                             and item.location.observed_at <= now and item.received_at <= now
+                                             and (item.count is None or (item.count.minimum > 0
+                                                                        and item.count.observed_at <= now))
+                                             for item in observations))
                                  or (prior.location.area and current.location.area
                                      and prior.location.quality.rank >= current.location.quality.rank))
                             and (prior.location.observed_at > current.location.observed_at
