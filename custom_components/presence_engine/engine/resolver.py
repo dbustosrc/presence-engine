@@ -13,6 +13,7 @@ from .model import (
     CountClaim,
     DeviceState,
     DeviceHandoff,
+    RadarMotionSupport,
     Observation,
     ObservationStatus,
     PresenceHypothesis,
@@ -112,6 +113,7 @@ class PresenceResolver:
         previous: PresenceSnapshot | None = None,
         unavailable_sources: Iterable[str] = (),
         device_handoffs: Iterable[DeviceHandoff] = (),
+        radar_motion: Iterable[RadarMotionSupport] = (),
     ) -> PresenceSnapshot:
         now = self._clock.now()
         unavailable = tuple(unavailable_sources)
@@ -136,7 +138,9 @@ class PresenceResolver:
         guarded_groups=self._guard_spatial_inferences(groups,previous,now)
         inferences_guarded=guarded_groups != groups
         groups=guarded_groups
-        self._apply_device_handoffs(people, tuple(device_handoffs), groups, clears, active, now)
+        handoffs = tuple(device_handoffs)
+        self._apply_device_handoffs(people, handoffs, groups, clears, active, now,
+                                   tuple(radar_motion), unavailable)
         animals=tuple(group for group in groups if group.kind is TargetKind.ANIMAL)
         physical_areas={group.location.area for group in groups
                         if group.kind is not TargetKind.ANIMAL and group.location
@@ -145,6 +149,9 @@ class PresenceResolver:
         reasons: list[str]=[]
         if any(person.status == "device_carried_probable" for person in people.values()):
             reasons.append("anchored_device_handoff_with_physical_support")
+        if any(h.radar_motion and h.identity in people and people[h.identity].status == "device_carried_probable"
+               for h in handoffs):
+            reasons.append("radar_motion_corroborated_device_handoff")
         if any(person.status == "location_cleared" for person in people.values()):
             reasons.append("previous_location_support_cleared")
         if inferences_guarded:
@@ -293,7 +300,8 @@ class PresenceResolver:
 
     def _apply_device_handoffs(self, people: dict[str, _PersonCandidate], handoffs: tuple[DeviceHandoff, ...],
                               groups: tuple[_EvidenceGroup, ...], clears: tuple[Observation, ...],
-                              active: tuple[Observation, ...], now: datetime) -> None:
+                              active: tuple[Observation, ...], now: datetime,
+                              radar_motion: tuple[RadarMotionSupport, ...], unavailable: tuple[str, ...]) -> None:
         for handoff in handoffs:
             person = people.get(handoff.identity)
             if (person is None or handoff.observed_at > now or handoff.anchored_at > handoff.observed_at
@@ -311,6 +319,16 @@ class PresenceResolver:
                        and g.location.quality.rank >= Quality.MEDIUM.rank
                        and abs(g.location.observed_at - handoff.observed_at) <= self._config.trajectory_window
                        for sid in g.source_ids}
+            motion_sources = {m.source_id for m in (*radar_motion, *handoff.radar_motion)
+                if m.area == handoff.destination and handoff.anchored_at < m.observed_at <= now
+                and (handoff.accepted_at is not None and m in handoff.radar_motion
+                     and m.observed_at <= handoff.accepted_at
+                     or abs(m.observed_at - handoff.observed_at) <= self._config.trajectory_window)
+                and m.source_id not in unavailable}
+            support.update(sid for g in groups if g.kind in {TargetKind.PERSON, TargetKind.UNKNOWN_LIVING}
+                and g.minimum == g.maximum == 1 and g.location and g.location.area == handoff.destination
+                and g.location.quality.rank >= Quality.MEDIUM.rank and g.location.observed_at <= now
+                and g.coverage_group not in unavailable for sid in g.source_ids if sid in motion_sources)
             if not support and any(o.location.area == handoff.destination for o in clears):
                 continue  # A measured destination clear cannot be replaced by radio alone.
             support.update(o.source.source_id for o in clears if handoff.accepted_at is None and not handoff.requires_destination_body

@@ -156,7 +156,7 @@ class DeviceAssociations:
             destinations.setdefault(handoff.identity, set()).add(handoff.destination)
         return tuple(h for h in confirmed.values() if len(destinations[h.identity]) == 1)
 
-    def accept(self, snapshot: PresenceSnapshot, now: datetime) -> None:
+    def accept(self, snapshot: PresenceSnapshot, now: datetime, radar_motion=()) -> None:
         """Latch only a resolved arrival with independent current body support.
 
         Radio refreshes, receiver/area oscillations and held body callbacks
@@ -169,7 +169,10 @@ class DeviceAssociations:
                         and set(a.source_ids) & set(p.location_source_ids) for a in snapshot.area_occupancies)
                 for p in snapshot.presences)
             if supported and handoff.accepted_at is None:
-                self.handoffs[key] = replace(handoff, accepted_at=now)
+                motion = tuple(m for m in radar_motion if m.area == handoff.destination
+                    and any(p.identity == handoff.identity and m.source_id in p.location_source_ids
+                            for p in snapshot.presences))
+                self.handoffs[key] = replace(handoff, accepted_at=now, radar_motion=motion)
                 if (anchor := self.anchors.get(key)) is not None and anchor.observed_at == handoff.anchored_at:
                     self.anchors[key] = replace(anchor, accepted_at=now)
             elif not supported and handoff.accepted_at is not None:

@@ -283,6 +283,26 @@ class DeviceSignalSample:
 
 
 @dataclass(frozen=True, slots=True)
+class RadarMotionSupport:
+    """Recent anonymous scalar changes, not a body ID or a global vector."""
+
+    source_id: str
+    area: str
+    observed_at: datetime
+    entity_ids: tuple[str, ...]
+    metric: str
+    sensor_frame: str
+    target_slot: str
+
+    def __post_init__(self) -> None:
+        require_aware(self.observed_at, "radar motion observed_at")
+        if not all((self.source_id, self.area, self.entity_ids, self.sensor_frame, self.target_slot)):
+            raise ValueError("radar motion requires explicit source, area and scalar provenance")
+        if self.metric not in {"x", "y", "distance", "moving_distance"}:
+            raise ValueError("unsupported radar movement metric")
+
+
+@dataclass(frozen=True, slots=True)
 class DeviceHandoff:
     """A radio handoff anchored to a previously accepted body observation."""
 
@@ -295,6 +315,7 @@ class DeviceHandoff:
     source_ids: tuple[str, ...]
     requires_destination_body: bool = False
     accepted_at: datetime | None = None
+    radar_motion: tuple[RadarMotionSupport, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

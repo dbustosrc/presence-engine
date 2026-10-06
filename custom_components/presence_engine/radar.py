@@ -8,6 +8,7 @@ import math
 from typing import TYPE_CHECKING, Mapping
 
 from .engine import require_aware
+from .engine.model import ObservationStatus, Quality, RadarMotionSupport, TargetKind
 
 if TYPE_CHECKING:
     from .adapters.base import AdapterEnvelope
@@ -155,3 +156,57 @@ class RadarHistory:
                     item["samples"] = [s.encode() for s in history]
                 result.append(item)
         return result
+
+    def motion_support(self, observations, window):
+        """Corroborate one occupied area; never synchronize XY or track a slot."""
+        self.trim()
+        now = self.now()
+        result = []
+        for source_id in sorted(self.definitions):
+            bodies = [o for o in observations if o.source.source_id == source_id
+                      and o.status is ObservationStatus.ACTIVE and o.identity is None
+                      and o.target_kind in {TargetKind.PERSON, TargetKind.UNKNOWN_LIVING}
+                      and o.count and o.location and o.received_at <= now
+                      and o.count.observed_at <= now and o.location.observed_at <= now]
+            if (len(bodies) != 1 or bodies[0].count.maximum != 1 or not bodies[0].location.area
+                    or bodies[0].location.quality.rank < Quality.MEDIUM.rank):
+                continue
+            latest = [s for (sid, _), s in self.latest.items() if sid == source_id
+                      and s.status == "valid" and 0 <= (now - s.observed_at).total_seconds() < window.total_seconds()]
+            if len({s.target_slot for s in latest}) != 1:
+                continue  # Multiple slots/areas are not an individual trajectory.
+            candidates = []
+            for (sid, entity), history in self.samples.items():
+                if sid != source_id or not history or history[-1] not in latest:
+                    continue
+                samples = []
+                for sample in history:
+                    if sample.status != "valid":
+                        samples.clear()
+                    elif timedelta(0) <= now - sample.observed_at < window:
+                        samples.append(sample)
+                # Three distinct updates reject a single spike; zero speed and
+                # held/repeated scalar values never prove a stationary body.
+                if len(samples) < 3 or samples[-1].metric not in {"x", "y", "distance", "moving_distance"}:
+                    continue
+                points = samples[-3:]
+                values = [s.value * {"m": 1, "cm": .01, "mm": .001}[s.unit] for s in points]
+                if not (values[0] < values[1] < values[2] or values[0] > values[1] > values[2]):
+                    continue
+                point = points[-1]
+                channels = (entity,)
+                if point.metric == "moving_distance":
+                    if point.value <= 0:
+                        continue
+                else:
+                    speed = next((s for s in latest if s.metric == "speed" and s.value != 0
+                                  and s.sensor_frame == point.sensor_frame and s.target_slot == point.target_slot
+                                  and points[0].observed_at <= s.observed_at <= point.observed_at), None)
+                    if speed is None:
+                        continue
+                    channels = tuple(sorted((entity, speed.entity_id)))
+                candidates.append(RadarMotionSupport(source_id, bodies[0].location.area,
+                    point.observed_at, channels, point.metric, point.sensor_frame, point.target_slot))
+            if candidates:
+                result.append(max(candidates, key=lambda s: (s.observed_at, s.entity_ids)))
+        return tuple(result)

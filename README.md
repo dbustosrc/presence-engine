@@ -45,11 +45,16 @@ automatizaciones consumidoras.
 
 ## Estado de la versión
 
-`0.5.23` mantiene una llegada corroborada al caducar su anclaje de origen.
-La llegada dispone de una ventana propia de 90 segundos, sin renovar
-reconocimiento, reloj espacial ni plazo mediante señales repetidas. Exige
-radio reciente y apoyo corporal actual; no permite nuevos traslados con un
-anclaje vencido. Conserva población adicional y confianza probable.
+`0.5.25` utiliza telemetría radar reciente para corroborar un traslado ya
+respaldado por anclaje corporal y tendencias Bluetooth, incluso cuando un
+contador positivo conserva su reloj original. Requiere una sola área/población
+no ambigua y una serie escalar consistente, con velocidad medida para X/Y/rango
+o cambios del canal de distancia de movimiento. No combina marcos, fabrica
+fotogramas XY, identifica personas por ranura ni crea cuerpos con telemetría.
+Conserva confianza probable, datos originales y plazos fijos de 90 segundos;
+diagnósticos identifican el soporte empleado y su reloj, sin nuevas opciones,
+entidades, consultas o acciones PTZ. La aceptación física es independiente de
+las regresiones y la reconstrucción de capturas.
 
 La versión `0.5.0` incorpora configuración guiada nativa, JSON avanzado opcional
 y descubrimiento de identidades por reconocimientos Frigate aceptados. Conserva

@@ -1,4 +1,5 @@
 from copy import deepcopy
+from datetime import timedelta
 import unittest
 
 from helpers import at
@@ -153,3 +154,79 @@ class RadarSignalTests(unittest.TestCase):
         self.assertEqual(updated["options"]["zone_areas"], {"sensor.zone_new": "alpha"})
         self.assertIn("sensor.x_new", updated["options"]["radar_channels"])
         self.assertIn("sensor.x", raw["sources"][0]["options"]["radar_channels"])
+
+    def motion_fixture(self, *, slot="slot_1", metric="x"):
+        raw = configuration(limit=32)
+        source = raw["sources"][0]
+        source["spatial_quality"] = "high"
+        source["options"]["radar_channels"]["sensor.x"]["metric"] = metric
+        source["options"]["radar_channels"]["sensor.speed"]["target_slot"] = slot
+        self.runtime = PresenceRuntime(parse_configuration(raw), now=lambda: at(self.second))
+        self.deliver("binary_sensor.body", "on", 0)
+
+    def motion_support(self):
+        return self.runtime._radar.motion_support(tuple(self.runtime._store.values()), timedelta(seconds=20))
+
+    def test_motion_support_preserves_scalar_provenance_without_publishing_bodies(self):
+        self.motion_fixture()
+        original = self.runtime.snapshot
+        self.deliver("sensor.x", -100, 1)
+        self.deliver("sensor.x", -120, 2)
+        self.deliver("sensor.speed", -80, 2.1, "mm/s")
+        update = self.deliver("sensor.x", -150, 3)
+        support, = self.motion_support()
+        self.assertEqual((support.source_id, support.area, support.sensor_frame, support.target_slot),
+                         ("radar_a", "alpha", "radar_a", "slot_1"))
+        self.assertEqual(support.entity_ids, ("sensor.speed", "sensor.x"))
+        self.assertEqual(support.observed_at, at(3))
+        self.assertEqual(update.snapshot, original)
+        self.assertFalse(update.changed)
+
+    def test_motion_rejects_unit_aliases_gaps_wrong_slot_and_expired_speed(self):
+        for cause in ("aliases", "gap", "slot", "old_speed", "invalid_unit", "future"):
+            with self.subTest(cause=cause):
+                self.second = 0
+                self.motion_fixture(slot="slot_2" if cause == "slot" else "slot_1")
+                self.deliver("sensor.x", 1, 1, "m")
+                self.deliver("sensor.x", 100 if cause == "aliases" else 2, 2,
+                             "cm" if cause == "aliases" else "m")
+                if cause == "gap":
+                    self.deliver("sensor.x", "unknown", 2.05)
+                if cause != "old_speed":
+                    self.deliver("sensor.speed", -80, 2.1, "mm/s")
+                self.deliver("sensor.x", 1000 if cause == "aliases" else 3, 3,
+                             "mm" if cause == "aliases" else "bad" if cause == "invalid_unit" else "m",
+                             observed=4 if cause == "future" else None)
+                self.assertFalse(self.motion_support())
+                self.assertEqual(self.runtime.snapshot.count_minimum, 1)
+
+    def test_moving_range_can_corroborate_but_never_becomes_presence(self):
+        self.motion_fixture(metric="moving_distance")
+        for second in (1, 2, 3):
+            self.deliver("sensor.x", second * 100, second, "cm")
+        support, = self.motion_support()
+        self.assertEqual(support.metric, "moving_distance")
+        self.second = 23
+        self.assertFalse(self.motion_support())
+        self.deliver("binary_sensor.body", "off", 24)
+        self.assertFalse(self.motion_support())
+
+    def test_motion_never_selects_one_area_from_ambiguous_mtr_population(self):
+        raw = configuration(limit=32)
+        raw["areas"]["beta"] = "ground"
+        source = raw["sources"][0]
+        source.update(adapter="mtr_count", floor="ground", spatial_quality="high")
+        source.pop("area")
+        source["entity_ids"] = ["sensor.total", "sensor.alpha", "sensor.beta", "sensor.x", "sensor.speed"]
+        source["options"].update(total_entity_id="sensor.total", zone_areas={"sensor.alpha": "alpha", "sensor.beta": "beta"})
+        source["options"]["radar_channels"] = {k: v for k, v in source["options"]["radar_channels"].items()
+                                              if k in {"sensor.x", "sensor.speed"}}
+        self.runtime = PresenceRuntime(parse_configuration(raw), now=lambda: at(self.second))
+        self.deliver("sensor.total", 2, 0)
+        self.deliver("sensor.alpha", 1, .1)
+        self.deliver("sensor.beta", 1, .2)
+        self.deliver("sensor.x", 100, 1)
+        self.deliver("sensor.x", 120, 2)
+        self.deliver("sensor.speed", -80, 2.1, "mm/s")
+        self.deliver("sensor.x", 150, 3)
+        self.assertFalse(self.motion_support())

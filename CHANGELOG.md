@@ -1,5 +1,13 @@
 # Historial de cambios
 
+## 0.5.25 — Corroboración temporal entre radar y Bluetooth
+
+- Integra telemetría radar reciente en traslados ya respaldados por un anclaje corporal y tendencias Bluetooth. Un contador que sigue positivo puede conservar su reloj original sin ignorar evidencia escalar reciente de ese mismo sensor.
+- Exige una sola población/área no ambigua y cambios escalares consistentes. X/Y/rango necesitan velocidad medida en el mismo episodio y ranura; el canal de distancia de movimiento conserva su semántica propia. Rechaza picos aislados, series interrumpidas, unidades inválidas, tiempos futuros y ranuras o áreas múltiples; no compara marcos espaciales distintos ni convierte ruido o datos ausentes en ausencia.
+- Mantiene confianza probable, reconocimiento y conteos originales. La llegada conserva su ventana fija de 90 segundos, sin renovación por coordenadas repetidas; pérdida de la entrada física, vaciado, contradicción identificada o reinicio retiran la inferencia conforme al contrato existente.
+- Expone fuente, canal, marco local, ranura y reloj del soporte empleado en los diagnósticos de asociación. La telemetría sola no crea identidades, cuerpos, detecciones ni avisos; sin un traslado radio pendiente no provoca resolución de presencia por cada muestra.
+- Reutiliza canales y configuración existentes, sin nuevas entidades, opciones, consultas o control de cámaras. No presenta las regresiones ni reconstrucciones parciales como calibración o aceptación física completa.
+
 ## 0.5.24 — Continuidad prudente ante huecos de ubicación radio
 
 - Conserva temporalmente una ubicación previamente corroborada cuando desaparece el área radio del dispositivo y las fuentes corporales originales siguen respaldándola. La muestra ausente no se interpreta por sí sola como traslado o abandono.

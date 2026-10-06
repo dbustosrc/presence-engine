@@ -202,7 +202,16 @@ class PresenceRuntime:
                 for sample in result.radar_signals:
                     self._radar.retain(sample)
                 self._enforce_signal_budget()
-                # Geometry is not another count, identity or synchronous frame.
+                # Only an anchored radio/body decision can change; geometry
+                # alone is never another count, identity or synchronous frame.
+                if self._association_enabled and self._associations.handoffs:
+                    prior = self._snapshot
+                    candidate = self._resolve_snapshot()
+                    if prior is not None and replace(candidate, evaluated_at=prior.evaluated_at) != prior:
+                        self._store.advance_revision()
+                        changed = True
+                    else:
+                        self._snapshot = prior or candidate
                 continue
             if result.device_signals:
                 for sample in result.device_signals:
@@ -698,6 +707,10 @@ class PresenceRuntime:
                  "handoff_observed_at": h.observed_at.isoformat() if h else None,
                  "source_ids": list(h.source_ids) if h else [a.body_source, a.phone_source],
                  "requires_destination_body": h.requires_destination_body if h else None,
+                 "radar_motion_support": [{"source_id": m.source_id, "area": m.area,
+                     "observed_at": m.observed_at.isoformat(), "entity_ids": list(m.entity_ids),
+                     "metric": m.metric, "sensor_frame": m.sensor_frame, "target_slot": m.target_slot}
+                     for m in h.radar_motion] if h else [],
                  "person_association": "probable" if any(p.identity == key[0]
                      and p.location_status == "device_carried_probable" for p in self.snapshot.presences) else "not_confirmed"})
         return records
@@ -916,14 +929,16 @@ class PresenceRuntime:
         observations = self._presence_observations(now)
         self._trim_signals()
         handoffs = self._associations.update(observations, self._signal_samples, now) if self._association_enabled else ()
+        motion = self._radar.motion_support(observations, self._resolver_config.trajectory_window) if handoffs else ()
         snapshot = resolver.resolve(
             observations,
             revision=self._store.revision,
             previous=self._snapshot if allow_previous else None,
             unavailable_sources=self._unavailable_sources,
             device_handoffs=handoffs,
+            radar_motion=motion,
         )
-        self._associations.accept(snapshot, now)
+        self._associations.accept(snapshot, now, motion)
         return snapshot
 
     def _presence_observations(self, now: datetime) -> tuple[Observation, ...]:

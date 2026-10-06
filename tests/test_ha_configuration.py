@@ -386,6 +386,41 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(diagnostic["device_associations"][0]["arrival_expires_at"], at(182.9).isoformat())
         self.assertEqual(fixture.owner().location.area, "beta")
 
+    async def test_native_radar_motion_publishes_only_a_supported_radio_arrival(self):
+        from homeassistant.core import State
+        from test_device_association import DeviceAssociationTests
+        from presence_engine.diagnostics import async_get_config_entry_diagnostics
+        fixture = DeviceAssociationTests()
+        fixture.setUp(); fixture.pending_motion_arrival()
+        fixture.deliver("sensor.beta_x", 100, 43, "mm")
+        fixture.deliver("sensor.beta_x", 120, 44, "mm")
+        fixture.deliver("sensor.beta_speed", -80, 44.1, "mm/s")
+        hass = HomeAssistant("/tmp/presence-engine-no-io")
+        entry = catalogue_entry()
+        runtime = HomeAssistantPresenceRuntime(hass, entry, fixture.runtime.configuration,
+            max_records=2000, save_delay_seconds=15)
+        runtime.engine = fixture.runtime
+        entry.runtime_data = runtime
+        runtime._store = Mock(async_save=AsyncMock())
+        runtime._reschedule_expiration = Mock()
+        listener = Mock()
+        runtime.coordinator.async_add_listener(listener)
+        fixture.second = 45
+        with patch("presence_engine.ha_runtime.dt_util.utcnow", return_value=at(45)):
+            await runtime._async_process_state("sensor.beta_x", State("sensor.beta_x", "150",
+                {"unit_of_measurement": "mm"}, last_changed=at(45), last_updated=at(45)))
+        listener.assert_called_once()
+        self.assertEqual(fixture.owner().location_status, "device_carried_probable")
+        detail = (await async_get_config_entry_diagnostics(hass, entry))["device_associations"][0]
+        self.assertEqual(detail["radar_motion_support"][0]["observed_at"], at(45).isoformat())
+        self.assertEqual(detail["radar_motion_support"][0]["entity_ids"], ["sensor.beta_speed", "sensor.beta_x"])
+        self.assertEqual(detail["arrival_expires_at"], at(135).isoformat())
+        fixture.second = 46
+        with patch("presence_engine.ha_runtime.dt_util.utcnow", return_value=at(46)):
+            await runtime._async_process_state("sensor.beta_x", State("sensor.beta_x", "150",
+                {"unit_of_measurement": "mm", "friendly_name": "Renamed"}, last_changed=at(45), last_updated=at(46)))
+        listener.assert_called_once()
+
     async def test_native_radar_form_preserves_and_removes_optional_channels(self):
         self.flow._adapter = "binary_presence"
         form = await self.flow.async_step_source_edit()

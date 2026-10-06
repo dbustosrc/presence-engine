@@ -336,6 +336,105 @@ class DeviceAssociationTests(unittest.TestCase):
         self.assertFalse(self.runtime._associations.handoffs)
         self.assertNotEqual(self.owner().location_status, "device_carried_probable")
 
+    def enable_beta_telemetry(self):
+        config = configuration()
+        source = next(s for s in config.sources if s.source_id == "radar_beta")
+        channels = {"sensor.beta_x": {"target_slot": "slot_1", "metric": "x"},
+                    "sensor.beta_speed": {"target_slot": "slot_1", "metric": "speed"}}
+        source = replace(source, entity_ids=(*source.entity_ids, *channels), options={"radar_channels": channels})
+        self.runtime = PresenceRuntime(replace(config, sources=tuple(
+            source if s.source_id == source.source_id else s for s in config.sources)), now=lambda: at(self.second))
+
+    def pending_motion_arrival(self):
+        self.enable_beta_telemetry()
+        self.deliver("binary_sensor.beta", "on", 0)
+        self.seed()
+        self.deliver("sensor.phone", "Beta", 40)
+        for name, value, second in (("alpha", 5, 41), ("beta", 1.2, 41.1),
+                                    ("alpha", 6, 42), ("beta", 1, 42.1)):
+            self.deliver(f"sensor.distance_{name}", value, second)
+        self.assertNotEqual(self.owner().location.area, "beta")
+
+    def radar_motion(self, speed=-80, final=150):
+        self.deliver("sensor.beta_x", 100, 43, "mm")
+        self.deliver("sensor.beta_x", 120, 44, "mm")
+        self.deliver("sensor.beta_speed", speed, 44.1, "mm/s")
+        return self.deliver("sensor.beta_x", final, 45, "mm")
+
+    def test_recent_radar_motion_corroborates_radio_without_refreshing_held_count(self):
+        self.pending_motion_arrival()
+        original = next(o for o in self.runtime._store.values() if o.source.source_id == "radar_beta")
+        update = self.radar_motion()
+        self.assertTrue(update.changed)
+        self.assertEqual(self.owner().location.area, "beta")
+        self.assertEqual(self.owner().location_status, "device_carried_probable")
+        self.assertEqual(self.owner().location.quality, Quality.MEDIUM)
+        self.assertEqual(self.owner().location.observed_at, at(42.1))
+        self.assertEqual(self.owner().identity_observed_at, at(2))
+        self.assertEqual(next(o for o in self.runtime._store.values() if o.source.source_id == "radar_beta"), original)
+        self.assertEqual((update.snapshot.count_minimum, update.snapshot.count_maximum), (1, 2))
+        self.assertEqual(update.detections, ())
+        self.assertIn("radar_motion_corroborated_device_handoff", update.snapshot.reasons)
+
+    def test_radar_noise_stationary_missing_speed_and_sparse_spike_do_not_transfer(self):
+        for speed, final in ((0, 150), ("unknown", 150), (-80, 110), (-80, 120)):
+            with self.subTest(speed=speed, final=final):
+                self.setUp(); self.pending_motion_arrival()
+                update = self.radar_motion(speed, final)
+                self.assertNotEqual(self.owner().location.area, "beta")
+                self.assertFalse(update.changed)
+
+    def test_motion_is_not_a_body_or_a_radio_trajectory(self):
+        for cause in ("clear", "area_only", "face"):
+            with self.subTest(cause=cause):
+                self.setUp(); self.pending_motion_arrival()
+                if cause == "clear":
+                    self.deliver("binary_sensor.beta", "off", 42.2)
+                elif cause == "area_only":
+                    self.deliver("sensor.distance_beta", "unknown", 42.2)
+                else:
+                    self.body("alpha", 42.2)
+                self.radar_motion()
+                self.assertNotEqual(self.owner().location.area, "beta")
+
+    def test_motion_arrival_clock_is_fixed_and_restart_does_not_restore_it(self):
+        self.pending_motion_arrival(); self.radar_motion()
+        initial = self.owner().location
+        self.assertEqual(self.owner().location.area, "beta")
+        for second in range(50, 131, 10):
+            self.deliver("sensor.distance_beta", 1 + second / 1000, second)
+            self.assertEqual(self.owner().location, initial)
+        detail = self.runtime.device_association_payload()[0]
+        self.assertEqual(detail["arrival_accepted_at"], at(45).isoformat())
+        self.assertEqual(detail["arrival_expires_at"], at(135).isoformat())
+        self.second = 135
+        self.assertTrue(self.runtime.refresh().changed)
+        self.assertIsNone(self.owner().location.area)
+        self.setUp(); self.pending_motion_arrival(); self.radar_motion()
+        saved = self.runtime.export_state()
+        self.runtime = PresenceRuntime(self.runtime.configuration, now=lambda: at(45))
+        self.runtime.restore_state(saved)
+        self.assertFalse(self.runtime._associations.handoffs)
+        self.assertNotEqual(self.owner().location_status, "device_carried_probable")
+
+    def test_motion_arrival_keeps_visitors_and_retires_on_observer_loss_or_clear(self):
+        for cause in ("clear", "unavailable", "geometry_only"):
+            with self.subTest(cause=cause):
+                self.setUp(); self.pending_motion_arrival(); self.radar_motion()
+                self.assertTrue(any(p.identity is None and p.location.area == "alpha"
+                                    for p in self.runtime.snapshot.presences))
+                channel, value = {"clear": ("binary_sensor.beta", "off"),
+                    "unavailable": ("binary_sensor.beta", "unavailable"),
+                    "geometry_only": ("sensor.beta_x", "unknown")}[cause]
+                update = self.deliver(channel, value, 46, "mm")
+                if cause == "geometry_only":
+                    self.assertEqual(self.owner().location.area, "beta")
+                    self.assertFalse(update.changed, "optional geometry loss is not body absence")
+                    self.assertEqual(self.runtime.device_association_payload()[0]["arrival_accepted_at"], at(45).isoformat())
+                else:
+                    self.assertIsNone(self.owner().location.area)
+                    self.assertFalse(self.runtime._associations.handoffs)
+
 
 if __name__ == "__main__":
     unittest.main()
