@@ -45,6 +45,14 @@ automatizaciones consumidoras.
 
 ## Estado de la versión
 
+`0.5.27` admite una asociación probable antes de cambiar el área Bermuda cuando
+existen co-localización previa de un solo cuerpo, mediciones radar nuevas,
+vaciado medido del mismo origen, tendencias opuestas de dos receptores y presencia
+actual en destino. No convierte distancias en identidad ni en geometría global;
+el área original del dispositivo permanece independiente. Conserva los plazos,
+prioriza cuerpos identificados y exige respaldo corporal posterior para otra
+llegada, sin renovar una llegada por paquetes radio o un contador mantenido.
+
 `0.5.26` conserva como intervalo los agregados de habitación/planta compatibles
 aunque sus relojes difieran: un positivo mantenido no demuestra otro individuo.
 No elimina fuentes ni reduce el máximo; ámbitos incompatibles y tracks distintos

@@ -289,6 +289,166 @@ class DeviceAssociationTests(unittest.TestCase):
         self.assertNotEqual(self.owner().location.area, "beta")
         self.assertFalse(self.runtime._associations.handoffs)
 
+    def correlated_seed(self):
+        definition = configuration()
+        sources = tuple(replace(s, entity_ids=(*s.entity_ids, "sensor.position_alpha"),
+            options={**s.options, "radar_channels": {"sensor.position_alpha":
+                {"metric": "distance", "target_slot": "aggregate"}}}) if s.source_id == "radar_alpha" else s
+            for s in definition.sources)
+        self.runtime = PresenceRuntime(replace(definition, sources=sources), now=lambda: at(self.second))
+        for entity, value, second in (("sensor.distance_alpha", 1, 0), ("sensor.distance_beta", 5, .1),
+                                      ("sensor.distance_alpha", 1.2, 1), ("sensor.distance_beta", 5.2, 1.1),
+                                      ("person.owner", "home", 2), ("sensor.phone", "Alpha", 2.1),
+                                      ("binary_sensor.alpha", "on", 3), ("sensor.position_alpha", .8, 4),
+                                      ("sensor.position_alpha", .9, 5), ("sensor.distance_alpha", 1.1, 5.1)):
+            self.deliver(entity, value, second)
+
+    def correlated_move(self, clear=True, physical=True):
+        if clear:
+            self.deliver("binary_sensor.alpha", "off", 8)
+        for entity, value, second in (("sensor.distance_alpha", 5, 11), ("sensor.distance_beta", 1.2, 11.1),
+                                      ("sensor.distance_alpha", 6, 12), ("sensor.distance_beta", 1, 12.1)):
+            self.deliver(entity, value, second)
+        if physical:
+            return self.deliver("binary_sensor.beta", "on", 13)
+        return self.runtime.snapshot
+
+    def test_correlated_body_measurements_and_clear_can_follow_radio_before_area_label(self):
+        self.correlated_seed()
+        old_counter = self.runtime._store.get("radar_alpha", "radar_alpha").observation
+        update = self.correlated_move()
+        self.assertEqual(self.owner().location.area, "beta")
+        self.assertEqual(self.owner().location_status, "device_carried_probable")
+        self.assertEqual(self.owner().location.quality, Quality.MEDIUM)
+        self.assertEqual(self.owner().identity_observed_at, at(2))
+        self.assertEqual(old_counter.location.observed_at, at(3))
+        self.assertEqual(self.runtime.snapshot.devices[0].location.area, "alpha")
+        self.assertEqual(update.detections, ())
+        detail = self.runtime.device_association_payload()[0]
+        self.assertEqual(detail["anchored_at"], at(5).isoformat())
+        self.assertTrue(detail["requires_origin_clear"])
+        self.assertEqual(detail["origin_measurement_channels"], ["sensor.position_alpha"])
+
+    def test_correlated_radio_requires_origin_clear_and_destination_body(self):
+        for clear, physical in ((False, True), (True, False)):
+            self.setUp(); self.correlated_seed(); self.correlated_move(clear, physical)
+            self.assertNotEqual(self.owner().location.area, "beta")
+
+    def test_correlated_phone_left_or_area_jump_does_not_identify_destination(self):
+        for area_jump in (False, True):
+            with self.subTest(area_jump=area_jump):
+                self.setUp(); self.correlated_seed()
+                self.deliver("binary_sensor.alpha", "off", 8)
+                if area_jump:
+                    self.deliver("sensor.phone", "Beta", 10)
+                for entity, value, second in (("sensor.distance_alpha", 1.1, 11), ("sensor.distance_beta", 5, 11.1),
+                                              ("sensor.distance_alpha", 1.2, 12), ("sensor.distance_beta", 5.1, 12.1)):
+                    self.deliver(entity, value, second)
+                self.deliver("binary_sensor.beta", "on", 13)
+                self.assertFalse(self.runtime._associations.handoffs)
+                self.assertNotEqual(self.owner().location_status, "device_carried_probable")
+                if not area_jump:
+                    self.assertNotEqual(self.owner().location.area, "beta")
+                # Area label + body uses the existing ordinary association,
+                # not a trajectory: this check makes no claim to fix that path.
+
+    def test_correlated_anchor_uses_new_body_clocks_not_aliases_or_restart(self):
+        self.correlated_seed()
+        anchored = next(iter(self.runtime._associations.anchors.values())).observed_at
+        self.deliver("sensor.distance_alpha", 1.15, 6)
+        self.assertEqual(next(iter(self.runtime._associations.anchors.values())).observed_at, anchored)
+        self.deliver("sensor.position_alpha", 90, 6.1, "cm")
+        self.deliver("sensor.distance_alpha", 1.16, 6.2)
+        self.assertEqual(next(iter(self.runtime._associations.anchors.values())).observed_at, anchored)
+        saved = self.runtime.export_state()
+        self.runtime = PresenceRuntime(self.runtime.configuration, now=lambda: at(self.second))
+        self.runtime.restore_state(saved)
+        self.assertFalse(self.runtime._associations.anchors)
+        self.correlated_move()
+        self.assertNotEqual(self.owner().location.area, "beta")
+
+    def test_correlated_acceptance_keeps_deadline_and_current_identified_body_wins(self):
+        self.correlated_seed(); self.correlated_move()
+        accepted = next(iter(self.runtime._associations.handoffs.values())).accepted_at
+        self.deliver("sensor.distance_alpha", 7, 14)
+        self.deliver("sensor.distance_beta", .9, 14.1)
+        self.assertEqual(next(iter(self.runtime._associations.handoffs.values())).accepted_at, accepted)
+        self.body("alpha", 15)
+        self.assertEqual(self.owner().location.area, "alpha")
+        self.assertEqual(self.owner().identity_observed_at, at(15))
+        self.assertFalse(self.runtime._associations.handoffs)
+
+    def test_correlated_arrival_rejects_other_identity_and_expires_without_new_body(self):
+        self.correlated_seed()
+        self.body("beta", 7, owner="person_b")
+        self.correlated_move()
+        self.assertFalse(self.runtime._associations.handoffs)
+        self.assertNotEqual(self.owner().location_status, "device_carried_probable")
+        self.setUp(); self.correlated_seed(); self.correlated_move()
+        for second in range(20, 104, 10):
+            self.deliver("sensor.distance_alpha", 7 + second / 1000, second)
+            self.deliver("sensor.distance_beta", .9 + second / 1000, second + .1)
+        self.second = 104
+        self.runtime.refresh()
+        self.assertFalse(self.runtime._associations.handoffs)
+        self.assertIsNone(self.owner().location.area)
+
+    def test_current_face_cannot_be_moved_by_adjacent_anonymous_body(self):
+        cfg = configuration()
+        self.runtime = PresenceRuntime(replace(cfg, adjacency={"alpha": ("beta",)}), now=lambda: at(self.second))
+        self.body("alpha", 1)
+        self.deliver("binary_sensor.beta", "on", 2)
+        self.assertEqual(self.owner().location.area, "alpha")
+        self.assertEqual(self.owner().location.observed_at, at(1))
+        self.assertGreaterEqual(self.runtime.snapshot.count_maximum, 2)
+
+    def test_correlated_arrival_expires_without_callbacks(self):
+        self.correlated_seed(); self.correlated_move()
+        self.second = 94
+        self.runtime.refresh()
+        self.assertEqual(self.owner().location_status, "continued")
+        self.assertEqual(self.runtime.next_expiration(), at(95))
+        self.second = 104
+        self.assertTrue(self.runtime.refresh().changed)
+        self.assertIsNone(self.owner().location.area)
+
+    def test_new_destination_needs_new_body_not_the_previous_arrival_clock(self):
+        cfg = configuration()
+        beta = next(s for s in cfg.sources if s.source_id == "radar_beta")
+        signal = next(s for s in cfg.sources if s.source_id == "distance_beta")
+        sources = tuple(replace(s, options={**s.options, "area_map": {"Alpha": "alpha", "Beta": "beta", "Gamma": "gamma"}})
+            if s.source_id == "phone" else s for s in cfg.sources)
+        sources += (replace(beta, source_id="radar_gamma", area="gamma", entity_ids=("binary_sensor.gamma",)),
+                    replace(signal, source_id="distance_gamma", area="gamma", entity_ids=("sensor.distance_gamma",),
+                        options={**signal.options, "receiver_id": "gamma"}))
+        self.runtime = PresenceRuntime(replace(cfg, areas={**cfg.areas, "gamma": "upper"}, sources=sources),
+                                       now=lambda: at(self.second))
+        for entity, value, second in (("sensor.distance_alpha", 1, 0), ("sensor.distance_beta", 5, .1),
+                                      ("sensor.distance_gamma", 5, .2), ("sensor.distance_alpha", 1.2, 1),
+                                      ("sensor.distance_beta", 5.2, 1.1), ("sensor.distance_gamma", 5.2, 1.2),
+                                      ("person.owner", "home", 2), ("sensor.phone", "Alpha", 2.1)):
+            self.deliver(entity, value, second)
+        self.body("alpha", 3); self.deliver("binary_sensor.alpha", "on", 4); self.body("alpha", 5, False)
+        self.move()
+        self.assertEqual(self.owner().location.area, "beta")
+        self.deliver("binary_sensor.gamma", "on", 14)
+        self.deliver("sensor.phone", "Gamma", 20)
+        for entity, value, second in (("sensor.distance_alpha", 7, 20.1), ("sensor.distance_gamma", 1.2, 20.2),
+                                      ("sensor.distance_alpha", 8, 21), ("sensor.distance_gamma", 1, 21.1)):
+            self.deliver(entity, value, second)
+        self.assertEqual(self.owner().location.area, "gamma")
+        detail = self.runtime.device_association_payload()[0]
+        self.assertEqual(detail["arrival_accepted_at"], at(21.1).isoformat())
+        self.assertEqual(detail["arrival_expires_at"], at(111.1).isoformat())
+        self.deliver("sensor.distance_gamma", .9, 23)
+        self.assertEqual(self.runtime.device_association_payload()[0]["arrival_accepted_at"], at(21.1).isoformat())
+        self.deliver("sensor.phone", "Beta", 24)
+        for entity, value, second in (("sensor.distance_alpha", 9, 24.1), ("sensor.distance_beta", .8, 24.2),
+                                      ("sensor.distance_alpha", 10, 25), ("sensor.distance_beta", .7, 25.1)):
+            self.deliver(entity, value, second)
+        self.assertNotEqual(self.owner().location.area, "beta", "the held body predates the last accepted arrival")
+        self.assertEqual(next(iter(self.runtime._associations.anchors.values())).accepted_at, at(21.1))
+
     def test_origin_clear_cannot_restore_arrival_after_destination_clears(self):
         self.seed()
         self.deliver("binary_sensor.alpha", "off", 8)

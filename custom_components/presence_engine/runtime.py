@@ -353,7 +353,7 @@ class PresenceRuntime:
         history_expired = any(p.last_location is not None and now >= (
             p.last_location.observed_at + self._resolver_config.previous_continuity_window)
             for p in self.snapshot.presences)
-        association_expired = any(p.location and p.location.method == "anchored_device_handoff"
+        association_expired = any(p.location and p.location.method in {"anchored_device_handoff", "correlated_receiver_trajectory"}
                                   for p in self.snapshot.presences)
         changed = source_expired or continuity_expired or history_expired
         if association_expired or self._associations.anchors:
@@ -707,6 +707,8 @@ class PresenceRuntime:
                  "handoff_observed_at": h.observed_at.isoformat() if h else None,
                  "source_ids": list(h.source_ids) if h else [a.body_source, a.phone_source],
                  "requires_destination_body": h.requires_destination_body if h else None,
+                 "requires_origin_clear": bool(h.origin_clear_source_id) if h else bool(a.measurement_channels),
+                 "origin_measurement_channels": list(h.origin_measurement_channels if h else a.measurement_channels),
                  "radar_motion_support": [{"source_id": m.source_id, "area": m.area,
                      "observed_at": m.observed_at.isoformat(), "entity_ids": list(m.entity_ids),
                      "metric": m.metric, "sensor_frame": m.sensor_frame, "target_slot": m.target_slot}
@@ -928,7 +930,10 @@ class PresenceRuntime:
         resolver = PresenceResolver(self._resolver_config, FrozenClock(now))
         observations = self._presence_observations(now)
         self._trim_signals()
-        handoffs = self._associations.update(observations, self._signal_samples, now) if self._association_enabled else ()
+        positions = self._radar.position_samples(self._resolver_config.trajectory_window,
+            after=self._associations.capture_after) if self._association_enabled else ()
+        handoffs = self._associations.update(observations, self._signal_samples, now,
+            previous=self._snapshot if allow_previous else None, positions=positions) if self._association_enabled else ()
         motion = self._radar.motion_support(observations, self._resolver_config.trajectory_window) if handoffs else ()
         snapshot = resolver.resolve(
             observations,

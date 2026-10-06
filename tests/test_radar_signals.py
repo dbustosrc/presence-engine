@@ -164,6 +164,25 @@ class RadarSignalTests(unittest.TestCase):
         self.runtime = PresenceRuntime(parse_configuration(raw), now=lambda: at(self.second))
         self.deliver("binary_sensor.body", "on", 0)
 
+    def test_body_point_needs_two_new_ranges_and_one_slot(self):
+        window = timedelta(seconds=20)
+        for cause in ("single", "alias", "unknown", "zero", "multiple", "baseline", "expired", "fresh"):
+            with self.subTest(cause=cause):
+                self.setUp()
+                self.deliver("sensor.range", 1, 1, "m")
+                if cause != "single":
+                    self.deliver("sensor.range", {"alias": 100, "unknown": "unknown", "zero": 0}.get(cause, 2),
+                                 2, "cm" if cause == "alias" else "m")
+                if cause == "multiple":
+                    self.deliver("sensor.x", 100, 2.1)
+                if cause == "expired":
+                    self.second = 22
+                points = self.runtime._radar.position_samples(window, after=at(1) if cause == "baseline" else None)
+                self.assertEqual(bool(points), cause == "fresh")
+                self.assertFalse(self.runtime.snapshot.presences)
+                if points:
+                    self.assertEqual(points[0].observed_at, at(2))
+
     def motion_support(self):
         return self.runtime._radar.motion_support(tuple(self.runtime._store.values()), timedelta(seconds=20))
 

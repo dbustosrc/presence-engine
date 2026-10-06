@@ -226,7 +226,7 @@ class PresenceResolver:
                         if exact < consumed:
                             reasons.append("anonymous_body_identity_overlap")
                     elif group.maximum:
-                        match,exact=self._movement_match(eligible,group,now)
+                        match,exact=self._movement_match(eligible,replace(group, minimum=group_min),now)
                         if match is not None:
                             person_consumption.add((match.identity, self._identity_bucket(group)))
                             applied=self._apply_group_location(match,group,exact)
@@ -310,17 +310,20 @@ class PresenceResolver:
                     or any(o.target_kind is TargetKind.PERSON and o.identity and o.identity.value == handoff.identity
                            and o.location and o.location.area for o in active)
                     or handoff.destination not in self._config.area_floors
-                    or not any(d.area == handoff.destination for d in person.device_locations)):
+                    or not any(d.area == handoff.destination or handoff.origin_clear_source_id
+                               and d.area == handoff.origin for d in person.device_locations)):
                 continue
             # Physical evidence or a measured clear is required in addition
             # to radio motion. A held anonymous origin remains possible.
             support = {sid for g in groups if g.kind in {TargetKind.PERSON, TargetKind.UNKNOWN_LIVING}
                        and g.minimum and g.location and g.location.area == handoff.destination
                        and g.location.quality.rank >= Quality.MEDIUM.rank
+                       and (handoff.arrival_after is None or g.location.observed_at > handoff.arrival_after)
                        and abs(g.location.observed_at - handoff.observed_at) <= self._config.trajectory_window
                        for sid in g.source_ids}
             motion_sources = {m.source_id for m in (*radar_motion, *handoff.radar_motion)
                 if m.area == handoff.destination and handoff.anchored_at < m.observed_at <= now
+                and (handoff.arrival_after is None or m.observed_at > handoff.arrival_after)
                 and (handoff.accepted_at is not None and m in handoff.radar_motion
                      and m.observed_at <= handoff.accepted_at
                      or abs(m.observed_at - handoff.observed_at) <= self._config.trajectory_window)
@@ -333,6 +336,7 @@ class PresenceResolver:
                 continue  # A measured destination clear cannot be replaced by radio alone.
             support.update(o.source.source_id for o in clears if handoff.accepted_at is None and not handoff.requires_destination_body
                            and o.location.area == handoff.origin
+                           and (handoff.arrival_after is None or o.count.observed_at > handoff.arrival_after)
                            and handoff.anchored_at < o.count.observed_at <= handoff.observed_at)
             if not support:
                 continue
@@ -343,7 +347,8 @@ class PresenceResolver:
             person.candidate_areas.update((handoff.origin, handoff.destination))
             person.location = SpatialClaim(SpatialLevel.AREA, handoff.observed_at,
                 area=handoff.destination, floor=self._config.area_floors[handoff.destination],
-                method="anchored_device_handoff", quality=Quality.MEDIUM)
+                method="correlated_receiver_trajectory" if handoff.origin_clear_source_id
+                    else "anchored_device_handoff", quality=Quality.MEDIUM)
             person.location_sources = set(handoff.source_ids) | support
             person.sources = set(person.identity_sources) | person.location_sources
             person.status = "device_carried_probable"
@@ -684,6 +689,10 @@ class PresenceResolver:
                 if prior.kind is not TargetKind.PERSON or not prior.identity:
                     continue
                 current=people.get(prior.identity)
+                if (current and prior.location and prior.location.method == "correlated_receiver_trajectory"
+                        and any(d.area != prior.location.area and d.observed_at > prior.location.observed_at
+                                for d in current.device_locations)):
+                    continue  # A new conflicting radio area retires this weaker continuation.
                 if ((prior.location and prior.location.method == "anchored_device_handoff")
                         or prior.location_status == "device_association_unconfirmed"):
                     if current and current.location and current.location.level is SpatialLevel.HOME:
@@ -964,6 +973,15 @@ class PresenceResolver:
             location=person.location
             if location is None:
                 continue
+            last = person.last_location
+            if (location.level is SpatialLevel.HOME and last
+                    and last.method == "correlated_receiver_trajectory" and group.minimum > 0
+                    and group.minimum == group.maximum == 1 and group.location.floor == last.floor
+                    and bool(person.clear_sources & set(group.source_ids))
+                    and last.observed_at < group.location.observed_at <= now
+                    and group.location.observed_at - last.observed_at <= self._config.trajectory_window):
+                candidates.append((0, group.location.observed_at - last.observed_at, person, False))
+                continue  # Same observer, probable continuity; no persistent slot identity.
             delta=abs(group.location.observed_at-location.observed_at)
             if location.level is SpatialLevel.FLOOR and group.location.area:
                 group_floor=self._config.area_floors.get(group.location.area)
@@ -985,6 +1003,15 @@ class PresenceResolver:
 
     def _apply_group_location(self, person: _PersonCandidate, group: _EvidenceGroup, exact: bool) -> bool:
         assert group.location is not None
+        if (person.location and person.location.method == "correlated_receiver_trajectory"
+                and person.location.area == group.location.area
+                and not any(d.area == group.location.area for d in person.device_locations)):
+            return False  # A held counter cannot upgrade the weaker radio association or renew its clock.
+        if (person.direct_person and person.identity_quality is Quality.HIGH
+                and bool(person.identity_sources & person.location_sources)
+                and person.location and person.location.area and group.location.area
+                and person.location.area != group.location.area):
+            return False  # An anonymous trajectory cannot overwrite a current identified body.
         if (person.location and person.location.area
                 and group.location.observed_at < person.location.observed_at):
             return False

@@ -157,6 +157,29 @@ class RadarHistory:
                 result.append(item)
         return result
 
+    def position_samples(self, window, *, after=None):
+        """Fresh changed ranges, not motion, occupancy or identity evidence."""
+        self.trim()
+        now = self.now()
+        slots = {}
+        for sample in self.latest.values():
+            if sample.status == "valid" and timedelta(0) <= now - sample.observed_at < window:
+                slots.setdefault(sample.source_id, set()).add(sample.target_slot)
+        result = []
+        for (source, _), history in self.samples.items():
+            if len(history) < 2 or len(slots.get(source, ())) != 1:
+                continue
+            pair = history[-2:]
+            if (pair[-1].metric not in {"distance", "moving_distance", "still_distance"}
+                    or any(s.status != "valid" or s.value <= 0
+                           or not timedelta(0) <= now - s.observed_at < window
+                           or after is not None and s.observed_at <= after for s in pair)):
+                continue
+            values = [s.value * {"m": 1, "cm": .01, "mm": .001}[s.unit] for s in pair]
+            if values[0] != values[1]:
+                result.append(pair[-1])
+        return tuple(result)
+
     def motion_support(self, observations, window):
         """Corroborate one occupied area; never synchronize XY or track a slot."""
         self.trim()

@@ -1,5 +1,12 @@
 # Historial de cambios
 
+## 0.5.27 — Trayectorias probables con evidencia corporal independiente
+
+- Combina co-localización previa de un solo cuerpo, nuevos rangos radar, vaciado medido del mismo origen, tendencias Bluetooth de dos receptores y presencia en destino para inferir una ubicación probable aunque Bermuda conserve el área anterior del dispositivo. Mantiene esa área como dato independiente y no eleva la asociación a reconocimiento facial.
+- Permite continuidad probable entre zonas consecutivas de un mismo observador después de un vaciado medido, conservando incertidumbre y población adicional. No identifica ranuras radar ni compara coordenadas de marcos distintos.
+- Corrige llegadas sucesivas que reutilizaban la hora de la primera llegada: otra habitación requiere evidencia corporal posterior. Los paquetes radio, las oscilaciones y los contadores mantenidos no renuevan una llegada ni promueven una asociación débil indefinidamente.
+- Prioriza una ubicación corporal identificada vigente frente a una trayectoria anónima incompatible. Mantiene el máximo de 90 segundos, la caducidad sin polling, el retiro conservador tras contradicción y el requisito de nueva co-localización después de reiniciar, sin entidades u opciones nuevas.
+
 ## 0.5.26 — Conteo prudente de alcances radar solapados
 
 - Un positivo agregado mantenido en una habitación y otro de alcance de planta compatible pueden describir la misma población, aunque sus relojes originales difieran. La antigüedad distinta no demuestra cuerpos independientes.

@@ -316,6 +316,9 @@ class DeviceHandoff:
     requires_destination_body: bool = False
     accepted_at: datetime | None = None
     radar_motion: tuple[RadarMotionSupport, ...] = ()
+    origin_clear_source_id: str | None = None
+    origin_measurement_channels: tuple[str, ...] = ()
+    arrival_after: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)

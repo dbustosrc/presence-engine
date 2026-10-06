@@ -15,6 +15,7 @@ from .engine.model import DeviceHandoff, DeviceSignalSample, Observation, Observ
 
 if TYPE_CHECKING:
     from .configuration import SourceDefinition
+    from .radar import RadarSample
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +28,8 @@ class _Anchor:
     body_source: str
     ranges: Mapping[str, tuple[float, float]]
     accepted_at: datetime | None = None
+    measurement_channels: tuple[str, ...] = ()
+    accepted_area: str | None = None
 
 
 class DeviceAssociations:
@@ -56,8 +59,19 @@ class DeviceAssociations:
         values = [s.value * {"m": 1, "cm": .01, "mm": .001}[s.unit] for s in samples[-2:]]
         return min(values), max(values)
 
+    @staticmethod
+    def _origin_clear(observations, source, origin, after, now):
+        return any(o.source.source_id == source and o.status is ObservationStatus.ENDED
+            and o.source.family in {"binary_presence", "mtr_count", "count"}
+            and o.source_diagnostics.get("measured_clear") is True and o.location
+            and o.location.area == origin and o.location.quality.rank >= Quality.MEDIUM.rank
+            and o.received_at <= now and o.location.observed_at <= now
+            and o.count and o.count.maximum == 0 and o.count.stable
+            and after < o.count.observed_at <= now for o in observations)
+
     def update(self, observations: tuple[Observation, ...], histories: Mapping[str, list[DeviceSignalSample]],
-               now: datetime) -> tuple[DeviceHandoff, ...]:
+               now: datetime, *, previous: PresenceSnapshot | None = None,
+               positions: tuple[RadarSample, ...] = ()) -> tuple[DeviceHandoff, ...]:
         phones = [o for o in observations if o.status is ObservationStatus.ACTIVE
                   and o.target_kind is TargetKind.DEVICE and o.source.family == "bermuda_area"
                   and o.identity and o.location and o.location.area and o.location.observed_at <= now]
@@ -69,7 +83,9 @@ class DeviceAssociations:
         self.anchors = {key: a for key, a in self.anchors.items()
                         if key in phone_areas and now - a.observed_at < self.lifetime
                         and not any(b.identity.value == a.identity and b.location.observed_at > a.observed_at
-                                    and b.location.area != phone_areas[key] for b in bodies)}
+                                    and b.location.area != phone_areas[key]
+                                    or a.measurement_channels and b.identity.value != a.identity
+                                    and b.location.area == a.area for b in bodies)}
         for phone in phones:
             key = (phone.identity.value, phone.target_id)
             definitions = {sid: d for sid, d in self.definitions.items()
@@ -79,16 +95,41 @@ class DeviceAssociations:
             body = max((b for b in bodies if b.identity.value == phone.identity.value
                         and b.location.area == phone.location.area),
                        key=lambda b: b.location.observed_at, default=None)
-            if (body is not None and now - body.location.observed_at < self.measurement_window
-                    and (self.capture_after is None or body.location.observed_at > self.capture_after)):
+            channels = ()
+            body_clock = body.location.observed_at if body else None
+            body_source = body.source.source_id if body else None
+            if (body is None and previous and previous.count_minimum == previous.count_maximum == 1
+                    and not any(b.identity.value == phone.identity.value or b.location.area == phone.location.area
+                                for b in bodies)):
+                accepted = next((p for p in previous.presences if p.identity == phone.identity.value
+                    and p.location and p.location.area == phone.location.area
+                    and p.identity_quality.rank >= Quality.MEDIUM.rank
+                    and p.location_status == "correlated_movement"), None)
+                supported = [s for s in positions if accepted and s.source_id in accepted.location_source_ids
+                    and any(o.source.source_id == s.source_id and o.status is ObservationStatus.ACTIVE
+                        and o.identity is None and o.source.family in {"binary_presence", "mtr_count", "count"}
+                        and o.target_kind in {TargetKind.PERSON, TargetKind.UNKNOWN_LIVING}
+                        and o.location and o.location.area == phone.location.area
+                        and o.location.quality.rank >= Quality.MEDIUM.rank and o.location.observed_at <= now
+                        and o.received_at <= now and o.count and o.count.minimum == o.count.maximum == 1
+                        and o.count.stable and o.count.quality.rank >= Quality.MEDIUM.rank
+                        and o.count.observed_at <= now for o in observations)]
+                if supported:
+                    point = max(supported, key=lambda s: (s.observed_at, s.entity_id))
+                    body_clock, body_source, channels = point.observed_at, point.source_id, (point.entity_id,)
+            if (body_clock is not None and now - body_clock < self.measurement_window
+                    and (self.capture_after is None or body_clock > self.capture_after)):
                 old = self.anchors.get(key)
-                if old is None or body.location.observed_at > old.observed_at:
+                if old is None or body_clock > old.observed_at and (not channels or old.measurement_channels):
                     ranges = {sid: value for sid in definitions
                               if (value := self._range(histories.get(sid, []), now,
-                                  body.location.observed_at - self.measurement_window, body.location.observed_at))}
-                    if any(definitions[sid].area == body.location.area for sid in ranges):
+                                  max(body_clock - self.measurement_window, self.capture_after)
+                                      if channels and self.capture_after else body_clock - self.measurement_window,
+                                  body_clock))}
+                    if any(definitions[sid].area == phone.location.area for sid in ranges):
                         self.anchors[key] = _Anchor(phone.identity.value, phone.target_id,
-                            body.location.area, body.location.observed_at, phone.source.source_id, body.source.source_id, ranges)
+                            phone.location.area, body_clock, phone.source.source_id, body_source, ranges,
+                            measurement_channels=channels)
         # A completed arrival has its own bounded clock. Expiry of the origin
         # anchor forbids new transfers, not this already supported destination.
         confirmed = {}
@@ -96,6 +137,7 @@ class DeviceAssociations:
             key = (phone.identity.value, phone.target_id)
             prior = self.handoffs.get(key)
             if (prior and prior.accepted_at is not None
+                    and prior.origin_clear_source_id is None
                     and prior.accepted_at <= now < prior.accepted_at + self.lifetime
                     and phone.location.area == prior.destination
                     and not any(b.identity.value == prior.identity for b in bodies)
@@ -108,6 +150,11 @@ class DeviceAssociations:
             if key in confirmed:
                 continue
             anchor = self.anchors.get(key)
+            if anchor is not None and anchor.measurement_channels:
+                handoff = self._correlated_handoff(phone, anchor, observations, bodies, histories, now)
+                if handoff is not None:
+                    confirmed[key] = handoff
+                continue
             if anchor is None or anchor.area == phone.location.area:
                 continue
             # Current accepted body evidence is authoritative, irrespective of
@@ -145,7 +192,9 @@ class DeviceAssociations:
                         prior = self.handoffs.get(key)
                         confirmed[key] = prior if prior and prior.destination == phone.location.area and prior.source_ids == sources else DeviceHandoff(
                             anchor.identity, anchor.device_id, anchor.area, phone.location.area,
-                            anchor.observed_at, observed, sources, destination_before is None, anchor.accepted_at)
+                            anchor.observed_at, observed, sources, destination_before is None,
+                            anchor.accepted_at if anchor.accepted_area == phone.location.area else None,
+                            arrival_after=anchor.accepted_at if anchor.accepted_area != phone.location.area else None)
                         break
                 if key in confirmed:
                     break
@@ -155,6 +204,65 @@ class DeviceAssociations:
         for handoff in confirmed.values():
             destinations.setdefault(handoff.identity, set()).add(handoff.destination)
         return tuple(h for h in confirmed.values() if len(destinations[h.identity]) == 1)
+
+    def _correlated_handoff(self, phone, anchor, observations, bodies, histories, now):
+        """A weaker anchor needs its own clear, opposed radio and a current body.
+
+        The provider's old area remains a device fact, not the person's room.
+        Multiple supported destinations stay ambiguous; never choose by order.
+        """
+        if (any(b.identity.value == anchor.identity for b in bodies)
+                or not self._origin_clear(observations, anchor.body_source, anchor.area, anchor.observed_at, now)
+                or anchor.accepted_at is not None and now >= anchor.accepted_at + self.lifetime):
+            return None
+        definitions = {sid: d for sid, d in self.definitions.items() if d.area
+            and d.options["device_id"] == phone.target_id and d.options["metric"] == "distance"
+            and d.identity in {None, phone.identity.value}}
+        destinations = {o.location.area for o in observations if o.status is ObservationStatus.ACTIVE
+            and o.identity is None and o.target_kind in {TargetKind.PERSON, TargetKind.UNKNOWN_LIVING}
+            and o.location and o.location.area and o.location.area != anchor.area
+            and o.location.quality.rank >= Quality.MEDIUM.rank and o.received_at <= now
+            and timedelta(0) <= now - o.location.observed_at < self.measurement_window
+            and o.count and o.count.minimum > 0 and o.count.observed_at <= now
+            and (anchor.accepted_at is None or o.location.area == anchor.accepted_area
+                 or o.location.observed_at > anchor.accepted_at)}
+        candidates = []
+        for origin_id, before in anchor.ranges.items():
+            if definitions.get(origin_id) is None or definitions[origin_id].area != anchor.area:
+                continue
+            departed = self._range(histories.get(origin_id, []), now,
+                                  anchor.observed_at + timedelta(microseconds=1), now)
+            if departed is None or before[1] >= departed[0]:
+                continue
+            origin_last = histories[origin_id][-1]
+            origin_value = origin_last.value * {"m": 1, "cm": .01, "mm": .001}[origin_last.unit]
+            for destination_id, destination in definitions.items():
+                if (destination.area not in destinations or phone.location.area not in {anchor.area, destination.area}
+                        or destination.options["receiver_id"] == definitions[origin_id].options["receiver_id"]
+                        or any(b.location.area == destination.area for b in bodies)):
+                    continue
+                arriving = self._range(histories.get(destination_id, []), now,
+                                      anchor.observed_at + timedelta(microseconds=1), now)
+                if arriving is None:
+                    continue
+                samples = histories[destination_id][-2:]
+                values = [s.value * {"m": 1, "cm": .01, "mm": .001}[s.unit] for s in samples]
+                prior = self.handoffs.get((anchor.identity, anchor.device_id))
+                accepted = prior is not None and prior.destination == destination.area and prior.accepted_at is not None
+                destination_before = anchor.ranges.get(destination_id)
+                if (values[-1] >= origin_value or not accepted and values[0] <= values[1]
+                        or destination_before is not None and arriving[1] >= destination_before[0]):
+                    continue
+                sources = tuple(sorted((anchor.body_source, anchor.phone_source, origin_id, destination_id)))
+                observed = max(origin_last.observed_at, samples[-1].observed_at, anchor.observed_at)
+                candidates.append(prior if accepted and prior.source_ids == sources else DeviceHandoff(
+                    anchor.identity, anchor.device_id, anchor.area, destination.area, anchor.observed_at,
+                    observed, sources, True, anchor.accepted_at if anchor.accepted_area == destination.area else None,
+                    origin_clear_source_id=anchor.body_source,
+                    origin_measurement_channels=anchor.measurement_channels,
+                    arrival_after=anchor.accepted_at if anchor.accepted_area != destination.area else None))
+        areas = {h.destination for h in candidates}
+        return max(candidates, key=lambda h: (h.observed_at, h.source_ids)) if len(areas) == 1 else None
 
     def accept(self, snapshot: PresenceSnapshot, now: datetime, radar_motion=()) -> None:
         """Latch only a resolved arrival with independent current body support.
@@ -174,7 +282,7 @@ class DeviceAssociations:
                             for p in snapshot.presences))
                 self.handoffs[key] = replace(handoff, accepted_at=now, radar_motion=motion)
                 if (anchor := self.anchors.get(key)) is not None and anchor.observed_at == handoff.anchored_at:
-                    self.anchors[key] = replace(anchor, accepted_at=now)
+                    self.anchors[key] = replace(anchor, accepted_at=now, accepted_area=handoff.destination)
             elif not supported and handoff.accepted_at is not None:
                 del self.handoffs[key]
 
