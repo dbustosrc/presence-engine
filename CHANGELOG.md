@@ -1,5 +1,11 @@
 # Historial de cambios
 
+## 0.5.29 — Estabilidad temporal de conteos compuestos
+
+- Corrige el inicio de la ventana de estabilidad de los contadores MTR combinados: una entrada antigua en cero o mantenida no hace que un conteo nuevo de varios objetivos parezca estable de inmediato. Conserva valores, áreas, máximos y relojes de medición; no elimina objetivos ni identifica ecos como personas o animales.
+- Reevalúa la ventana existente de tres segundos mediante el temporizador del motor, sin polling ni esperar otro mensaje. Un conteo que persiste puede consolidarse; un pulso que termina antes retira su plazo. Publica solo cambios semánticos y no genera detecciones ni avisos por esta reevaluación.
+- Mantiene las asociaciones de 90 segundos, el reconocimiento, las referencias BLE posibles y la independencia de cuerpos respaldados. No cambia configuración, zonas ni controles PTZ.
+
 ## 0.5.28 — Referencias de habitación sin confirmación corporal
 
 - Conserva una habitación posible con confianza baja cuando la presencia doméstica, el área Bermuda configurada y mediciones Bluetooth recientes del receptor correspondiente aportan una referencia, pero no existe evidencia corporal admitida. No afirma reconocimiento ni transporte del teléfono, y no utiliza un AP Wi-Fi como ubicación personal.

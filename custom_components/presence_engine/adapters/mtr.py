@@ -280,7 +280,9 @@ class MTRCountAdapter:
         return _CountState(
             value=sum(state.value for state in values),
             observed_at=max(state.observed_at for state in values),
-            active_since=min(state.active_since for state in values),
+            # The complete combination cannot predate its latest count change.
+            # Old zero/held buckets must not stabilize a newly increased count.
+            active_since=max(state.active_since for state in values),
         )
 
 

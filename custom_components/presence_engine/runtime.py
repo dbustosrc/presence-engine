@@ -355,8 +355,10 @@ class PresenceRuntime:
             for p in self.snapshot.presences)
         association_expired = any(p.location and p.location.method in {"anchored_device_handoff", "correlated_receiver_trajectory", "device_room_candidate"}
                                   for p in self.snapshot.presences)
+        count_matured = any(self.snapshot.evaluated_at < deadline <= now
+                            for deadline in self._count_stability_deadlines(now))
         changed = source_expired or continuity_expired or history_expired
-        if association_expired or self._associations.anchors:
+        if count_matured or association_expired or self._associations.anchors:
             candidate = self._resolve_snapshot()
             changed = changed or replace(candidate, evaluated_at=self.snapshot.evaluated_at) != self.snapshot
         if changed:
@@ -365,6 +367,11 @@ class PresenceRuntime:
                 allow_previous=not source_expired
             )
         return RuntimeUpdate(self.snapshot, (), self.failures, changed)
+
+    def _count_stability_deadlines(self, now: datetime) -> tuple[datetime, ...]:
+        return tuple((o.active_since or o.count.observed_at) + self._resolver_config.count_stability_window
+            for o in self._store.active() if o.count and o.count.maximum > 1 and not o.count.stable
+            and self._is_current(o, now) and o.source.source_id not in self._unavailable_sources)
 
     def next_expiration(self) -> datetime | None:
         """Return the earliest future expiration of active evidence."""
@@ -381,6 +388,7 @@ class PresenceRuntime:
             for p in self.snapshot.presences if p.last_location is not None
             and p.last_location.observed_at + self._resolver_config.previous_continuity_window > now
         )
+        expirations.extend(deadline for deadline in self._count_stability_deadlines(now) if deadline > now)
         expirations.extend(
             deadline
             for presence in self.snapshot.presences

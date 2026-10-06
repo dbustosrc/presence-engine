@@ -45,6 +45,12 @@ automatizaciones consumidoras.
 
 ## Estado de la versión
 
+`0.5.29` corrige el reloj de estabilidad de los conteos MTR compuestos y
+reevalúa su ventana existente de tres segundos sin polling. Una entrada antigua
+no confirma instantáneamente un aumento reciente. Conserva máximos y mediciones,
+sin identificar ecos ni descartar objetivos; un conteo que persiste se consolida
+y un pulso terminado no deja un temporizador pendiente.
+
 `0.5.28` conserva una habitación posible de confianza baja cuando solo existen
 presencia doméstica, área Bermuda configurada y dos mediciones BLE recientes
 del receptor correspondiente. No equivale a presencia corporal, reconocimiento

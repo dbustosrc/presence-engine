@@ -366,6 +366,34 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
                 {"unit_of_measurement": "m", "friendly_name": "Updated"}, last_changed=observed, last_updated=at(13)))
         listener.assert_called_once()
 
+    async def test_native_count_stability_timer_publishes_once_without_a_new_message(self):
+        from presence_engine.adapters import AdapterEnvelope
+        hass = HomeAssistant("/tmp/presence-engine-no-io")
+        runtime = HomeAssistantPresenceRuntime(hass, catalogue_entry(), integration_config(),
+            max_records=2000, save_delay_seconds=15)
+        runtime._store = Mock(async_save=AsyncMock())
+        clock = [at(0)]
+        runtime.engine._now = lambda: clock[0]
+        listener = Mock()
+        runtime.coordinator.async_add_listener(listener)
+        with patch("presence_engine.ha_runtime.dt_util.utcnow", side_effect=lambda: clock[0]), \
+                patch("presence_engine.ha_runtime.async_call_later", return_value=Mock()) as schedule:
+            await runtime._async_process(AdapterEnvelope("state", "sensor.area_count",
+                {"state": "2"}, at(0), at(0)))
+            self.assertEqual((runtime.coordinator.data.count_minimum, runtime.coordinator.data.count_maximum), (1, 2))
+            self.assertEqual(schedule.call_args.args[1], 3)
+            clock[0] = at(3)
+            schedule.call_args.args[2](at(3))
+            await hass.async_block_till_done()
+            self.assertEqual((runtime.coordinator.data.count_minimum, runtime.coordinator.data.count_maximum), (2, 2))
+            self.assertEqual(runtime.coordinator.data.presences[0].location.observed_at, at(0))
+            self.assertEqual(listener.call_count, 2)
+            self.assertIsNone(runtime._cancel_expiration)
+            await runtime._async_refresh_expirations()
+            self.assertEqual(listener.call_count, 2)
+            self.assertEqual(schedule.call_count, 1)
+        await runtime.async_shutdown()
+
     async def test_native_arrival_deadline_is_separate_from_origin_anchor(self):
         from test_device_association import DeviceAssociationTests
         from presence_engine.diagnostics import async_get_config_entry_diagnostics

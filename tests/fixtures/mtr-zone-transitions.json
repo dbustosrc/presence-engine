@@ -25,11 +25,11 @@
     {"at": 3, "channel_type": "state", "channel": "sensor.radar_zone_c", "payload": {"state": "0"}, "expect": {"count": [1, 1], "changed": false}},
     {"at": 4, "channel_type": "state", "channel": "sensor.radar_zone_a", "payload": {"state": "0"}, "expect": {"count": [1, 1]}},
     {"at": 5, "channel_type": "state", "channel": "sensor.radar_total", "payload": {"state": "0"}, "expect": {"count": [0, 0]}},
-    {"at": 6, "channel_type": "state", "channel": "sensor.radar_total", "payload": {"state": "2"}, "expect": {"count": [2, 2]}},
+    {"at": 6, "channel_type": "state", "channel": "sensor.radar_total", "payload": {"state": "2"}, "expect": {"count": [1, 2]}},
     {"at": 7, "channel_type": "state", "channel": "sensor.radar_zone_b", "payload": {"state": "1"}, "expect": {"count": [2, 2]}},
     {"at": 7, "channel_type": "state", "channel": "sensor.radar_zone_c", "payload": {"state": "1"}, "expect": {"count": [2, 2]}},
     {"at": 8, "channel_type": "state", "channel": "sensor.radar_zone_b", "payload": {"state": "0"}, "expect": {"count": [2, 2]}},
-    {"at": 8, "channel_type": "state", "channel": "sensor.radar_zone_c", "payload": {"state": "0"}, "expect": {"count": [2, 2]}},
+    {"at": 8, "channel_type": "state", "channel": "sensor.radar_zone_c", "payload": {"state": "0"}, "expect": {"count": [1, 2]}},
     {"at": 8, "channel_type": "state", "channel": "sensor.radar_total", "payload": {"state": "0"}, "expect": {"count": [0, 0]}}
   ]
 }

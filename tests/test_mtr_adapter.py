@@ -6,7 +6,7 @@ import unittest
 
 from presence_engine.adapters import AdapterEnvelope, MTRCountAdapter
 from presence_engine.configuration import AdapterType, SourceDefinition, parse_configuration
-from presence_engine.engine import EvidenceStore
+from presence_engine.engine import EvidenceStore, FrozenClock, PresenceConfig, PresenceResolver
 from presence_engine.runtime import PresenceRuntime
 
 from helpers import at
@@ -59,6 +59,50 @@ class MTRCountAdapterTests(unittest.TestCase):
         outside = next(item for item in result.observations if item.observation_id == "outside_zones")
         self.assertEqual(outside.count.maximum, 1)
         self.assertEqual(outside.location.level.value, "floor")
+
+    def test_old_empty_zones_do_not_make_a_new_multi_target_count_stable(self) -> None:
+        self._parse("sensor.zone_1", 0, -100)
+        self._parse("sensor.zone_2", 0, -200)
+        self._parse("sensor.total", 1, -50)
+        result = self._parse("sensor.total", 2, 0)
+        outside = next(o for o in result.observations if o.observation_id == "outside_zones")
+        self.assertEqual(outside.active_since, at(0))
+        self.assertEqual(outside.count.maximum, 2)
+        for second, expected in ((0, (1, 2)), (2.9, (1, 2)), (3, (2, 2))):
+            resolved = PresenceResolver(PresenceConfig(), FrozenClock(at(second))).resolve(
+                result.observations, revision=1)
+            self.assertEqual((resolved.count_minimum, resolved.count_maximum), expected)
+            self.assertEqual(resolved.presences[0].location.observed_at, at(0))
+
+    def test_runtime_matures_count_once_and_retires_a_short_pulse_without_polling(self) -> None:
+        raw = json.loads((Path(__file__).with_name("fixtures") / "mtr-zone-transitions.json").read_text(encoding="utf-8"))
+        clock = [at(0)]
+        runtime = PresenceRuntime(parse_configuration(raw["configuration"]), now=lambda: clock[0])
+        def deliver(entity, value, second, changed=None):
+            clock[0] = at(second)
+            return runtime.process(AdapterEnvelope("state", entity,
+                {"state": str(value), "last_changed": at(second if changed is None else changed).isoformat()},
+                at(second), clock[0]))
+        for entity in ("sensor.radar_zone_a", "sensor.radar_zone_b", "sensor.radar_zone_c"):
+            deliver(entity, 0, -100)
+        deliver("sensor.radar_total", 1, -50)
+        update = deliver("sensor.radar_total", 2, 0)
+        self.assertEqual((update.snapshot.count_minimum, update.snapshot.count_maximum), (1, 2))
+        self.assertEqual(runtime.next_expiration(), at(3))
+        deliver("sensor.radar_total", 2, 1, changed=0)
+        self.assertEqual(runtime.next_expiration(), at(3))
+        clock[0] = at(3)
+        update = runtime.refresh()
+        self.assertTrue(update.changed)
+        self.assertEqual((update.snapshot.count_minimum, update.snapshot.count_maximum), (2, 2))
+        self.assertFalse(update.detections)
+        self.assertIsNone(runtime.next_expiration())
+        self.assertFalse(runtime.refresh().changed)
+        deliver("sensor.radar_total", 1, 4)
+        deliver("sensor.radar_total", 2, 5)
+        update = deliver("sensor.radar_total", 1, 6.9)
+        self.assertEqual((update.snapshot.count_minimum, update.snapshot.count_maximum), (1, 1))
+        self.assertIsNone(runtime.next_expiration())
 
     def test_overlapping_zones_never_exceed_total_population(self) -> None:
         self._parse("sensor.zone_1", 1, 0)
