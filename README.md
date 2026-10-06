@@ -45,6 +45,14 @@ automatizaciones consumidoras.
 
 ## Estado de la versión
 
+`0.5.28` conserva una habitación posible de confianza baja cuando solo existen
+presencia doméstica, área Bermuda configurada y dos mediciones BLE recientes
+del receptor correspondiente. No equivale a presencia corporal, reconocimiento
+ni teléfono transportado; evidencia corporal, señal perdida o reinicio retiran
+esa referencia. No activa ocupación física ni renueva el reloj por cada paquete.
+La proyección pública expone por separado la ubicación de los dispositivos y
+su conexión Wi-Fi, sin convertir el AP en ubicación de una persona.
+
 `0.5.27` admite una asociación probable antes de cambiar el área Bermuda cuando
 existen co-localización previa de un solo cuerpo, mediciones radar nuevas,
 vaciado medido del mismo origen, tendencias opuestas de dos receptores y presencia

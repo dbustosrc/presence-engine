@@ -7,6 +7,7 @@ from presence_engine.adapters import AdapterEnvelope
 from presence_engine.configuration import parse_configuration
 from presence_engine.engine import CountClaim, ObservationStatus, Quality, RevisionStamp
 from presence_engine.runtime import PresenceRuntime
+from presence_engine.public_projection import public_presence_projection
 from helpers import at, area, identity, observation
 
 
@@ -66,6 +67,101 @@ class DeviceAssociationTests(unittest.TestCase):
 
     def owner(self):
         return next(p for p in self.runtime.snapshot.presences if p.identity == "person_a")
+
+    def enable_room_fallback(self):
+        config = configuration()
+        config = replace(config, sources=tuple(replace(s, spatial_quality=Quality.MEDIUM)
+            if s.source_id == "phone" else s for s in config.sources))
+        self.runtime = PresenceRuntime(config, now=lambda: at(self.second))
+
+    def test_device_supported_room_stays_possible_and_expires_without_a_body(self):
+        self.enable_room_fallback()
+        self.deliver("person.owner", "home", 0)
+        self.deliver("sensor.phone", "Beta", 1)
+        self.deliver("sensor.distance_beta", 3.4, 2)
+        self.assertIsNone(self.owner().location.area)
+        update = self.deliver("sensor.distance_beta", 3.2, 3)
+        self.assertEqual(self.owner().location.area, "beta")
+        self.assertEqual(self.owner().location.method, "device_room_candidate")
+        self.assertEqual(self.owner().location.quality, Quality.LOW)
+        self.assertEqual(self.owner().location_status, "possible")
+        self.assertEqual(self.owner().identity_observed_at, at(0))
+        self.assertEqual((update.snapshot.count_minimum, update.snapshot.count_maximum), (1, 1))
+        self.assertFalse(update.snapshot.area_occupancies)
+        self.assertFalse(update.detections)
+        projected = public_presence_projection(update.snapshot)
+        self.assertEqual(projected["active_areas"][0]["current_minimum_count"], 0)
+        self.assertEqual(projected["active_areas"][0]["current_source_families"], [])
+        first = self.owner().location.observed_at
+        update = self.deliver("sensor.distance_beta", 3.1, 4)
+        self.assertFalse(update.changed)
+        self.assertEqual(self.owner().location.observed_at, first)
+        self.assertEqual(self.runtime.next_expiration(), at(23))
+        self.second = 23
+        self.runtime.refresh()
+        self.assertIsNone(self.owner().location.area)
+        self.assertFalse(self.runtime._associations.room_hints)
+
+    def test_room_fallback_rejects_body_conflict_missing_signal_and_restart(self):
+        self.enable_room_fallback()
+        self.deliver("person.owner", "home", 0)
+        self.deliver("sensor.phone", "Beta", 1)
+        self.deliver("sensor.distance_beta", 340, 2, "cm")
+        self.deliver("sensor.distance_beta", 320, 3, "cm")
+        self.assertEqual(self.owner().location.area, "beta")
+        self.deliver("binary_sensor.alpha", "on", 4)
+        self.assertNotEqual(self.owner().location.method, "device_room_candidate")
+        self.body("alpha", 5)
+        self.assertEqual(self.owner().location.area, "alpha")
+        self.setUp()
+        self.enable_room_fallback()
+        self.deliver("person.owner", "home", 0)
+        self.deliver("sensor.phone", "Beta", 1)
+        self.deliver("sensor.distance_beta", 3.4, 2)
+        self.deliver("sensor.distance_beta", 3.2, 3)
+        saved = self.runtime.export_state()
+        self.runtime = PresenceRuntime(self.runtime.configuration, now=lambda: at(self.second))
+        self.runtime.restore_state(saved)
+        self.assertIsNone(self.owner().location.area)
+        self.deliver("sensor.distance_beta", 3.1, 4)
+        self.assertIsNone(self.owner().location.area)
+        self.deliver("sensor.distance_beta", 3, 5)
+        self.assertEqual(self.owner().location.area, "beta")
+        self.deliver("sensor.distance_beta", "unavailable", 6)
+        self.assertIsNone(self.owner().location.area)
+        self.deliver("sensor.distance_beta", 3, 7)
+        self.assertIsNone(self.owner().location.area)
+
+    def test_device_only_without_home_or_fresh_measurements_does_not_locate_owner(self):
+        self.enable_room_fallback()
+        self.deliver("sensor.phone", "Beta", 1)
+        self.deliver("sensor.distance_beta", 3.4, 2)
+        self.deliver("sensor.distance_beta", 3.2, 3)
+        self.assertIsNone(self.owner().location.area)
+        self.deliver("person.owner", "home", 30)
+        self.assertIsNone(self.owner().location.area)
+
+    def test_room_fallback_needs_quality_binding_and_distinct_current_samples(self):
+        self.enable_room_fallback()
+        self.deliver("person.owner", "home", 0)
+        self.deliver("sensor.phone", "Beta", 1)
+        self.deliver("sensor.distance_beta", 3.4, 2)
+        self.deliver("sensor.distance_beta", 3.4, 3)
+        self.assertIsNone(self.owner().location.area)  # A repeated value is not a new measurement.
+        self.deliver("sensor.distance_beta", 3.2, 4)
+        self.assertEqual(self.owner().location.area, "beta")
+        phone = next(o for o in self.runtime._store.values() if o.source.source_id == "phone")
+        second = replace(phone, observation_id="other_phone", target_id="phone_b",
+            location=replace(phone.location, area="alpha"))
+        self.runtime._store.upsert(second)
+        self.runtime._snapshot = self.runtime._resolve_snapshot()
+        self.assertIsNone(self.owner().location.area)
+        self.setUp()
+        self.deliver("person.owner", "home", 0)
+        self.deliver("sensor.phone", "Beta", 1)  # Default unknown spatial quality is not eligible.
+        self.deliver("sensor.distance_beta", 3.4, 2)
+        self.deliver("sensor.distance_beta", 3.2, 3)
+        self.assertIsNone(self.owner().location.area)
 
     def test_held_origin_does_not_block_corroborated_probable_handoff(self):
         self.seed()

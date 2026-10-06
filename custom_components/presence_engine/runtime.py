@@ -353,7 +353,7 @@ class PresenceRuntime:
         history_expired = any(p.last_location is not None and now >= (
             p.last_location.observed_at + self._resolver_config.previous_continuity_window)
             for p in self.snapshot.presences)
-        association_expired = any(p.location and p.location.method in {"anchored_device_handoff", "correlated_receiver_trajectory"}
+        association_expired = any(p.location and p.location.method in {"anchored_device_handoff", "correlated_receiver_trajectory", "device_room_candidate"}
                                   for p in self.snapshot.presences)
         changed = source_expired or continuity_expired or history_expired
         if association_expired or self._associations.anchors:
@@ -472,6 +472,8 @@ class PresenceRuntime:
         """Restore compatible bounded state; one corrupt item does not abort setup."""
         self._associations.anchors.clear()
         self._associations.handoffs.clear()
+        self._associations.room_hints.clear()
+        self._associations.room_hint_deadline = None
         self._associations.capture_after = self._now()
         if int(raw.get("contract_version", 0)) != CONTRACT_VERSION:
             return
@@ -935,6 +937,7 @@ class PresenceRuntime:
         handoffs = self._associations.update(observations, self._signal_samples, now,
             previous=self._snapshot if allow_previous else None, positions=positions) if self._association_enabled else ()
         motion = self._radar.motion_support(observations, self._resolver_config.trajectory_window) if handoffs else ()
+        rooms = self._associations.room_candidates(observations, self._signal_samples, now) if self._association_enabled else ()
         snapshot = resolver.resolve(
             observations,
             revision=self._store.revision,
@@ -942,6 +945,7 @@ class PresenceRuntime:
             unavailable_sources=self._unavailable_sources,
             device_handoffs=handoffs,
             radar_motion=motion,
+            **({"device_room_candidates": rooms} if rooms else {}),
         )
         self._associations.accept(snapshot, now, motion)
         return snapshot

@@ -1,5 +1,11 @@
 # Historial de cambios
 
+## 0.5.28 — Referencias de habitación sin confirmación corporal
+
+- Conserva una habitación posible con confianza baja cuando la presencia doméstica, el área Bermuda configurada y mediciones Bluetooth recientes del receptor correspondiente aportan una referencia, pero no existe evidencia corporal admitida. No afirma reconocimiento ni transporte del teléfono, y no utiliza un AP Wi-Fi como ubicación personal.
+- Exige mediciones distintas y recientes, vinculación del dispositivo y área no contradictoria. Una presencia corporal, datos inválidos, caducidad o reinicio retiran la referencia; los paquetes radio no renuevan su reloj espacial ni generan detecciones. Reutiliza la caducidad existente sin polling, entidades u opciones nuevas.
+- Expone los hechos de ubicación y conexión de los dispositivos en la proyección pública desde la misma revisión canónica. Mantiene conteos, incertidumbre de identidad y ocupación corporal independientes: una habitación posible no aporta un mínimo físico ni votos de seguimiento PTZ.
+
 ## 0.5.27 — Trayectorias probables con evidencia corporal independiente
 
 - Combina co-localización previa de un solo cuerpo, nuevos rangos radar, vaciado medido del mismo origen, tendencias Bluetooth de dos receptores y presencia en destino para inferir una ubicación probable aunque Bermuda conserve el área anterior del dispositivo. Mantiene esa área como dato independiente y no eleva la asociación a reconocimiento facial.

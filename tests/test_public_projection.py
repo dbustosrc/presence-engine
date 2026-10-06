@@ -5,6 +5,9 @@ from dataclasses import replace
 
 from presence_engine.engine import (
     ImageReference,
+    DeviceState,
+    SpatialClaim,
+    SpatialLevel,
     PresenceHypothesis,
     PresenceSnapshot,
     Quality,
@@ -20,6 +23,24 @@ from helpers import area, at
 
 
 class PublicProjectionTests(unittest.TestCase):
+    def test_device_room_is_visible_without_promoting_home_identity(self):
+        home = replace(self.person, location=SpatialClaim(SpatialLevel.HOME, at(1), method="home_scope", quality=Quality.LOW),
+                       location_source_ids=("home",), identity_method="home_scope")
+        phone = DeviceState("phone_a", "person_a", area("beta", 2, method="bermuda_nearest_scanner"), ("ble",))
+        ap = DeviceState("phone_a", "person_a", SpatialClaim(SpatialLevel.HOME, at(2)), ("wifi",),
+                        network_attachment="ap_a", network_attachment_area="alpha")
+        snapshot = replace(self.snapshot, presences=(home,), devices=(phone, ap), count_minimum=1, count_maximum=1)
+        result = public_presence_projection(snapshot)
+        from presence_engine.projection import snapshot_payload
+        self.assertEqual(result["devices"], snapshot_payload(snapshot)["devices"])
+        self.assertEqual(result["devices"][0]["location"]["area"], "beta")
+        self.assertIsNone(result["devices"][1]["location"]["area"])
+        self.assertEqual(result["devices"][1]["network_attachment_area"], "alpha")
+        self.assertIsNone(result["presences"][0]["area"])
+        self.assertEqual(identity_projection(snapshot, "person_a")["state"], "home")
+        self.assertEqual(result["active_areas"], [])
+        self.assertEqual(result["count_estimate"]["minimum"], 1)
+
     def test_continued_location_does_not_drive_current_area_count(self):
         snapshot = replace(self.snapshot, presences=(replace(self.person, location_status="continued"), self.dog))
         result = public_presence_projection(snapshot, self.images)

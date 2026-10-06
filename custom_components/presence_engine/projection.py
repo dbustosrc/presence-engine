@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 from urllib.parse import quote
 
-from .engine import DetectionResult, ImageReference, PresenceSnapshot, SpatialClaim
+from .engine import DetectionResult, DeviceState, ImageReference, PresenceSnapshot, SpatialClaim
 from .runtime import ImageRecord
 
 
@@ -63,19 +63,21 @@ def snapshot_payload(
             }
             for presence in snapshot.presences
         ],
-        "devices": [
-            {
-                "device_id": device.device_id,
-                "linked_identity": device.linked_identity,
-                "location": _location(device.location),
-                "source_ids": list(device.source_ids),
-                "network_attachment": device.network_attachment,
-                "network_attachment_area": device.network_attachment_area,
-                "network_attachment_observed_at": (device.network_attachment_observed_at.isoformat()
-                                                   if device.network_attachment_observed_at else None),
-            }
-            for device in snapshot.devices
-        ],
+        "devices": [device_payload(device) for device in snapshot.devices],
+    }
+
+
+def device_payload(device: DeviceState) -> dict[str, Any]:
+    """A device fact is not a body location, including an AP attachment."""
+    return {
+        "device_id": device.device_id,
+        "linked_identity": device.linked_identity,
+        "location": _location(device.location),
+        "source_ids": list(device.source_ids),
+        "network_attachment": device.network_attachment,
+        "network_attachment_area": device.network_attachment_area,
+        "network_attachment_observed_at": (device.network_attachment_observed_at.isoformat()
+                                           if device.network_attachment_observed_at else None),
     }
 
 

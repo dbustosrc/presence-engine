@@ -11,7 +11,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Mapping, TYPE_CHECKING
 
-from .engine.model import DeviceHandoff, DeviceSignalSample, Observation, ObservationStatus, PresenceSnapshot, Quality, TargetKind
+from .engine.model import DeviceHandoff, DeviceSignalSample, DeviceState, Observation, ObservationStatus, PresenceSnapshot, Quality, SpatialClaim, SpatialLevel, TargetKind
 
 if TYPE_CHECKING:
     from .configuration import SourceDefinition
@@ -41,6 +41,59 @@ class DeviceAssociations:
         self.anchors: dict[tuple[str, str], _Anchor] = {}
         self.handoffs: dict[tuple[str, str], DeviceHandoff] = {}
         self.capture_after: datetime | None = None
+        self.room_hints: dict[tuple[str, str], DeviceState] = {}
+        self.room_hint_deadline: datetime | None = None
+
+    def room_candidates(self, observations, histories, now) -> tuple[DeviceState, ...]:
+        """A device-supported room is possible, never a body or carried phone.
+
+        Any admitted physical presence takes this fallback out of contention.
+        Keep the first qualification clock; radio refreshes only maintain validity.
+        """
+        homes = {o.identity.value for o in observations if o.status is ObservationStatus.ACTIVE
+            and o.source.family == "person_home" and o.identity
+            and o.identity.quality.rank >= Quality.MEDIUM.rank and o.identity.observed_at <= now
+            and o.location and o.location.level is SpatialLevel.HOME and o.received_at <= now}
+        phones = [o for o in observations if o.status is ObservationStatus.ACTIVE
+            and o.target_kind is TargetKind.DEVICE and o.source.family == "bermuda_area"
+            and o.identity and o.identity.value in homes and o.identity.observed_at <= now
+            and o.location and o.location.area and o.location.quality.rank >= Quality.MEDIUM.rank
+            and o.location.observed_at <= now and o.received_at <= now]
+        body = any(o.status is ObservationStatus.ACTIVE
+            and o.target_kind in {TargetKind.PERSON, TargetKind.UNKNOWN_LIVING}
+            and o.source.family != "person_home" and o.location
+            and o.location.level in {SpatialLevel.AREA, SpatialLevel.FLOOR}
+            and o.location.quality.rank >= Quality.MEDIUM.rank and o.location.observed_at <= now
+            and o.received_at <= now and (o.count is None or o.count.maximum > 0)
+            for o in observations)
+        areas = {}
+        for phone in phones:
+            areas.setdefault(phone.identity.value, set()).add(phone.location.area)
+        hints, deadlines = {}, []
+        start = max(now - self.measurement_window,
+            self.capture_after + timedelta(microseconds=1) if self.capture_after else now - self.measurement_window)
+        for phone in phones if not body else ():
+            if len(areas[phone.identity.value]) != 1:
+                continue
+            supporting = [sid for sid, d in self.definitions.items()
+                if d.area == phone.location.area and d.options["device_id"] == phone.target_id
+                and d.options["metric"] == "distance" and d.identity in {None, phone.identity.value}
+                and self._range(histories.get(sid, []), now, start, now)]
+            if not supporting:
+                continue
+            key = (phone.identity.value, phone.target_id)
+            sources = tuple(sorted((phone.source.source_id, *supporting)))
+            prior = self.room_hints.get(key)
+            # Source membership is factual; adding a receiver must not renew
+            # the person's spatial observation clock.
+            observed = prior.location.observed_at if prior and prior.location.area == phone.location.area else now
+            hints[key] = DeviceState(phone.target_id, phone.identity.value,
+                SpatialClaim(SpatialLevel.AREA, observed, area=phone.location.area,
+                    floor=phone.location.floor, method="device_room_candidate", quality=Quality.LOW), sources)
+            deadlines.append(max(histories[sid][-2].observed_at + self.measurement_window for sid in supporting))
+        self.room_hints = hints
+        self.room_hint_deadline = min(deadlines, default=None)
+        return tuple(hints.values())
 
     def _range(self, history: list[DeviceSignalSample], now: datetime,
                start: datetime, end: datetime) -> tuple[float, float] | None:
@@ -289,4 +342,6 @@ class DeviceAssociations:
     def next_expiration(self, now: datetime) -> datetime | None:
         deadlines = [a.observed_at + self.lifetime for a in self.anchors.values()]
         deadlines.extend(h.accepted_at + self.lifetime for h in self.handoffs.values() if h.accepted_at is not None)
+        if self.room_hint_deadline is not None:
+            deadlines.append(self.room_hint_deadline)
         return min((d for d in deadlines if d > now), default=None)

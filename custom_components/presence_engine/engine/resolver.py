@@ -114,6 +114,7 @@ class PresenceResolver:
         unavailable_sources: Iterable[str] = (),
         device_handoffs: Iterable[DeviceHandoff] = (),
         radar_motion: Iterable[RadarMotionSupport] = (),
+        device_room_candidates: Iterable[DeviceState] = (),
     ) -> PresenceSnapshot:
         now = self._clock.now()
         unavailable = tuple(unavailable_sources)
@@ -254,6 +255,19 @@ class PresenceResolver:
             if group_max > group_min:
                 extras.append(self._anonymous_hypothesis(group,group_min,"possible",Quality.LOW))
 
+        for device in device_room_candidates if not any(g.kind is not TargetKind.ANIMAL and g.maximum for g in groups) else ():
+            person = people.get(device.linked_identity)
+            if (person and person.direct_person and person.location
+                    and person.location.level is SpatialLevel.HOME and device.location
+                    and device.location.method == "device_room_candidate"
+                    and device.location.quality is Quality.LOW
+                    and device.location.observed_at <= now):
+                person.location = device.location
+                person.location_sources = set(device.source_ids)
+                person.sources.update(device.source_ids)
+                person.certainty = Quality.LOW
+                person.status = "possible"
+                reasons.append("device_room_candidate_without_body_confirmation")
         animal_hypotheses,animal_min,animal_max=self._resolve_animals(groups)
         person_hypotheses=tuple(self._to_hypothesis(candidate) for candidate in people.values())
         population_min=self._population_minimum(counted_groups)
@@ -689,6 +703,8 @@ class PresenceResolver:
                 if prior.kind is not TargetKind.PERSON or not prior.identity:
                     continue
                 current=people.get(prior.identity)
+                if prior.location and prior.location.method == "device_room_candidate":
+                    continue  # Revalidate fresh radio support, never remember it as a body.
                 if (current and prior.location and prior.location.method == "correlated_receiver_trajectory"
                         and any(d.area != prior.location.area and d.observed_at > prior.location.observed_at
                                 for d in current.device_locations)):
