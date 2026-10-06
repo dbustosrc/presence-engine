@@ -1007,11 +1007,11 @@ class PresenceResolver:
                 and person.location.area == group.location.area
                 and not any(d.area == group.location.area for d in person.device_locations)):
             return False  # A held counter cannot upgrade the weaker radio association or renew its clock.
-        if (person.direct_person and person.identity_quality is Quality.HIGH
+        if (group.target_id is None and person.direct_person and person.identity_quality is Quality.HIGH
                 and bool(person.identity_sources & person.location_sources)
                 and person.location and person.location.area and group.location.area
                 and person.location.area != group.location.area):
-            return False  # An anonymous trajectory cannot overwrite a current identified body.
+            return False  # An anonymous aggregate cannot overwrite a current identified body.
         if (person.location and person.location.area
                 and group.location.observed_at < person.location.observed_at):
             return False
