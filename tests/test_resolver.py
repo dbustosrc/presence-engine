@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import unittest
 from itertools import permutations
 
@@ -8,6 +10,7 @@ from presence_engine.engine import (
     CountClaim,
     FrozenClock,
     IdentityClaim,
+    ObservationStatus,
     PresenceConfig,
     PresenceHypothesis,
     PresenceResolver,
@@ -785,6 +788,42 @@ class ResolverTests(unittest.TestCase):
         results = [self.resolve(*items) for items in permutations(observations)]
 
         self.assertTrue(all(result == results[0] for result in results[1:]))
+
+
+class HeldAggregateScopeTests(unittest.TestCase):
+    def test_held_floor_and_contained_room_are_not_independent_by_clock_age(self):
+        from itertools import permutations
+        room = observation("room", family="mtr_count", kind=TargetKind.UNKNOWN_LIVING,
+            location=area("alpha", -40), count=CountClaim(1, 1, at(-40), True))
+        scoped = observation("scope", family="mtr_count", kind=TargetKind.UNKNOWN_LIVING,
+            location=floor(), count=CountClaim(1, 1, at(), True))
+        owner = observation("owner", location=area("delta"), identity_claim=identity())
+        resolver = PresenceResolver(PresenceConfig(), FrozenClock(at()))
+        for ordered in permutations((room, scoped, owner)):
+            result = resolver.resolve(ordered, revision=1)
+            self.assertEqual((result.count_minimum, result.count_maximum), (2, 3))
+            self.assertIn("cross_area_population_overlap", result.reasons)
+            self.assertEqual(next(p for p in result.presences if p.identity).location.area, "delta")
+            self.assertTrue(any(p.location == room.location for p in result.presences))
+            self.assertTrue(any(p.location == scoped.location for p in result.presences))
+        for count in (1, 2, 4):
+            varied = replace(scoped, count=CountClaim(count, count, at(), True))
+            result = resolver.resolve((room, varied), revision=1)
+            self.assertEqual((result.count_minimum, result.count_maximum), (count, count + 1))
+        ended = replace(scoped, status=ObservationStatus.ENDED, ended_at=at())
+        self.assertEqual(resolver.resolve((room, ended), revision=1).count_maximum, 1)
+
+    def test_held_aggregates_need_compatible_scope_not_only_shared_floor(self):
+        room = observation("room", family="mtr_count", kind=TargetKind.UNKNOWN_LIVING,
+            location=area("alpha", -40), count=CountClaim(1, 1, at(-40), True))
+        scoped = observation("scope", family="mtr_count", kind=TargetKind.UNKNOWN_LIVING,
+            location=floor(), count=CountClaim(1, 1, at(), True))
+        resolver = PresenceResolver(PresenceConfig(adjacency={"alpha": frozenset({"beta"})}), FrozenClock(at()))
+        for other in (replace(scoped, location=replace(scoped.location, candidates=("beta",))),
+                      replace(scoped, location=replace(scoped.location, floor="other_floor")),
+                      replace(scoped, location=area("beta"))):
+            result = resolver.resolve((room, other), revision=1)
+            self.assertEqual((result.count_minimum, result.count_maximum), (2, 2))
 
 
 if __name__ == "__main__":

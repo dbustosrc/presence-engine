@@ -45,6 +45,11 @@ automatizaciones consumidoras.
 
 ## Estado de la versión
 
+`0.5.26` conserva como intervalo los agregados de habitación/planta compatibles
+aunque sus relojes difieran: un positivo mantenido no demuestra otro individuo.
+No elimina fuentes ni reduce el máximo; ámbitos incompatibles y tracks distintos
+mantienen su independencia. No cambia los plazos de asociación ni identifica ecos.
+
 `0.5.25` utiliza telemetría radar reciente para corroborar un traslado ya
 respaldado por anclaje corporal y tendencias Bluetooth, incluso cuando un
 contador positivo conserva su reloj original. Requiere una sola área/población

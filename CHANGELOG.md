@@ -1,5 +1,12 @@
 # Historial de cambios
 
+## 0.5.26 — Conteo prudente de alcances radar solapados
+
+- Un positivo agregado mantenido en una habitación y otro de alcance de planta compatible pueden describir la misma población, aunque sus relojes originales difieran. La antigüedad distinta no demuestra cuerpos independientes.
+- Conserva todas las señales, ubicaciones, relojes y límites superiores; expresa el solapamiento como intervalo sin borrar positivos ni asignarles identidad. No impone un máximo fijo de presencias.
+- Mantiene la independencia de áreas incompatibles, plantas distintas y tracks visuales distintos. No transforma ecos radar ni una foto histórica en reconocimiento o ausencia.
+- Reutiliza la agregación existente, sin entidades, opciones o temporizadores nuevos. No cambia el anclaje de 90 segundos ni afirma resolver traslados sin evidencia corporal suficiente.
+
 ## 0.5.25 — Corroboración temporal entre radar y Bluetooth
 
 - Integra telemetría radar reciente en traslados ya respaldados por un anclaje corporal y tendencias Bluetooth. Un contador que sigue positivo puede conservar su reloj original sin ignorar evidencia escalar reciente de ese mismo sensor.

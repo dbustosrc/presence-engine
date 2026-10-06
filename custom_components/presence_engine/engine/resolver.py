@@ -469,7 +469,7 @@ class PresenceResolver:
         return tuple(result)
 
     def _population_minimum(self, counted_groups: list[tuple[_EvidenceGroup, int]]) -> int:
-        """Adjacent, recent aggregate claims may be one body's trajectory.
+        """Overlapping scopes or recent adjacent claims may share a population.
 
         Keep distinct tracked objects as a lower bound and all upper bounds.
         No association here identifies or moves a person.
@@ -485,7 +485,11 @@ class PresenceResolver:
                             and (self._possibly_same_location(group.location,other.location)
                                  or (group.location.area and other.location.area
                                      and self._adjacent(group.location.area,other.location.area)))
-                            and (abs(group.location.observed_at-other.location.observed_at)
+                            and (not group.target_id and not other.target_id
+                                 and self._possibly_same_location(group.location, other.location)
+                                 # Held aggregate clocks are not proof of distinct
+                                 # populations in overlapping room/floor scopes.
+                                 or abs(group.location.observed_at-other.location.observed_at)
                                 <= self._config.trajectory_window or (group.observer_id and other.observer_id
                                 and self._same_area(group.location,other.location)
                                 and group.kind is other.kind and group.classification == other.classification))):
