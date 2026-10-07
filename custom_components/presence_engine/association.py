@@ -47,7 +47,8 @@ class DeviceAssociations:
     def room_candidates(self, observations, histories, now) -> tuple[DeviceState, ...]:
         """A device-supported room is possible, never a body or carried phone.
 
-        Any admitted physical presence takes this fallback out of contention.
+        A measured physical area takes this fallback out of contention. A floor
+        aggregate cannot invalidate a room reference or identify its owner.
         Keep the first qualification clock; radio refreshes only maintain validity.
         """
         homes = {o.identity.value for o in observations if o.status is ObservationStatus.ACTIVE
@@ -62,7 +63,7 @@ class DeviceAssociations:
         body = any(o.status is ObservationStatus.ACTIVE
             and o.target_kind in {TargetKind.PERSON, TargetKind.UNKNOWN_LIVING}
             and o.source.family != "person_home" and o.location
-            and o.location.level in {SpatialLevel.AREA, SpatialLevel.FLOOR}
+            and o.location.level is SpatialLevel.AREA
             and o.location.quality.rank >= Quality.MEDIUM.rank and o.location.observed_at <= now
             and o.received_at <= now and (o.count is None or o.count.maximum > 0)
             for o in observations)
@@ -75,10 +76,17 @@ class DeviceAssociations:
         for phone in phones if not body else ():
             if len(areas[phone.identity.value]) != 1:
                 continue
-            supporting = [sid for sid, d in self.definitions.items()
-                if d.area == phone.location.area and d.options["device_id"] == phone.target_id
+            ranges = {sid: value for sid, d in self.definitions.items()
+                if d.area and d.options["device_id"] == phone.target_id
                 and d.options["metric"] == "distance" and d.identity in {None, phone.identity.value}
-                and self._range(histories.get(sid, []), now, start, now)]
+                and (value := self._range(histories.get(sid, []), now, start, now))}
+            # A weak radio reference must consistently beat other fresh receivers,
+            # not just echo the area label during overlapping/noisy measurements.
+            supporting = [sid for sid, band in ranges.items()
+                if self.definitions[sid].area == phone.location.area
+                and all(band[1] < other[0] for rival, other in ranges.items()
+                        if self.definitions[rival].area != phone.location.area
+                        and self.definitions[rival].options["receiver_id"] != self.definitions[sid].options["receiver_id"])]
             if not supporting:
                 continue
             key = (phone.identity.value, phone.target_id)

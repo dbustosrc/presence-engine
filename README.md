@@ -59,6 +59,16 @@ no confirma instantáneamente un aumento reciente. Conserva máximos y medicione
 sin identificar ecos ni descartar objetivos; un conteo que persiste se consolida
 y un pulso terminado no deja un temporizador pendiente.
 
+`0.5.31` contrasta la banda de las dos últimas mediciones BLE recientes con
+otros receptores físicos elegibles antes de admitir una referencia débil.
+Lecturas solapadas no siguen el cambio de etiqueta radio; no se convierte esta
+comparación de señal en geometría o confirmación corporal. Un agregado anónimo
+de planta mantiene la referencia y su reloj original, sin aumentar el mínimo
+como si acreditara otro cuerpo independiente. Cuando BLE no aporta una habitación
+elegible, una identidad doméstica puede conservar proximidad Wi-Fi vinculada de
+confianza baja. El cuerpo identificado conserva prioridad y el plazo de asociación
+de 90 segundos no cambia.
+
 `0.5.28` conserva una habitación posible de confianza baja cuando solo existen
 presencia doméstica, área Bermuda configurada y dos mediciones BLE recientes
 del receptor correspondiente. No equivale a presencia corporal, reconocimiento

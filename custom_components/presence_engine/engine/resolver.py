@@ -255,7 +255,8 @@ class PresenceResolver:
             if group_max > group_min:
                 extras.append(self._anonymous_hypothesis(group,group_min,"possible",Quality.LOW))
 
-        for device in device_room_candidates if not any(g.kind is not TargetKind.ANIMAL and g.maximum for g in groups) else ():
+        for device in device_room_candidates if not any(g.kind is not TargetKind.ANIMAL and g.maximum
+                and g.location and g.location.area for g in groups) else ():
             person = people.get(device.linked_identity)
             if (person and person.direct_person and person.location
                     and person.location.level is SpatialLevel.HOME and device.location
@@ -275,10 +276,12 @@ class PresenceResolver:
                     and device.location and device.location.method in {"wifi_connection", "wifi_ap_proximity"}]
             if not wifi or (person.location and person.location.area):
                 continue
-            if person.from_device or person.status not in {"possible", "resolved", "location_cleared"}:
+            if (person.from_device and not person.direct_person
+                    or person.status not in {"possible", "resolved", "location_cleared"}):
                 continue  # Preserve stronger radio associations and contradictions.
             areas = {device.location.area for device in wifi if device.location.area}
             person.candidate_areas.update(areas)
+            person.candidate_areas.update(location.area for location in person.device_locations if location.area)
             if len(areas) == 1:
                 chosen = max((device for device in wifi if device.location.area),
                              key=lambda device: device.location.observed_at)
@@ -304,8 +307,10 @@ class PresenceResolver:
         weak=sum(person.status == "possible" and person.location is not None
                  and person.location.method in {"wifi_connection", "wifi_ap_proximity"} for person in people.values())
         unlocated=sum(person.status != "continued" and person.location is not None
-                      and not (person.status == "possible" and person.location.method == "wifi_connection")
-                      and person.location.level is SpatialLevel.HOME for person in people.values())
+                      and (person.location.level is SpatialLevel.HOME
+                           and not (person.status == "possible" and person.location.method == "wifi_connection")
+                           or person.status == "possible" and person.location.method == "device_room_candidate")
+                      for person in people.values())
         minimum=max(len(person_hypotheses)-weak, len(person_hypotheses)-weak-continued-unlocated+population_min)+animal_min
         if unlocated and population_min:
             reasons.append("home_identity_may_overlap_current_body")

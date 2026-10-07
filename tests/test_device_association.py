@@ -5,7 +5,8 @@ import unittest
 
 from presence_engine.adapters import AdapterEnvelope
 from presence_engine.configuration import parse_configuration
-from presence_engine.engine import CountClaim, ObservationStatus, Quality, RevisionStamp
+from presence_engine.engine import (CountClaim, Observation, ObservationStatus, Quality,
+    RevisionStamp, SourceRef, SpatialClaim, SpatialLevel, TargetKind)
 from presence_engine.runtime import PresenceRuntime
 from presence_engine.public_projection import public_presence_projection
 from helpers import at, area, identity, observation
@@ -101,6 +102,73 @@ class DeviceAssociationTests(unittest.TestCase):
         self.runtime.refresh()
         self.assertIsNone(self.owner().location.area)
         self.assertFalse(self.runtime._associations.room_hints)
+
+    def test_overlapping_receivers_do_not_follow_radio_area_jitter(self):
+        self.enable_room_fallback()
+        self.deliver("person.owner", "home", 0)
+        self.deliver("sensor.phone", "Alpha", 1)
+        self.deliver("sensor.distance_alpha", 2.5, 2)
+        self.deliver("sensor.distance_beta", 3.0, 2.1)
+        self.deliver("sensor.distance_alpha", 3.5, 3)
+        self.deliver("sensor.distance_beta", 2.8, 3.1)
+        self.assertIsNone(self.owner().location.area)
+        self.deliver("sensor.phone", "Beta", 4)
+        self.assertIsNone(self.owner().location.area)
+        self.deliver("sensor.phone", "Alpha", 5)
+        self.assertIsNone(self.owner().location.area)
+        self.deliver("sensor.distance_alpha", 1.5, 6)
+        self.deliver("sensor.distance_alpha", 1.4, 7)
+        self.assertEqual(self.owner().location.area, "alpha")
+        self.assertEqual(self.owner().location_status, "possible")
+        original = self.owner().location.observed_at
+        self.deliver("sensor.distance_alpha", 1.3, 8)
+        self.assertEqual(self.owner().location.observed_at, original)
+        self.body("beta", 9)
+        self.assertEqual(self.owner().location.area, "beta")
+        self.assertNotEqual(self.owner().location.method, "device_room_candidate")
+
+    def test_floor_only_pulse_does_not_erase_or_renew_a_weak_room_reference(self):
+        self.enable_room_fallback()
+        self.deliver("person.owner", "home", 0)
+        self.deliver("sensor.phone", "Beta", 1)
+        self.deliver("sensor.distance_beta", 3.4, 2)
+        self.deliver("sensor.distance_beta", 3.2, 3)
+        original = self.owner().location.observed_at
+        self.second = 4
+        self.runtime._store.upsert(Observation("pulse", SourceRef("floor_count", "mtr_count"),
+            at(4), at(4), TargetKind.UNKNOWN_LIVING,
+            location=SpatialClaim(SpatialLevel.FLOOR, at(4), floor="ground", quality=Quality.MEDIUM),
+            count=CountClaim(1, 1, at(4), True, Quality.MEDIUM)))
+        self.runtime._snapshot = self.runtime._resolve_snapshot()
+        self.assertEqual(self.owner().location.area, "beta")
+        self.assertEqual(self.owner().location_status, "possible")
+        self.assertEqual(self.owner().location.observed_at, original)
+        self.assertFalse(self.runtime.snapshot.area_occupancies)
+        self.assertEqual((self.runtime.snapshot.count_minimum, self.runtime.snapshot.count_maximum), (1, 2))
+
+    def test_ambiguous_ble_keeps_owned_ap_proximity_without_body_vote(self):
+        config = configuration()
+        wifi = parse_configuration({"schema_version":1,"areas":{"alpha":"ground","beta":"upper"},
+            "sources":[{"source_id":"wifi","adapter":"wifi_tracker",
+                "entity_ids":["device_tracker.phone"],"identity":"person_a",
+                "options":{"device_id":"phone_a","ap_attribute":"ap",
+                    "ap_area_map":{"AP Beta":"beta"}}}]}).sources[0]
+        config = replace(config, sources=(*config.sources, wifi))
+        self.runtime = PresenceRuntime(config, now=lambda: at(self.second))
+        self.deliver("person.owner", "home", 0)
+        self.deliver("sensor.phone", "Alpha", 1)
+        self.second = 2
+        update = self.runtime.process(AdapterEnvelope("state", "device_tracker.phone", {
+            "state":"home","attributes":{"source_type":"router","ap":"AP Beta"}}, at(2), at(2)))
+        self.assertEqual(self.owner().location.area, "beta")
+        self.assertEqual(self.owner().location.method, "wifi_ap_proximity")
+        self.assertEqual(self.owner().location.quality, Quality.LOW)
+        self.assertIn("alpha", self.owner().candidate_areas)
+        self.assertFalse(update.snapshot.area_occupancies)
+        self.assertFalse(update.detections)
+        self.body("alpha", 3)
+        self.assertEqual(self.owner().location.area, "alpha")
+        self.assertNotEqual(self.owner().location.method, "wifi_ap_proximity")
 
     def test_room_fallback_rejects_body_conflict_missing_signal_and_restart(self):
         self.enable_room_fallback()

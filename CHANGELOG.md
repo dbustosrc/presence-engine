@@ -1,5 +1,11 @@
 # Historial de cambios
 
+## 0.5.31 — Referencias radio consistentes y coexistencia de estimaciones
+
+- Exige que dos mediciones BLE recientes del receptor del área superen consistentemente las bandas de otros receptores físicos frescos. Lecturas solapadas no trasladan una referencia débil por el mero cambio de etiqueta del dispositivo; se mantiene el respaldo de un solo receptor cuando no existen competidores válidos.
+- Un agregado anónimo de planta no borra una habitación posible ni renueva su reloj. Conserva la evidencia anónima y el intervalo de conteo cuando puede solaparse con una identidad doméstica; no identifica objetivos ni convierte radio en confirmación corporal.
+- Permite la proximidad Wi-Fi vinculada como respaldo débil de una identidad doméstica cuando BLE no aporta una habitación elegible. Conserva alternativas y la prioridad del cuerpo identificado, sin ocupar áreas ni emitir detecciones por estos respaldos.
+
 ## 0.5.30 — Proximidad estimada mediante dispositivos Wi-Fi vinculados
 
 - Conserva presencia doméstica inferida y una ubicación posible cerca del AP mapeado para un dispositivo Wi-Fi personal con propietario explícito, incluso sin Bermuda. La estimación es de confianza baja: no confirma una habitación, transporte del teléfono ni reconocimiento facial. Dispositivos sin propietario no crean personas; AP contradictorios conservan alternativas.
