@@ -359,3 +359,35 @@ se exige nueva co-localización corporal, aunque señales e imágenes se restaur
 `get_snapshot` y los diagnósticos incluyen `device_associations` para inspeccionar
 los vínculos. No se publican arrays de señal en entidades de alta frecuencia
 ni se generan avisos de reconocimiento por estas inferencias.
+
+## GPS y actividad de área (0.5.32)
+
+`gps_tracker` exige un `device_tracker` posicional con `source_type: gps`,
+latitud/longitud numéricas finitas y `gps_accuracy` en metros, según el contrato
+[oficial de Home Assistant](https://developers.home-assistant.io/docs/core/entity/device-tracker/).
+Campos: `options.device_id` (compartido por canales del mismo dispositivo),
+propietario explícito opcional y `options.timestamp_attribute` opcional para
+una hora ISO con zona horaria del proveedor. Sin ese atributo, el reloj es
+`last_updated` de HA y un cambio solo de metadatos no renueva la posición.
+Unidades de coordenadas: grados; precisión cero no implica medición perfecta.
+`expires_after_seconds` es configurable y por defecto 900: vence respecto de
+la medición original, incluso tras recepción tardía/restauración. No configure
+área, planta, cámara o cobertura: GPS doméstico no mide habitaciones. Una zona
+nativa exterior conserva la posición del dispositivo, no presencia en casa.
+Valores inválidos o sin precisión explícita retiran el soporte GPS sin tratar
+el dispositivo ausente como una avería de toda la casa. Diagnóstico `gps_sources`
+explica missing/invalid/stale/fresh, reloj, caducidad y precisión sin coordenadas.
+
+`auxiliary_activity` exige una única luz o reproductor y un área configurada;
+no admite identidad. `options.active_states` permite distinguir reproducción,
+encendido y pausa (por defecto on/playing; desconocido/indisponible nunca activa).
+`options.activity_origin`: unknown, independent o presence_derived; use el último
+para salidas de automatizaciones consumidoras y `dependency_group` para origen
+compartido. Es siempre contexto muy débil dentro de LOW: ni votos por cantidad,
+ni cuerpos, especie, reconocimiento o control físico. Una luz técnica/indicador
+sin actividad humana útil puede permanecer excluida; no se activan todas por
+su dominio. La ausencia de una persona no elimina `area_activity`.
+
+Ambas familias tienen formularios nativos equivalentes al contrato JSON,
+disponibilidad de observación (no infraestructura) y configuración por borrador.
+No se autovincula propiedad por nombre/IP ni se cambia el dispositivo físico.

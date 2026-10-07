@@ -10,6 +10,7 @@ from typing import Callable, Iterable, Mapping, Protocol
 from .model import (
     CONTRACT_VERSION,
     AreaOccupancy,
+    AreaActivity,
     CountClaim,
     DeviceState,
     DeviceHandoff,
@@ -305,7 +306,7 @@ class PresenceResolver:
             reasons.append("cross_area_population_overlap")
         continued=sum(person.status in {"continued", "device_carried_probable"} for person in people.values())
         weak=sum(person.status == "possible" and person.location is not None
-                 and person.location.method in {"wifi_connection", "wifi_ap_proximity"} for person in people.values())
+                 and person.location.method in {"wifi_connection", "wifi_ap_proximity", "gps_device_home"} for person in people.values())
         unlocated=sum(person.status != "continued" and person.location is not None
                       and (person.location.level is SpatialLevel.HOME
                            and not (person.status == "possible" and person.location.method == "wifi_connection")
@@ -338,7 +339,23 @@ class PresenceResolver:
             reasons=tuple(dict.fromkeys(reasons)),
             unavailable_source_ids=tuple(sorted(set(unavailable))),
             area_occupancies=occupancies,
+            area_activity=tuple(AreaActivity(area, max(o.location.observed_at for o in items),
+                tuple(sorted(o.source.source_id for o in items)),
+                tuple(sorted({o.source.dependency_group for o in items if o.source.dependency_group})),
+                tuple(sorted(o.source.source_id for o in items if o.source_diagnostics.get("presence_derived"))),
+                tuple(sorted(o.source.source_id for o in items if o.source_diagnostics.get("origin_unknown"))))
+                for area,items in sorted(self._activity_by_area(active, now).items())),
         )
+
+    @staticmethod
+    def _activity_by_area(observations, now):
+        result = {}
+        for item in observations:
+            if (item.source.family == "auxiliary_activity" and item.target_kind is TargetKind.DEVICE
+                    and item.identity is None and item.count is None and item.location and item.location.area
+                    and item.location.observed_at <= now and item.received_at <= now):
+                result.setdefault(item.location.area, []).append(item)
+        return result
 
     def _apply_device_handoffs(self, people: dict[str, _PersonCandidate], handoffs: tuple[DeviceHandoff, ...],
                               groups: tuple[_EvidenceGroup, ...], clears: tuple[Observation, ...],
@@ -629,7 +646,7 @@ class PresenceResolver:
     def _resolve_devices(self, observations: tuple[Observation, ...]) -> tuple[DeviceState, ...]:
         result=[]
         for item in observations:
-            if item.target_kind is not TargetKind.DEVICE:
+            if item.target_kind is not TargetKind.DEVICE or item.source.family == "auxiliary_activity":
                 continue
             location = item.location
             if (item.source.family == "wifi_tracker" and item.identity and location
@@ -647,6 +664,7 @@ class PresenceResolver:
                 network_attachment=item.network_attachment,
                 network_attachment_area=item.network_attachment_area,
                 network_attachment_observed_at=item.network_attachment_observed_at,
+                geographic_position=item.geographic_position,
             ))
         return tuple(sorted(result,key=lambda device:device.device_id))
 
@@ -704,7 +722,7 @@ class PresenceResolver:
             if item.target_kind is not TargetKind.DEVICE or item.identity is None:
                 continue
             identity=item.identity.value
-            if item.source.family == "wifi_tracker":
+            if item.source.family in {"wifi_tracker", "gps_tracker"}:
                 # Add provenance now; weak owner fallback follows stronger radios.
                 if identity in people:
                     people[identity].sources.add(item.source.source_id)
@@ -736,7 +754,8 @@ class PresenceResolver:
 
         for item in observations:
             if (item.target_kind is not TargetKind.DEVICE or item.identity is None
-                    or item.source.family != "wifi_tracker" or item.location is None):
+                    or item.source.family not in {"wifi_tracker", "gps_tracker"} or item.location is None
+                    or item.source.family == "gps_tracker" and item.location.level is not SpatialLevel.HOME):
                 continue
             identity = item.identity.value
             if identity in people:

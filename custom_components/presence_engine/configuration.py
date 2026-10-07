@@ -31,6 +31,7 @@ class AdapterType(str, Enum):
     BERMUDA_AREA = "bermuda_area"
     BERMUDA_SIGNAL = "bermuda_signal"
     WIFI_TRACKER = "wifi_tracker"
+    GPS_TRACKER = "gps_tracker"
     MTR_COUNT = "mtr_count"
     COUNT = "count"
     BINARY_PRESENCE = "binary_presence"
@@ -273,6 +274,32 @@ class SourceDefinition:
                             f"source {self.source_id} {option_name} must contain strings"
                         )
                     _require_entity_id(value)
+        if self.adapter is AdapterType.GPS_TRACKER:
+            object.__setattr__(self, "target_kind", TargetKind.DEVICE)
+            object.__setattr__(self, "spatial_quality", Quality.LOW)
+            if len(self.entity_ids) != 1 or not self.entity_ids[0].startswith("device_tracker."):
+                raise ConfigurationError("GPS source requires exactly one device_tracker")
+            if self.area or self.floor or self.camera_id or self.availability_role is AvailabilityRole.COVERAGE:
+                raise ConfigurationError("GPS device coordinates are not room geometry or coverage health")
+            _require_slug(self.options.get("device_id"), "device_id")
+            attribute = self.options.get("timestamp_attribute")
+            if attribute is not None and (not isinstance(attribute, str) or not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]{0,127}", attribute)
+                    or any(s in attribute.casefold() for s in ("token", "password", "secret", "url", "latitude", "longitude"))):
+                raise ConfigurationError("GPS timestamp attribute must be a safe explicit attribute name")
+            if self.expires_after_seconds is None:
+                object.__setattr__(self, "expires_after_seconds", 900)
+        if self.adapter is AdapterType.AUXILIARY_ACTIVITY:
+            object.__setattr__(self, "target_kind", TargetKind.DEVICE)
+            object.__setattr__(self, "spatial_quality", Quality.LOW)
+            if (len(self.entity_ids) != 1 or self.entity_ids[0].split(".")[0] not in {"light", "media_player"}
+                    or not self.area or self.identity or self.camera_id or self.availability_role is AvailabilityRole.COVERAGE):
+                raise ConfigurationError("Activity requires one light/media_player and an area, without identity or body coverage")
+            states = self.options.get("active_states", ("on", "playing"))
+            if not isinstance(states, (list, tuple)) or not states or any(
+                    not isinstance(s, str) or not s or s.casefold() in {"unknown", "unavailable", "none", "off", ""} for s in states):
+                raise ConfigurationError("Activity requires explicit positive states")
+            if self.options.get("activity_origin", "unknown") not in {"unknown", "independent", "presence_derived"}:
+                raise ConfigurationError("Unsupported activity provenance")
         if self.adapter is AdapterType.WIFI_TRACKER:
             if len(self.entity_ids) != 1 or not self.entity_ids[0].startswith("device_tracker."):
                 raise ConfigurationError("Wi-Fi source requires exactly one device_tracker")
@@ -389,6 +416,8 @@ class SourceDefinition:
             AdapterType.BERMUDA_AREA,
             AdapterType.BERMUDA_SIGNAL,
             AdapterType.WIFI_TRACKER,
+            AdapterType.GPS_TRACKER,
+            AdapterType.AUXILIARY_ACTIVITY,
             AdapterType.PERSON_HOME,
         }
 

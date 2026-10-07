@@ -6,7 +6,7 @@ from collections import defaultdict
 from typing import TYPE_CHECKING, Any, Mapping
 
 from .engine import AreaOccupancy, PresenceHypothesis, PresenceSnapshot, Quality, SpatialLevel, TargetKind
-from .projection import device_payload, image_payload
+from .projection import activity_payload, device_payload, image_payload
 
 if TYPE_CHECKING:
     from .runtime import ImageRecord
@@ -53,6 +53,7 @@ def public_presence_projection(
         "persons": persons,
         "presences": presences,
         "devices": [device_payload(device) for device in snapshot.devices],
+        "area_activity": activity_payload(snapshot),
         "unlocated_presences": [
             item for item in presences if not item["area"] and not item["scope"]
         ],

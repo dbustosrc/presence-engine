@@ -163,6 +163,30 @@ class ImageReference:
 
 
 @dataclass(frozen=True, slots=True)
+class GeographicPosition:
+    """A device coordinate/precision measurement, never a body's room."""
+
+    latitude: float
+    longitude: float
+    accuracy_m: float
+    observed_at: datetime
+    native_zone: str
+    clock_basis: str
+    timestamp_attribute: str | None = None
+
+    def __post_init__(self) -> None:
+        require_aware(self.observed_at, "GPS observed_at")
+        for value, minimum, maximum in ((self.latitude, -90, 90), (self.longitude, -180, 180),
+                                         (self.accuracy_m, 0, float("inf"))):
+            if type(value) not in (float, int) or not math.isfinite(value) or not minimum <= value <= maximum:
+                raise ValueError("GPS requires finite coordinates and nonnegative accuracy in metres")
+        if self.clock_basis not in {"ha_state_update", "provider_timestamp"}:
+            raise ValueError("unsupported GPS clock basis")
+        if not isinstance(self.native_zone, str) or not 0 < len(self.native_zone) <= 128:
+            raise ValueError("GPS zone must be bounded text")
+
+
+@dataclass(frozen=True, slots=True)
 class Observation:
     """One normalized source observation.
 
@@ -191,12 +215,17 @@ class Observation:
     network_attachment_area: str | None = None
     network_attachment_observed_at: datetime | None = None
     network_attachment_attribute: str | None = None
+    geographic_position: GeographicPosition | None = None
 
     def __post_init__(self) -> None:
         if not self.observation_id.strip():
             raise ValueError("observation_id is required")
         require_aware(self.received_at, "received_at")
         require_aware(self.detected_at, "detected_at")
+        if self.geographic_position is not None:
+            if (self.target_kind is not TargetKind.DEVICE or self.count is not None
+                    or self.geographic_position.observed_at > self.received_at):
+                raise ValueError("GPS measurement requires a device, no body count and a nonfuture clock")
         if self.network_attachment_observed_at is not None:
             require_aware(self.network_attachment_observed_at, "network attachment observed_at")
             if self.network_attachment_observed_at > self.received_at:
@@ -243,6 +272,24 @@ class DeviceState:
     network_attachment: str | None = None
     network_attachment_area: str | None = None
     network_attachment_observed_at: datetime | None = None
+    geographic_position: GeographicPosition | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AreaActivity:
+    """Positive context only; dependency never promotes it to a body vote."""
+
+    area: str
+    observed_at: datetime
+    source_ids: tuple[str, ...]
+    dependency_groups: tuple[str, ...] = ()
+    derived_source_ids: tuple[str, ...] = ()
+    unknown_origin_source_ids: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        require_aware(self.observed_at, "activity observed_at")
+        if not self.area or not self.source_ids:
+            raise ValueError("Activity requires an area and explicit sources")
 
 
 @dataclass(frozen=True, slots=True)
@@ -376,6 +423,7 @@ class PresenceSnapshot:
     reasons: tuple[str, ...] = ()
     unavailable_source_ids: tuple[str, ...] = ()
     area_occupancies: tuple[AreaOccupancy, ...] = ()
+    area_activity: tuple[AreaActivity, ...] = ()
 
     def __post_init__(self) -> None:
         require_aware(self.evaluated_at, "evaluated_at")

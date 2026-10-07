@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import Any, Mapping
 from urllib.parse import quote
 
@@ -64,6 +65,7 @@ def snapshot_payload(
             for presence in snapshot.presences
         ],
         "devices": [device_payload(device) for device in snapshot.devices],
+        "area_activity": activity_payload(snapshot),
     }
 
 
@@ -78,7 +80,19 @@ def device_payload(device: DeviceState) -> dict[str, Any]:
         "network_attachment_area": device.network_attachment_area,
         "network_attachment_observed_at": (device.network_attachment_observed_at.isoformat()
                                            if device.network_attachment_observed_at else None),
+        **({"geographic_position":{**asdict(device.geographic_position),
+            "observed_at":device.geographic_position.observed_at.isoformat(),
+            "coordinate_unit":"degrees", "accuracy_unit":"m", "device_only":True}}
+            if device.geographic_position else {}),
     }
+
+
+def activity_payload(snapshot: PresenceSnapshot) -> list[dict[str, Any]]:
+    return [{"area":a.area, "observed_at":a.observed_at.isoformat(), "sources":list(a.source_ids),
+        "dependency_groups":list(a.dependency_groups), "derived_sources":list(a.derived_source_ids),
+        "unknown_origin_sources":list(a.unknown_origin_source_ids), "confidence":"low",
+        "confidence_basis":"context_only", "identity":None, "body_count":None}
+        for a in snapshot.area_activity]
 
 
 def detection_payload(detection: DetectionResult) -> dict[str, Any]:

@@ -93,6 +93,8 @@ class PresenceRuntime:
         self._store = EvidenceStore(max_records=max_records)
         self._wifi_source_ids = {source.source_id for source in configuration.sources
                                  if source.enabled and source.adapter is AdapterType.WIFI_TRACKER}
+        self._gps_source_ids = {source.source_id for source in configuration.sources
+                                if source.enabled and source.adapter is AdapterType.GPS_TRACKER}
         self._signal_definitions = {source.source_id: source for source in configuration.sources
                                     if source.enabled and source.adapter is AdapterType.BERMUDA_SIGNAL}
         self._association_enabled = any(s.enabled and s.adapter is AdapterType.BERMUDA_AREA and s.identity
@@ -177,6 +179,10 @@ class PresenceRuntime:
                 if adapter.source_id in self._wifi_source_ids:
                     saved = self._store.get(adapter.source_id, adapter.source_id)
                     if not adapter.restore_wifi_observation(saved.observation if saved else None):
+                        changed = bool(self._store.remove_source(adapter.source_id)) or changed
+                if adapter.source_id in self._gps_source_ids:
+                    saved = self._store.get(adapter.source_id, adapter.source_id)
+                    if not adapter.restore_gps_observation(saved.observation if saved else None):
                         changed = bool(self._store.remove_source(adapter.source_id)) or changed
                 result = adapter.parse(envelope)
             except (KeyError, TypeError, ValueError) as err:
@@ -377,11 +383,11 @@ class PresenceRuntime:
         """Return the earliest future expiration of active evidence."""
         now = self._now()
         expirations = [
-            observation.received_at + lifetime
+            self._expiration_clock(observation) + lifetime
             for observation in self._store.active()
             if (lifetime := self._source_expirations.get(observation.source.source_id))
             is not None
-            and observation.received_at + lifetime > now
+            and self._expiration_clock(observation) + lifetime > now
         ]
         expirations.extend(
             p.last_location.observed_at + self._resolver_config.previous_continuity_window
@@ -547,9 +553,15 @@ class PresenceRuntime:
                     continue
                 if not self._observation_matches_camera_admission(observation):
                     continue
+                if observation.source.family == "auxiliary_activity":
+                    continue  # Live baseline requalifies current area/states/dependencies after reload.
                 if observation.source.source_id in self._wifi_source_ids:
                     adapter = next(a for a in self._adapters if a.source_id == observation.source.source_id)
                     if not adapter.restore_wifi_observation(observation):
+                        continue
+                if observation.source.source_id in self._gps_source_ids:
+                    adapter = next(a for a in self._adapters if a.source_id == observation.source.source_id)
+                    if not adapter.restore_gps_observation(observation):
                         continue
                 self._store.upsert(observation)
             except (KeyError, TypeError, ValueError):
@@ -726,6 +738,25 @@ class PresenceRuntime:
                  "person_association": "probable" if any(p.identity == key[0]
                      and p.location_status == "device_carried_probable" for p in self.snapshot.presences) else "not_confirmed"})
         return records
+
+    def gps_status_payload(self) -> list[dict]:
+        """Coordinate-free health, precision and original measurement clocks."""
+        result = []
+        for d in self.configuration.sources:
+            if not d.enabled or d.source_id not in self._gps_source_ids:
+                continue
+            stored = self._store.get(d.source_id, d.source_id)
+            o = stored.observation if stored else None
+            p = o.geographic_position if o else None
+            status = "invalid" if d.source_id in self._failures else "missing" if p is None else (
+                "fresh" if self._is_current(o, self._now()) else "stale")
+            result.append({"source_id":d.source_id, "device_id":d.options["device_id"], "identity":d.identity,
+                "status":status, "coordinates_available":p is not None, "accuracy_m":p.accuracy_m if p else None,
+                "accuracy_specified":p.accuracy_m > 0 if p else False, "accuracy_unit":"m", "coordinate_unit":"degrees",
+                "observed_at":p.observed_at.isoformat() if p else None, "clock_basis":p.clock_basis if p else None,
+                "timestamp_attribute":d.options.get("timestamp_attribute"),
+                "expires_at":(p.observed_at + self._source_expirations[d.source_id]).isoformat() if p else None})
+        return result
 
     def _build_adapters(self) -> tuple[SourceAdapter, ...]:
         adapters: list[SourceAdapter] = []
@@ -1031,7 +1062,12 @@ class PresenceRuntime:
 
     def _is_current(self, observation: Observation, now: datetime) -> bool:
         lifetime = self._source_expirations.get(observation.source.source_id)
-        return lifetime is None or now < observation.received_at + lifetime
+        clock = self._expiration_clock(observation)
+        return (observation.geographic_position is None or clock <= now) and (lifetime is None or now < clock + lifetime)
+
+    @staticmethod
+    def _expiration_clock(observation: Observation) -> datetime:
+        return observation.geographic_position.observed_at if observation.geographic_position else observation.received_at
 
     def _current_freshness_signature(self, now: datetime) -> tuple[tuple[str, str], ...]:
         return tuple(

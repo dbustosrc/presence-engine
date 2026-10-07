@@ -78,7 +78,19 @@ inferred, not physical room measurements or additional confirmed bodies.
 Auxiliary area activity has no individual identity or implied body count.
 AP fallback is implemented in 0.5.30 using `wifi_ap_proximity`/`wifi_connection`,
 quality `low` and status `possible`; no new serialized fields or confidence
-enum values. Auxiliary area activity and confidence combinations remain pending.
+enum values. From 0.5.32, `area_activity` separately projects light/media context
+with low/context-only confidence, clocks and dependency provenance. It never
+creates identities, species, detections, physical occupancy or counts. Stronger
+confidence combinations remain separate acceptance work.
+
+GPS `GeographicPosition` belongs only to DEVICE observations/states. Coordinates
+are finite degrees in latitude/longitude ranges, accuracy is metres (zero is
+unspecified, not perfect precision), with original aware clocks and native zone.
+GPS `home` permits only a low possible owner/home estimate, not a room or a
+minimum confirmed body. Away/named-zone coordinates remain device facts and do
+not move or erase an identified body. Measurement expiry is fixed to the GPS
+clock, not arrival/restart time; metadata-only updates cannot renew a fix.
+Diagnostics redact coordinate values and report source freshness/accuracy.
 
 Counts are closed intervals. Exact values use the same minimum and maximum;
 uncertain correlation preserves the wider interval rather than inventing or

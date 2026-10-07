@@ -7,6 +7,11 @@ private installation corpus belongs outside this repository.
 This table records existing executable coverage. The
 [evidence policy](evidence-policy.md) also requires pending cases for reviewed
 auxiliary area activity, feedback exclusion and confidence combinations.
+GPS/activity contracts are covered from 0.5.32 by `test_gps_activity` and native
+configuration/privacy checks: invalid/missing/late/future GPS, device-only
+home/outside, fixed measurement expiry and restart, light/media without bodies,
+dependency provenance and no promotion of count/identity/location confidence.
+These checks do not claim physical acceptance of new confidence combinations.
 Version 0.5.30 covers weak owned AP proximity, unowned endpoints, unmapped/conflicting
 APs, facial precedence, disconnect/restart and fixed-clock fallback in
 `test_wifi_tracker.py`. Historical fixture inputs remain unchanged.

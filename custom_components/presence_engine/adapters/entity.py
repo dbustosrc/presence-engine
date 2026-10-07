@@ -17,6 +17,7 @@ from ..configuration import AdapterType, CameraDefinition, SourceDefinition
 from ..engine import (
     CountClaim,
     DeviceSignalSample,
+    GeographicPosition,
     IdentityClaim,
     Observation,
     ObservationStatus,
@@ -135,6 +136,7 @@ class EntityStateAdapter:
         self._definition = definition
         self._entities = frozenset(definition.entity_ids)
         self._wifi_observation: Observation | None = None
+        self._gps_observation: Observation | None = None
 
     def accepts(self, envelope: AdapterEnvelope) -> bool:
         return envelope.channel_type == "state" and envelope.channel in self._entities
@@ -146,6 +148,8 @@ class EntityStateAdapter:
             return AdapterResult(radar_signals=(radar_sample(self._definition, envelope),))
         if self._definition.adapter is AdapterType.WIFI_TRACKER:
             return self._wifi_tracker(envelope, normalized)
+        if self._definition.adapter is AdapterType.GPS_TRACKER:
+            return self._gps_tracker(envelope, state)
         if self._definition.adapter is AdapterType.BERMUDA_SIGNAL:
             return self._device_signal(envelope, state)
         if self._definition.adapter is AdapterType.SOURCE_HEALTH:
@@ -164,8 +168,74 @@ class EntityStateAdapter:
         if self._definition.adapter is AdapterType.PERSON_HOME:
             return self._person_home(envelope, normalized)
         if self._definition.adapter is AdapterType.AUXILIARY_ACTIVITY:
-            return AdapterResult(ignored=True)
+            active = normalized in {s.casefold() for s in self._definition.options.get("active_states", ("on", "playing"))}
+            origin = self._definition.options.get("activity_origin", "unknown")
+            item = self._observation(envelope, kind=TargetKind.DEVICE, identity=None, count=None, active=active,
+                location=replace(self._configured_location(envelope.observed_at), method="auxiliary_activity", quality=Quality.LOW))
+            return AdapterResult(observations=(replace(item, classification=envelope.channel.split(".")[0],
+                source_diagnostics={"presence_derived":origin == "presence_derived", "origin_unknown":origin == "unknown"},
+                revisions={**item.revisions, RevisionDimension.DIAGNOSTICS:RevisionStamp(
+                    int(envelope.observed_at.timestamp()*1_000_000), envelope.observed_at)}),))
         raise ValueError(f"unsupported entity adapter: {self._definition.adapter.value}")
+
+    def restore_gps_observation(self, observation: Observation | None) -> bool:
+        """Deduplicate only a saved device measurement with the current binding."""
+        self._gps_observation = None
+        if observation is None:
+            return True
+        d = self._definition
+        p = observation.geographic_position
+        if (observation.source.family != "gps_tracker" or observation.target_kind is not TargetKind.DEVICE
+                or observation.observation_id != self.source_id or observation.target_id != d.options["device_id"]
+                or observation.source.native_id not in self._entities or p is None
+                or p.timestamp_attribute != d.options.get("timestamp_attribute")
+                or observation.status is not ObservationStatus.ACTIVE or observation.location is None
+                or observation.location.level is not (SpatialLevel.HOME if p.native_zone.casefold() == "home" else SpatialLevel.UNKNOWN)
+                or observation.location.area is not None or observation.location.floor is not None or observation.location.candidates
+                or observation.location.method != ("gps_device_home" if p.native_zone.casefold() == "home" else "gps_device_position")
+                or observation.location.observed_at != p.observed_at or observation.detected_at != p.observed_at
+                or (observation.identity.value if observation.identity else None) != d.identity
+                or observation.count is not None or observation.event_id is not None or observation.image is not None):
+            return False
+        self._gps_observation = observation
+        return True
+
+    def _gps_tracker(self, envelope: AdapterEnvelope, state: str) -> AdapterResult:
+        if state.casefold() in INVALID_STATES:
+            self._gps_observation = None
+            return AdapterResult(remove_source_ids=(self.source_id,), source_availability=(SourceAvailability(self.source_id, False),))
+        a = envelope.payload.get("attributes", {})
+        if not isinstance(a, Mapping) or a.get("source_type") != "gps" or a.get("tracking_type") == "connection":
+            raise ValueError("GPS requires a position tracker, not a connection or a label-only tracker")
+        updated = _state_time(envelope.payload, "last_updated", envelope.observed_at)
+        require_aware(updated, "GPS state update")
+        attribute = self._definition.options.get("timestamp_attribute")
+        value = a.get(attribute) if attribute else updated
+        observed = value if isinstance(value, datetime) else datetime.fromisoformat(value) if isinstance(value, str) else None
+        if observed is None:
+            raise ValueError("GPS provider timestamp must be an explicit timezone-aware ISO timestamp")
+        require_aware(observed, "GPS measurement")
+        if observed > updated or updated > envelope.received_at:
+            raise ValueError("GPS clocks are inconsistent or in the future")
+        p = GeographicPosition(a.get("latitude"), a.get("longitude"), a.get("gps_accuracy"), observed,
+            state, "provider_timestamp" if attribute else "ha_state_update", attribute)
+        prior = self._gps_observation
+        if prior and (observed <= prior.geographic_position.observed_at or not attribute and (
+                p.latitude, p.longitude, p.accuracy_m, p.native_zone) == (
+                prior.geographic_position.latitude, prior.geographic_position.longitude,
+                prior.geographic_position.accuracy_m, prior.geographic_position.native_zone)):
+            return AdapterResult(ignored=True)  # Metadata updates do not renew a position fix.
+        identity = IdentityClaim(self._definition.identity, observed, "registered_device_owner", Quality.HIGH) if self._definition.identity else None
+        location = SpatialClaim(SpatialLevel.HOME if state.casefold() == "home" else SpatialLevel.UNKNOWN,
+            observed, method="gps_device_home" if state.casefold() == "home" else "gps_device_position", quality=Quality.LOW)
+        item = self._observation(replace(envelope, observed_at=observed), kind=TargetKind.DEVICE,
+            identity=identity, location=location, count=None, active=True)
+        item = replace(item, target_id=self._definition.options["device_id"], geographic_position=p,
+            source_diagnostics={"accuracy_unspecified":p.accuracy_m == 0, "provider_clock":bool(attribute)},
+            revisions={**item.revisions, **{dimension:RevisionStamp(int(observed.timestamp()*1_000_000), observed)
+                for dimension in (RevisionDimension.EVENT_TIME, RevisionDimension.DIAGNOSTICS)}})
+        self._gps_observation = item
+        return AdapterResult(observations=(item,), source_availability=(SourceAvailability(self.source_id, True),))
 
     def restore_wifi_observation(self, observation: Observation | None) -> bool:
         """Seed semantic deduplication only when the saved binding still matches."""

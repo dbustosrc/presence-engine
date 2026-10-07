@@ -149,6 +149,9 @@
           "identity_map": "Nombres de rostros e identidades",
           "area_map": "Nombres Bermuda y áreas",
           "device_id": "ID del dispositivo (igual para sus señales)",
+          "timestamp_attribute": "Atributo de hora GPS del proveedor (ISO con zona horaria; opcional)",
+          "active_states": "Estados positivos de actividad (sin implicar personas)",
+          "activity_origin": "Procedencia de la actividad (nunca es voto corporal)",
           "ap_attribute": "Atributo del tracker con el AP actual (opcional)",
           "ap_area_map": "Puntos de acceso y sus áreas (conexión, no habitación de la persona)",
           "receiver_id": "ID del receptor (igual para sus señales)",
@@ -265,6 +268,9 @@
         "bermuda_area": "Área Bermuda",
         "bermuda_signal": "Señal de receptor BLE (no es presencia)",
         "wifi_tracker": "Dispositivo Wi-Fi / conexión AP (no ubicación corporal)",
+        "gps_tracker": "Posición GPS del dispositivo (no habitación corporal)",
+        "independent": "Entrada de actividad independiente",
+        "presence_derived": "Derivada de presencia o automatización consumidora",
         "rssi": "RSSI",
         "distance": "Distancia filtrada",
         "distance_unfiltered": "Distancia sin filtrar",
@@ -272,7 +278,7 @@
         "count": "Contador",
         "binary_presence": "Presencia binaria",
         "person_home": "Persona en casa",
-        "auxiliary_activity": "Actividad auxiliar",
+        "auxiliary_activity": "Actividad de luces/multimedia (no presencia)",
         "source_health": "Salud de infraestructura"
       }
     }

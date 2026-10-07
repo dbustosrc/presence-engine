@@ -219,7 +219,7 @@ class PresenceEngineConfigFlow(ConfigFlow, domain=DOMAIN):
         descriptors = self._descriptors()
         entities = sorted({item.entity_id for item in descriptors if item.stable_key in bindings} | {
             entity_id for source in self._draft["sources"]
-            if source.get("identity") == self._key and source["adapter"] in {"person_home", "bermuda_area", "wifi_tracker"}
+            if source.get("identity") == self._key and source["adapter"] in {"person_home", "bermuda_area", "wifi_tracker", "gps_tracker"}
             for entity_id in source.get("entity_ids", [])
         })
         face_names = set()
@@ -256,7 +256,7 @@ class PresenceEngineConfigFlow(ConfigFlow, domain=DOMAIN):
                 raise ConfigurationError("All bindings must use this identity ID")
             draft["identities"].update(supplied)
             for source in draft["sources"]:
-                if source["adapter"] in {"person_home", "bermuda_area", "wifi_tracker"}:
+                if source["adapter"] in {"person_home", "bermuda_area", "wifi_tracker", "gps_tracker"}:
                     channel_entities = set(source.get("entity_ids", []))
                     if channel_entities & selected:
                         if not channel_entities <= selected:
@@ -330,17 +330,22 @@ class PresenceEngineConfigFlow(ConfigFlow, domain=DOMAIN):
             _field(schema, "topics", _text(multiple=True), values, required=True, default=[topic])
         else:
             entity_control = {"multiple": True}
-            if adapter == "wifi_tracker":
+            if adapter in {"wifi_tracker", "gps_tracker"}:
                 entity_control["domain"] = "device_tracker"
+            if adapter == "auxiliary_activity":
+                entity_control["domain"] = ["light", "media_player"]
             _field(schema, "entity_ids", selector({"entity": entity_control}), values, required=True, default=[])
         for field, values_select in (("area", self._areas()), ("floor", self._floors()), ("identity", self._identities()), ("camera_id", list(self._draft["cameras"]))):
-            if adapter == "wifi_tracker" and field != "identity":
+            if adapter in {"wifi_tracker", "gps_tracker"} and field != "identity":
                 continue
-            _field(schema, field, _select(values_select, custom=field == "identity"), values)
+            if adapter == "auxiliary_activity" and field in {"identity", "camera_id"}:
+                continue
+            _field(schema, field, _select(values_select, custom=field == "identity"), values,
+                   required=adapter == "auxiliary_activity" and field == "area")
         for field, choices, default in (("target_kind", [item.value for item in TargetKind], "unknown_living"),
                                          ("spatial_quality", [item.value for item in Quality], "unknown"),
                                          ("availability_role", ["auto", "coverage", "observation"], "auto")):
-            if adapter == "wifi_tracker":
+            if adapter in {"wifi_tracker", "gps_tracker", "auxiliary_activity"}:
                 continue
             _field(schema, field, _select(choices), values, default=default)
         for field in ("dependency_group", "coverage_group"):
@@ -359,6 +364,13 @@ class PresenceEngineConfigFlow(ConfigFlow, domain=DOMAIN):
         if adapter == "wifi_tracker":
             option_fields = {"device_id": _text(), "ap_attribute": _text(),
                              "ap_area_map": _mapping({}, {"select": {"options": self._areas()}})}
+        if adapter == "gps_tracker":
+            option_fields = {"device_id":_text(), "timestamp_attribute":_text()}
+        if adapter == "auxiliary_activity":
+            option_fields = {"active_states":_text(multiple=True),
+                "activity_origin":_select(["unknown", "independent", "presence_derived"])}
+            options.setdefault("active_states", ["on", "playing"])
+            options.setdefault("activity_origin", "unknown")
         if adapter == "bermuda_signal":
             option_fields = {"device_id": _text(), "receiver_id": _text(),
                              "metric": _select(["rssi", "distance", "distance_unfiltered"]),
@@ -395,7 +407,7 @@ class PresenceEngineConfigFlow(ConfigFlow, domain=DOMAIN):
                 value = mapping_rows({key: value if value is not None else "" for key, value in (value or {}).items()})
             required = field in {"recognition_threshold", "total_entity_id"} or (
                 adapter == "bermuda_signal" and field in {"device_id", "receiver_id", "metric"}) or (
-                adapter == "wifi_tracker" and field == "device_id")
+                adapter in {"wifi_tracker", "gps_tracker"} and field == "device_id")
             _field(schema, field, control, {field: value}, required=required)
         _group(schema, "advanced_source", {"target_kind", "spatial_quality", "availability_role", "dependency_group", "coverage_group", "expires_after_seconds", "location_method", "target_id"})
         if adapter in {"mtr_count", "binary_presence", "count"}:
@@ -407,7 +419,7 @@ class PresenceEngineConfigFlow(ConfigFlow, domain=DOMAIN):
             changes = {"adapter": adapter, "enabled": data["enabled"]}
             for field in ("area", "floor", "identity", "camera_id", "dependency_group", "coverage_group", "expires_after_seconds", "target_kind", "spatial_quality", "availability_role"):
                 changes[field] = data.get(field) or None
-            if adapter == "wifi_tracker":
+            if adapter in {"wifi_tracker", "gps_tracker", "auxiliary_activity"}:
                 changes.update(target_kind="device", spatial_quality="low", availability_role="observation")
             if mqtt_source:
                 changes["topics"] = data["topics"]

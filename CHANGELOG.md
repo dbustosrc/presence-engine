@@ -1,5 +1,11 @@
 # Historial de cambios
 
+## 0.5.32 — GPS de dispositivos y actividad de área independiente del conteo
+
+- Normaliza coordenadas GPS, precisión en metros, zona nativa y relojes del dispositivo. Un dato doméstico permite solo una estimación personal débil; coordenadas exteriores no trasladan ni borran un cuerpo identificado. Valores inválidos, caducidad, recepción atrasada y restauración conservan límites explícitos sin convertir GPS en una habitación.
+- Expone actividad de luces y multimedia por área, con procedencia y dependencia, separada de personas, especies, conteos, reconocimiento y seguimiento físico. Varias señales débiles o derivadas de automatizaciones no crean votos corporales ni aumentan confianza por cantidad.
+- Añade configuración gráfica para ambas familias, diagnósticos GPS sin coordenadas y pruebas de compatibilidad/privacidad. Conserva identidad/dispositivo/cuerpo separados y las ventanas de asociación existentes; no activa fuentes ni modifica dispositivos automáticamente.
+
 ## 0.5.31 — Referencias radio consistentes y coexistencia de estimaciones
 
 - Exige que dos mediciones BLE recientes del receptor del área superen consistentemente las bandas de otros receptores físicos frescos. Lecturas solapadas no trasladan una referencia débil por el mero cambio de etiqueta del dispositivo; se mantiene el respaldo de un solo receptor cuando no existen competidores válidos.

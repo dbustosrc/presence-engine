@@ -2,8 +2,10 @@
 
 Política acordada para la siguiente implementación. Este documento define el
 comportamiento objetivo; no afirma que esté disponible en una versión publicada.
-La estimación AP débil está implementada en 0.5.30; actividad auxiliar y
-combinaciones de corroboración adicionales siguen pendientes.
+La estimación AP débil está implementada en 0.5.30. Desde 0.5.32, GPS se
+normaliza como posición del dispositivo y la actividad auxiliar se expone
+separada del conteo corporal. Combinaciones de corroboración adicionales
+y su aceptación física siguen en la matriz, no se dan por completadas aquí.
 Los contratos versionados, fixtures y pruebas existentes describen sus versiones
 reales. La implementación y aceptación pendientes se mantienen en el plan actual.
 

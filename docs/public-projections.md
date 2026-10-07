@@ -2,8 +2,13 @@
 
 The [evidence policy](evidence-policy.md) defines the agreed next behavior.
 The versioned projection contracts below describe implemented behavior;
-Weak AP proximity is implemented from 0.5.30; separate auxiliary activity and
-stronger confidence combinations remain pending.
+Weak AP proximity is implemented from 0.5.30. From 0.5.32, `devices` may include
+`geographic_position` (device-only coordinates, accuracy, original clock and
+native zone); coordinates are redacted in diagnostics. `area_activity` lists
+light/media area context, source/dependency provenance and low/context-only
+confidence, with no implied individual or body count. It is separate from
+`active_areas` and physical occupancy so it cannot become a PTZ vote. Additional
+confidence combinations and physical acceptance remain separate work.
 
 Version 0.4.9 keeps the validated projections as stable public entities.
 Every projection is derived from the same canonical snapshot revision. An

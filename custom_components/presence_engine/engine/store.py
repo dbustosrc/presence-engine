@@ -243,7 +243,7 @@ class EvidenceStore:
             RevisionDimension.IDENTITY: observation.identity,
             RevisionDimension.LOCATION: (observation.location, observation.network_attachment,
                 observation.network_attachment_area, observation.network_attachment_observed_at,
-                observation.network_attachment_attribute),
+                observation.network_attachment_attribute, observation.geographic_position),
             RevisionDimension.CLASSIFICATION: (observation.target_kind,observation.classification),
             RevisionDimension.COUNT: observation.count,
             RevisionDimension.LIFECYCLE: (observation.status,observation.active_since,observation.ended_at),
@@ -264,7 +264,8 @@ class EvidenceStore:
             return {"location": incoming.location, "network_attachment": incoming.network_attachment,
                     "network_attachment_area": incoming.network_attachment_area,
                     "network_attachment_attribute": incoming.network_attachment_attribute,
-                    "network_attachment_observed_at": incoming.network_attachment_observed_at}
+                    "network_attachment_observed_at": incoming.network_attachment_observed_at,
+                    "geographic_position":incoming.geographic_position}
         if dimension is RevisionDimension.CLASSIFICATION:
             return {
                 "target_kind": incoming.target_kind,

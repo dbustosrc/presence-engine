@@ -230,6 +230,37 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
             result = await self.flow.async_step_source_edit()
             convert(result["data_schema"], custom_serializer=custom_serializer)
 
+    async def test_gps_and_activity_forms_match_contract_without_json(self):
+        self.flow._draft = {**deepcopy(EMPTY_CONFIGURATION), "areas":{"alpha":"ground"},
+                            "identities":{"identity:owner":"owner"}}
+        self.flow._areas = lambda:["alpha"]
+        self.flow._floors = lambda:["ground"]
+        self.flow._identities = lambda:["owner"]
+        for adapter, values in (
+            ("gps_tracker", {"id":"gps_a","enabled":True,"entity_ids":["device_tracker.phone"],
+                "identity":"owner","device_id":"phone","timestamp_attribute":"last_seen",
+                "advanced_source":{"expires_after_seconds":60}}),
+            ("auxiliary_activity", {"id":"activity_a","enabled":True,"entity_ids":["media_player.tv"],
+                "area":"alpha","active_states":["playing"],"activity_origin":"presence_derived"})):
+            self.flow._key=""; self.flow._adapter=adapter
+            shown=await self.flow.async_step_source_edit()
+            convert(shown["data_schema"],custom_serializer=custom_serializer)
+            filled=shown["data_schema"](values)
+            result=await self.flow.async_step_source_edit(filled)
+            self.assertFalse(result.get("errors"),result)
+            stored=next(s for s in self.flow._draft["sources"] if s["source_id"]==values["id"])
+            self.assertEqual(stored["availability_role"],"observation")
+            self.assertEqual(stored["target_kind"],"device")
+            self.assertEqual(stored["spatial_quality"],"low")
+            if adapter=="gps_tracker":
+                self.assertEqual(stored["options"]["timestamp_attribute"],"last_seen")
+            else:
+                self.assertEqual(stored["options"]["active_states"],["playing"])
+            self.flow._key=values["id"]
+            shown=await self.flow.async_step_source_edit()
+            result=await self.flow.async_step_source_edit(shown["data_schema"]({}))
+            self.assertFalse(result.get("errors"),result)
+
     async def test_registry_bridge_reads_only_capability_metadata(self):
         from homeassistant.helpers import device_registry as dr, entity_registry as er
         from homeassistant.core import State
@@ -326,6 +357,36 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(runtime.engine.snapshot.count_maximum, 0)
         diagnostic = await async_get_config_entry_diagnostics(hass, entry)
         self.assertEqual(diagnostic["snapshot"]["devices"][0]["network_attachment"], "[redacted]")
+
+    async def test_native_gps_and_activity_publish_separate_facts_with_redacted_diagnostics(self):
+        from presence_engine.configuration import parse_configuration
+        from presence_engine.diagnostics import async_get_config_entry_diagnostics
+        from homeassistant.core import State
+        from homeassistant.util import dt as dt_util
+        configuration=parse_configuration({"schema_version":1,"areas":{"alpha":"ground"},"sources":[
+            {"source_id":"gps","adapter":"gps_tracker","entity_ids":["device_tracker.phone"],
+                "identity":"owner","options":{"device_id":"phone"}},
+            {"source_id":"activity","adapter":"auxiliary_activity","entity_ids":["light.lamp"],
+                "area":"alpha","options":{"activity_origin":"presence_derived"}}]})
+        hass=HomeAssistant("/tmp/presence-engine-no-io")
+        entry=catalogue_entry()
+        runtime=HomeAssistantPresenceRuntime(hass,entry,configuration,max_records=2000,save_delay_seconds=15)
+        entry.runtime_data=runtime
+        runtime._store=Mock(async_save=AsyncMock())
+        runtime._reschedule_expiration=Mock()
+        now=dt_util.utcnow()
+        await runtime._async_process_state("device_tracker.phone",State("device_tracker.phone","home",
+            {"source_type":"gps","latitude":10.0,"longitude":20.0,"gps_accuracy":100,"access_token":"fixture-secret"},
+            last_changed=now,last_updated=now))
+        await runtime._async_process_state("light.lamp",State("light.lamp","on",last_changed=now,last_updated=now))
+        self.assertEqual((runtime.coordinator.data.count_minimum,runtime.coordinator.data.count_maximum),(0,1))
+        self.assertFalse(runtime.coordinator.data.area_occupancies)
+        self.assertEqual(runtime.coordinator.data.area_activity[0].derived_source_ids,("activity",))
+        diagnostic=await async_get_config_entry_diagnostics(hass,entry)
+        geo=diagnostic["snapshot"]["devices"][0]["geographic_position"]
+        self.assertEqual((geo["latitude"],geo["longitude"]),("[redacted]","[redacted]"))
+        self.assertEqual(diagnostic["gps_sources"][0]["accuracy_unit"],"m")
+        self.assertNotIn("fixture-secret",str(diagnostic))
 
     async def test_native_radio_handoff_publishes_only_semantic_change_without_detection(self):
         from test_device_association import DeviceAssociationTests

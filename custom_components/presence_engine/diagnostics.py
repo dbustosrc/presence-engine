@@ -20,6 +20,9 @@ async def async_get_config_entry_diagnostics(
     for device in snapshot["devices"]:
         if device["network_attachment"] is not None:
             device["network_attachment"] = "[redacted]"
+        if device.get("geographic_position"):
+            for key in ("latitude", "longitude"):
+                device["geographic_position"][key] = "[redacted]"
     return {
         "configuration": {
             "schema_version": configuration.schema_version,
@@ -40,6 +43,7 @@ async def async_get_config_entry_diagnostics(
         "device_signal_histories": runtime.engine.signal_history_payload(),
         "radar_signal_histories": runtime.engine.radar_history_payload(),
         "device_associations": runtime.engine.device_association_payload(),
+        "gps_sources":runtime.engine.gps_status_payload(),
         "event_diagnostics": [
             {
                 "detection_id": item["event_id"],

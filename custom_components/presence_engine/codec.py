@@ -9,6 +9,7 @@ from typing import Any, Mapping
 from .engine import (
     CountClaim,
     DeviceSignalSample,
+    GeographicPosition,
     IdentityClaim,
     ImageReference,
     Observation,
@@ -60,6 +61,8 @@ def encode_observation(value: Observation) -> dict[str, Any]:
         "network_attachment_area": value.network_attachment_area,
         "network_attachment_observed_at": _time(value.network_attachment_observed_at),
         "network_attachment_attribute": value.network_attachment_attribute,
+        "geographic_position": ({**asdict(value.geographic_position), "observed_at":value.geographic_position.observed_at.isoformat()}
+                                if value.geographic_position else None),
         "active_since": _time(value.active_since),
         "ended_at": _time(value.ended_at),
         "revisions": {
@@ -100,6 +103,8 @@ def decode_observation(raw: Mapping[str, Any]) -> Observation:
         network_attachment_area=_optional_text(raw.get("network_attachment_area")),
         network_attachment_observed_at=_optional_datetime(raw.get("network_attachment_observed_at")),
         network_attachment_attribute=_optional_text(raw.get("network_attachment_attribute")),
+        geographic_position=(GeographicPosition(**{**raw["geographic_position"],
+            "observed_at":_datetime(raw["geographic_position"]["observed_at"])}) if raw.get("geographic_position") else None),
         active_since=_optional_datetime(raw.get("active_since")),
         ended_at=_optional_datetime(raw.get("ended_at")),
         revisions={
