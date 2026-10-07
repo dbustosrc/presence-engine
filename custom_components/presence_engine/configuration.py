@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+import math
 import re
 from types import MappingProxyType
 from typing import Any, Mapping
@@ -286,6 +287,11 @@ class SourceDefinition:
             if attribute is not None and (not isinstance(attribute, str) or not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]{0,127}", attribute)
                     or any(s in attribute.casefold() for s in ("token", "password", "secret", "url", "latitude", "longitude"))):
                 raise ConfigurationError("GPS timestamp attribute must be a safe explicit attribute name")
+            high = self.options.get("high_accuracy_m", 50)
+            medium = self.options.get("medium_accuracy_m", 200)
+            if (any(type(v) not in (int, float) or not math.isfinite(v) for v in (high, medium))
+                    or not 0 < high <= medium):
+                raise ConfigurationError("GPS accuracy bands must be finite positive ordered metres")
             if self.expires_after_seconds is None:
                 object.__setattr__(self, "expires_after_seconds", 900)
         if self.adapter is AdapterType.AUXILIARY_ACTIVITY:

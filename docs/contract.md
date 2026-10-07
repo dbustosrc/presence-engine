@@ -91,6 +91,14 @@ minimum confirmed body. Away/named-zone coordinates remain device facts and do
 not move or erase an identified body. Measurement expiry is fixed to the GPS
 clock, not arrival/restart time; metadata-only updates cannot renew a fix.
 Diagnostics redact coordinate values and report source freshness/accuracy.
+From 0.5.33, geographic confidence is separate from personal/room confidence:
+reported error bands default to 50/200 metres, configurable; provider-clock
+exterior fixes may be high/medium, HA-clock fixes at most medium, home low,
+zero precision unknown. This grades the fix at its original clock, not the
+owner's current location. Expired diagnostics are unknown; changing bands
+rejects an incompatible saved fix and reparses the live HA baseline without
+renewing measurement time. Missing
+position fields withdraw only device support, never prove a bodily exit.
 
 Counts are closed intervals. Exact values use the same minimum and maximum;
 uncertain correlation preserves the wider interval rather than inventing or

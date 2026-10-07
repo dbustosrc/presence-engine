@@ -391,3 +391,19 @@ su dominio. La ausencia de una persona no elimina `area_activity`.
 Ambas familias tienen formularios nativos equivalentes al contrato JSON,
 disponibilidad de observación (no infraestructura) y configuración por borrador.
 No se autovincula propiedad por nombre/IP ni se cambia el dispositivo físico.
+
+Desde 0.5.33, `geographic_confidence` califica el **dato del dispositivo en su
+instante de medición**, no que el propietario siga allí. Fuera de `home`,
+precisión positiva hasta `high_accuracy_m` (50 m por defecto) y reloj explícito
+del proveedor permiten HIGH; hasta `medium_accuracy_m` (200 m) permite MEDIUM.
+Con solo reloj HA, la calidad exterior no supera MEDIUM. Error mayor es LOW;
+precisión cero es UNKNOWN. Son bandas de ingeniería configurables, no
+probabilidades ni distancias entre habitaciones. En `home` la calidad es LOW
+aunque el error reportado sea pequeño; no mide la habitación. La zona nativa
+exterior tampoco prueba por sí sola separación del teléfono o salida corporal.
+El diagnóstico caducado informa UNKNOWN; nunca se renueva por reinicio.
+
+GPS sin ningún campo posicional queda `missing`, listo para recibir una medición;
+no equivale a `not_home` corporal. Valores parciales/incorrectos siguen siendo
+inválidos. Compartir propietario no prueba que dos trackers describan el mismo
+teléfono: vincule `device_id` común solo con confirmación, sin sumar cuerpos/votos.

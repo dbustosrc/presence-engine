@@ -1,5 +1,11 @@
 # Historial de cambios
 
+## 0.5.33 — Confianza geográfica separada y compatibilidad con Home Assistant 2026.10
+
+- Distingue calidad geográfica del dispositivo y ubicación personal: una posición exterior admite confianza alta/media según precisión y reloj, mientras GPS doméstico sigue siendo contexto de baja confianza, nunca una habitación. Bandas de precisión configurables desde el formulario; calidad referida al instante de medición y desconocida tras caducar.
+- Un tracker sin campos posicionales queda pendiente de medición, sin declarar una salida, fabricar coordenadas o degradar cobertura corporal. Restauración conserva relojes y recalifica cambios de configuración.
+- Actualiza la validación nativa CI a Home Assistant 2026.10 y conserva contratos GPS, Wi-Fi/AP, identidad y actividad auxiliar independientes.
+
 ## 0.5.32 — GPS de dispositivos y actividad de área independiente del conteo
 
 - Normaliza coordenadas GPS, precisión en metros, zona nativa y relojes del dispositivo. Un dato doméstico permite solo una estimación personal débil; coordenadas exteriores no trasladan ni borran un cuerpo identificado. Valores inválidos, caducidad, recepción atrasada y restauración conservan límites explícitos sin convertir GPS en una habitación.

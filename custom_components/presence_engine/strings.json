@@ -150,6 +150,8 @@
           "area_map": "Bermuda names and areas",
           "device_id": "Device ID (same for this device's signals)",
           "timestamp_attribute": "Provider GPS timestamp attribute (aware ISO timestamp; optional)",
+          "high_accuracy_m": "High geographic confidence: maximum reported error (m)",
+          "medium_accuracy_m": "Medium geographic confidence: maximum reported error (m)",
           "active_states": "Positive activity states (no implied people)",
           "activity_origin": "Activity provenance (never a body vote)",
           "ap_attribute": "Tracker attribute containing the current AP (optional)",

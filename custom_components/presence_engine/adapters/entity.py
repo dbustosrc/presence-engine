@@ -189,6 +189,8 @@ class EntityStateAdapter:
                 or observation.observation_id != self.source_id or observation.target_id != d.options["device_id"]
                 or observation.source.native_id not in self._entities or p is None
                 or p.timestamp_attribute != d.options.get("timestamp_attribute")
+                or p.high_accuracy_m != d.options.get("high_accuracy_m", 50)
+                or p.medium_accuracy_m != d.options.get("medium_accuracy_m", 200)
                 or observation.status is not ObservationStatus.ACTIVE or observation.location is None
                 or observation.location.level is not (SpatialLevel.HOME if p.native_zone.casefold() == "home" else SpatialLevel.UNKNOWN)
                 or observation.location.area is not None or observation.location.floor is not None or observation.location.candidates
@@ -205,6 +207,11 @@ class EntityStateAdapter:
             self._gps_observation = None
             return AdapterResult(remove_source_ids=(self.source_id,), source_availability=(SourceAvailability(self.source_id, False),))
         a = envelope.payload.get("attributes", {})
+        if (isinstance(a, Mapping) and a.get("source_type") in (None, "gps")
+                and not any(k in a for k in ("latitude", "longitude", "gps_accuracy"))):
+            self._gps_observation = None
+            return AdapterResult(remove_source_ids=(self.source_id,),
+                source_availability=(SourceAvailability(self.source_id, False),))
         if not isinstance(a, Mapping) or a.get("source_type") != "gps" or a.get("tracking_type") == "connection":
             raise ValueError("GPS requires a position tracker, not a connection or a label-only tracker")
         updated = _state_time(envelope.payload, "last_updated", envelope.observed_at)
@@ -218,7 +225,8 @@ class EntityStateAdapter:
         if observed > updated or updated > envelope.received_at:
             raise ValueError("GPS clocks are inconsistent or in the future")
         p = GeographicPosition(a.get("latitude"), a.get("longitude"), a.get("gps_accuracy"), observed,
-            state, "provider_timestamp" if attribute else "ha_state_update", attribute)
+            state, "provider_timestamp" if attribute else "ha_state_update", attribute,
+            self._definition.options.get("high_accuracy_m", 50), self._definition.options.get("medium_accuracy_m", 200))
         prior = self._gps_observation
         if prior and (observed <= prior.geographic_position.observed_at or not attribute and (
                 p.latitude, p.longitude, p.accuracy_m, p.native_zone) == (

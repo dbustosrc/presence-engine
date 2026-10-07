@@ -62,6 +62,8 @@ faciales, RSSI, metros y contadores como si fueran la misma magnitud.
 | Dispositivo de red sin propietario personal confirmado | Hecho del dispositivo; no persona | Desconocida para una persona |
 | Teléfono personal conectado, sin AP mapeado | Presencia doméstica inferida, sin habitación | Baja, alcance casa |
 | Teléfono personal + AP mapeado | Propietario posiblemente cerca del AP | Baja; no habitación exacta |
+| GPS exterior reciente con precisión/reloj válidos | Posición geográfica del dispositivo | Alta/media para el dato del dispositivo; ubicación del propietario no confirmada |
+| GPS doméstico | Contexto de casa, nunca habitación | Baja; evidencia corporal/radio interior prevalece |
 | AP + radar compatible y asociación no ambigua | Estimación personal corroborada por presencia corporal | Media; si es ambiguo, conservar alternativas |
 | Bermuda de un dispositivo personal | Estimación del propietario basada en ubicación del dispositivo | Media como máximo; bajar si cobertura/asociación son débiles |
 | Varios proxies Bermuda consistentes | Mejor aproximación del dispositivo; no varios cuerpos | Mejora espacial del dispositivo, no identidad facial |

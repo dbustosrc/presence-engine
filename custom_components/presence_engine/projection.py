@@ -82,6 +82,9 @@ def device_payload(device: DeviceState) -> dict[str, Any]:
                                            if device.network_attachment_observed_at else None),
         **({"geographic_position":{**asdict(device.geographic_position),
             "observed_at":device.geographic_position.observed_at.isoformat(),
+            "geographic_confidence":device.geographic_position.geographic_quality.value,
+            "confidence_basis":"reported_accuracy_at_measurement_time",
+            "owner_location_confidence":"not_established_by_gps",
             "coordinate_unit":"degrees", "accuracy_unit":"m", "device_only":True}}
             if device.geographic_position else {}),
     }

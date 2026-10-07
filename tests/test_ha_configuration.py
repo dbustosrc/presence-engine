@@ -18,7 +18,8 @@ if HA_AVAILABLE:
     from presence_engine.ha_runtime import HomeAssistantPresenceRuntime
     from presence_engine.sensor import async_setup_entry
     from homeassistant.core import HomeAssistant
-    from homeassistant.helpers.config_validation import custom_serializer, to_field_list as convert
+    from homeassistant.helpers.config_validation import custom_serializer
+    from probatio import to_field_list as convert
 
 from integration_helpers import integration_config
 from helpers import at
@@ -239,6 +240,7 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
         for adapter, values in (
             ("gps_tracker", {"id":"gps_a","enabled":True,"entity_ids":["device_tracker.phone"],
                 "identity":"owner","device_id":"phone","timestamp_attribute":"last_seen",
+                "high_accuracy_m":25,"medium_accuracy_m":150,
                 "advanced_source":{"expires_after_seconds":60}}),
             ("auxiliary_activity", {"id":"activity_a","enabled":True,"entity_ids":["media_player.tv"],
                 "area":"alpha","active_states":["playing"],"activity_origin":"presence_derived"})):
@@ -254,6 +256,7 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(stored["spatial_quality"],"low")
             if adapter=="gps_tracker":
                 self.assertEqual(stored["options"]["timestamp_attribute"],"last_seen")
+                self.assertEqual((stored["options"]["high_accuracy_m"],stored["options"]["medium_accuracy_m"]),(25,150))
             else:
                 self.assertEqual(stored["options"]["active_states"],["playing"])
             self.flow._key=values["id"]
@@ -386,6 +389,7 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
         geo=diagnostic["snapshot"]["devices"][0]["geographic_position"]
         self.assertEqual((geo["latitude"],geo["longitude"]),("[redacted]","[redacted]"))
         self.assertEqual(diagnostic["gps_sources"][0]["accuracy_unit"],"m")
+        self.assertEqual(geo["geographic_confidence"],"low")
         self.assertNotIn("fixture-secret",str(diagnostic))
 
     async def test_native_radio_handoff_publishes_only_semantic_change_without_detection(self):

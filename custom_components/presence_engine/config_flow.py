@@ -365,7 +365,11 @@ class PresenceEngineConfigFlow(ConfigFlow, domain=DOMAIN):
             option_fields = {"device_id": _text(), "ap_attribute": _text(),
                              "ap_area_map": _mapping({}, {"select": {"options": self._areas()}})}
         if adapter == "gps_tracker":
-            option_fields = {"device_id":_text(), "timestamp_attribute":_text()}
+            option_fields = {"device_id":_text(), "timestamp_attribute":_text(),
+                "high_accuracy_m":selector({"number":{"min":1,"max":100000,"mode":"box","unit_of_measurement":"m"}}),
+                "medium_accuracy_m":selector({"number":{"min":1,"max":100000,"mode":"box","unit_of_measurement":"m"}})}
+            options.setdefault("high_accuracy_m", 50)
+            options.setdefault("medium_accuracy_m", 200)
         if adapter == "auxiliary_activity":
             option_fields = {"active_states":_text(multiple=True),
                 "activity_origin":_select(["unknown", "independent", "presence_derived"])}

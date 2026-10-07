@@ -150,6 +150,8 @@
           "area_map": "Nombres Bermuda y áreas",
           "device_id": "ID del dispositivo (igual para sus señales)",
           "timestamp_attribute": "Atributo de hora GPS del proveedor (ISO con zona horaria; opcional)",
+          "high_accuracy_m": "Confianza geográfica alta: error reportado máximo (m)",
+          "medium_accuracy_m": "Confianza geográfica media: error reportado máximo (m)",
           "active_states": "Estados positivos de actividad (sin implicar personas)",
           "activity_origin": "Procedencia de la actividad (nunca es voto corporal)",
           "ap_attribute": "Atributo del tracker con el AP actual (opcional)",

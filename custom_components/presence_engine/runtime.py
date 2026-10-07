@@ -752,6 +752,9 @@ class PresenceRuntime:
                 "fresh" if self._is_current(o, self._now()) else "stale")
             result.append({"source_id":d.source_id, "device_id":d.options["device_id"], "identity":d.identity,
                 "status":status, "coordinates_available":p is not None, "accuracy_m":p.accuracy_m if p else None,
+                "geographic_confidence":p.geographic_quality.value if p and status == "fresh" else "unknown",
+                "confidence_basis":"reported_accuracy_at_measurement_time",
+                "geographic_scope":("home_context" if p.native_zone.casefold() == "home" else "device_geographic_position") if p else None,
                 "accuracy_specified":p.accuracy_m > 0 if p else False, "accuracy_unit":"m", "coordinate_unit":"degrees",
                 "observed_at":p.observed_at.isoformat() if p else None, "clock_basis":p.clock_basis if p else None,
                 "timestamp_attribute":d.options.get("timestamp_attribute"),

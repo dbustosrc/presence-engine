@@ -173,6 +173,8 @@ class GeographicPosition:
     native_zone: str
     clock_basis: str
     timestamp_attribute: str | None = None
+    high_accuracy_m: float = 50
+    medium_accuracy_m: float = 200
 
     def __post_init__(self) -> None:
         require_aware(self.observed_at, "GPS observed_at")
@@ -184,6 +186,21 @@ class GeographicPosition:
             raise ValueError("unsupported GPS clock basis")
         if not isinstance(self.native_zone, str) or not 0 < len(self.native_zone) <= 128:
             raise ValueError("GPS zone must be bounded text")
+        if (any(type(v) not in (int, float) or not math.isfinite(v)
+                for v in (self.high_accuracy_m, self.medium_accuracy_m))
+                or not 0 < self.high_accuracy_m <= self.medium_accuracy_m):
+            raise ValueError("GPS accuracy bands must be finite positive ordered metres")
+
+    @property
+    def geographic_quality(self) -> Quality:
+        """Quality of this device fix at its clock, not its owner's location."""
+        if self.accuracy_m == 0:
+            return Quality.UNKNOWN
+        if self.native_zone.casefold() == "home" or self.accuracy_m > self.medium_accuracy_m:
+            return Quality.LOW
+        if self.accuracy_m <= self.high_accuracy_m and self.clock_basis == "provider_timestamp":
+            return Quality.HIGH
+        return Quality.MEDIUM
 
 
 @dataclass(frozen=True, slots=True)

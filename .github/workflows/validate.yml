@@ -43,5 +43,5 @@ jobs:
           -e PYTHONPATH=/workspace/custom_components:/workspace/tests
           -e PYTHONDONTWRITEBYTECODE=1
           --entrypoint python3
-          ghcr.io/home-assistant/home-assistant:2026.9.3
+          ghcr.io/home-assistant/home-assistant:2026.10.0
           -m unittest discover -s tests -p test_ha_configuration.py -v

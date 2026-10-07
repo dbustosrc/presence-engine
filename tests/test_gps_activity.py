@@ -125,6 +125,7 @@ class GpsActivityTests(unittest.TestCase):
         self.assertEqual(self.runtime.snapshot.presences[0].location.quality,Quality.LOW)
 
     def test_activity_has_sources_clocks_and_dependencies_but_zero_bodies(self):
+        self.assertFalse(self.runtime.gps_status_payload()[0]["coordinates_available"])
         self.deliver("light.lamp","on",1)
         update=self.deliver("media_player.tv","playing",2)
         self.assertFalse(update.snapshot.presences or update.snapshot.devices or update.snapshot.area_occupancies or update.detections)
@@ -167,6 +168,41 @@ class GpsActivityTests(unittest.TestCase):
             raw=config(); raw["sources"]=[next(s for s in raw["sources"] if s["adapter"]==adapter)]
             raw["sources"][0].update(changes)
             with self.assertRaises(ConfigurationError):parse_configuration(raw)
+
+    def test_geographic_confidence_is_for_device_fix_not_person_or_room(self):
+        self.raw["sources"][0]["options"]["timestamp_attribute"]="last_seen"
+        self.runtime=PresenceRuntime(parse_configuration(self.raw),now=lambda:at(self.second))
+        for second,state,accuracy,expected in ((1,"not_home",23,"high"),(2,"Work",100,"medium"),
+                (3,"not_home",300,"low"),(4,"home",5,"low"),(5,"not_home",0,"unknown")):
+            update=self.gps(state,second,gps_accuracy=accuracy,last_seen=at(second).isoformat())
+            geo=snapshot_payload(update.snapshot)["devices"][0]["geographic_position"]
+            self.assertEqual(geo["geographic_confidence"],expected)
+            self.assertEqual(geo["owner_location_confidence"],"not_established_by_gps")
+            self.assertEqual(self.runtime.gps_status_payload()[0]["geographic_confidence"],expected)
+            self.assertFalse(update.snapshot.area_occupancies or update.detections)
+        self.second=35;self.runtime.refresh()
+        self.assertEqual(self.runtime.gps_status_payload()[0]["geographic_confidence"],"unknown")
+        self.setUp();self.gps("not_home",gps_accuracy=5)
+        self.assertEqual(self.runtime.snapshot.devices[0].geographic_position.geographic_quality,Quality.MEDIUM)
+
+    def test_accuracy_calibration_and_missing_position_never_invent_an_exit(self):
+        self.raw["sources"][0]["options"].update(timestamp_attribute="last_seen",high_accuracy_m=10,medium_accuracy_m=30)
+        self.runtime=PresenceRuntime(parse_configuration(self.raw),now=lambda:at(self.second))
+        self.gps("not_home",gps_accuracy=20,last_seen=at(1).isoformat())
+        self.assertEqual(self.runtime.snapshot.devices[0].geographic_position.geographic_quality,Quality.MEDIUM)
+        saved=self.runtime.export_state()
+        self.raw["sources"][0]["options"]["high_accuracy_m"]=25
+        self.runtime=PresenceRuntime(parse_configuration(self.raw),now=lambda:at(self.second))
+        self.runtime.restore_state(saved)
+        self.assertFalse(self.runtime.snapshot.devices)
+        self.gps("not_home",second=2,gps_accuracy=20,last_seen=at(1).isoformat())
+        self.assertEqual(self.runtime.snapshot.devices[0].geographic_position.geographic_quality,Quality.HIGH)
+        update=self.deliver("device_tracker.phone","not_home",3,{})
+        self.assertFalse(update.failures or update.snapshot.presences or update.snapshot.coverage_degraded)
+        self.assertEqual(self.runtime.gps_status_payload()[0]["status"],"missing")
+        for high,medium in ((0,200),(50,10),(True,200),(50,float("nan"))):
+            self.raw["sources"][0]["options"].update(high_accuracy_m=high,medium_accuracy_m=medium)
+            with self.assertRaises(ConfigurationError):parse_configuration(self.raw)
 
 
 if __name__=="__main__":unittest.main()
