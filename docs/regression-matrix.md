@@ -4,6 +4,13 @@ The repository contains no installation names or captured household data. This
 matrix names the generic invariant represented by each unit test. Mapping to a
 private installation corpus belongs outside this repository.
 
+This table records existing executable coverage. The
+[evidence policy](evidence-policy.md) also requires pending cases for reviewed
+auxiliary area activity, feedback exclusion and confidence combinations.
+Version 0.5.30 covers weak owned AP proximity, unowned endpoints, unmapped/conflicting
+APs, facial precedence, disconnect/restart and fixed-clock fallback in
+`test_wifi_tracker.py`. Historical fixture inputs remain unchanged.
+
 | Invariant | Executable proof |
 |---|---|
 | One moving person is not made into two exact people by a stale adjacent location | `test_stale_room_plus_new_adjacent_count_is_not_two_exact_people` |

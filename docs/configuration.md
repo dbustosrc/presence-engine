@@ -1,5 +1,10 @@
 # Configuración
 
+La [política de evidencia](evidence-policy.md) define las estimaciones débiles,
+actividad y corroboración acordadas para la siguiente implementación. Los
+apartados versionados siguientes describen capacidades ya implementadas, no
+acreditan por sí solos esa política completa.
+
 ## Revisión de fuentes nuevas (0.5.20)
 
 En **Reconfigurar → Descubrimiento y exclusiones**, seleccione un canal para
@@ -11,8 +16,10 @@ no crea una fuente incompleta. Nada se guarda antes de **Revisar y guardar**.
 La incorporación e ignorado son por canal; el aviso agrupa dispositivos.
 
 Un tracker debe demostrar `source_type: router`, no posición GPS, para sugerirse
-como Wi-Fi. El propietario es opcional: conexión/AP no prueba un cuerpo ni su
-habitación. Bermuda ofrece distancias por receptor con unidad compatible;
+como Wi-Fi. El propietario es opcional para hechos del dispositivo; respaldar
+presencia personal inferida requiere dispositivo personal y dueño explícitos.
+El AP permite proximidad estimada baja, no habitación confirmada. Bermuda ofrece
+distancias por receptor con unidad compatible;
 distancia al receptor más cercano y área histórica no son un receptor fijo
 ni ubicación actual. Dispositivo, propietario y receptor se prellenan solo
 desde vínculos explícitos inequívocos; revise su correspondencia física.
@@ -264,6 +271,9 @@ Para conservar el AP, indicar `options.ap_attribute`: el nombre exacto del
 atributo que publica la integración de red. `options.ap_area_map` puede asociar
 sus valores a áreas conocidas mediante filas del formulario; es el área del
 **punto de acceso**, no una medición de posición del dispositivo ni del dueño.
+Desde 0.5.30 la fusión permite usarlo como estimación «cerca del AP», no como
+atribución exacta de habitación, cuando el dispositivo personal está vinculado
+y no hay evidencia mejor. No aplicar esa inferencia a todos los clientes de red.
 No hay nombres de atributos o proveedores de router obligatorios. Un AP sin
 mapa conserva su identificador, pero no inventa un área. Sin atributo de AP,
 la fuente solo conserva conexión. No seleccionar atributos de credenciales,
@@ -288,10 +298,18 @@ La salida `devices` de `presence_engine.get_snapshot` conserva `linked_identity`
 `network_attachment`, `network_attachment_area` y
 `network_attachment_observed_at`, separados de `location`. El identificador AP
 se oculta en el diagnóstico descargable; no se copian payloads, IP, MAC,
-coordenadas o credenciales. La conexión no crea personas, cuerpos anónimos,
-ocupación de área, detecciones ni avisos. Tampoco traslada al propietario o
-reemplaza un rostro/radar; prepara evidencia de dispositivo para la asociación
-temporal posterior, no demuestra que el teléfono viaje con su dueño.
+coordenadas o credenciales. El adaptador implementado conserva conexión/AP como
+hechos de dispositivo; no produce cuerpos, ocupación física, detecciones o avisos.
+Desde 0.5.30 la fusión conserva presencia doméstica inferida
+y proximidad estimada de confianza baja para un dispositivo personal vinculado,
+sin reemplazar un rostro vigente ni asumir que el teléfono viaja con su dueño.
+La proyección derivada `location` del dispositivo vinculado y del propietario
+usa `wifi_ap_proximity`, calidad `low` y estado personal `possible` cuando hay
+un único AP mapeado compatible y ninguna ubicación personal mejor. No es una
+medición de habitación: los consumidores deben mostrar «cerca del AP de…».
+Sin mapa o con AP contradictorios se conserva alcance casa y alternativas.
+El adaptador/persistencia mantienen el hecho original a nivel casa; no se
+reescriben como observaciones corporales ni producen detecciones.
 
 Se usan las suscripciones y persistencia existentes: sin polling del router,
 otra integración o modificaciones de firmware. Se mantiene el esquema de
@@ -306,6 +324,10 @@ Utilizar caducidad para eventos push que podrían perder el mensaje de fin. No
 usarla por defecto en `person.*`, radares o contadores de estado: Home Assistant
 ya mantiene su valor actual aunque no cambie.
 # Asociación temporal Bluetooth (0.5.19)
+
+Estos requisitos acreditan una asociación de movimiento más fiable, no son una
+prohibición de la estimación débil descrita en la política de evidencia. No
+confundir una referencia de dispositivo con un traslado corporal corroborado.
 
 La asociación es opcional por disponibilidad de fuentes, no una nueva fuente.
 Configure `bermuda_area` con propietario y `options.target_id` igual al

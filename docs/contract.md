@@ -72,6 +72,14 @@ an explicitly supplied previous snapshot. It keeps devices outside the human
 presence collection. A linked device identifies an association, not proof that
 its owner occupies the same room.
 
+The [evidence policy](evidence-policy.md) permits weak owner-proximity estimates
+and home-presence inference without requiring a body anchor. They are explicitly
+inferred, not physical room measurements or additional confirmed bodies.
+Auxiliary area activity has no individual identity or implied body count.
+AP fallback is implemented in 0.5.30 using `wifi_ap_proximity`/`wifi_connection`,
+quality `low` and status `possible`; no new serialized fields or confidence
+enum values. Auxiliary area activity and confidence combinations remain pending.
+
 Counts are closed intervals. Exact values use the same minimum and maximum;
 uncertain correlation preserves the wider interval rather than inventing or
 hiding a person. Person, animal and unknown-living hypotheses are never merged

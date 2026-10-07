@@ -1,5 +1,10 @@
 # Public projections
 
+The [evidence policy](evidence-policy.md) defines the agreed next behavior.
+The versioned projection contracts below describe implemented behavior;
+Weak AP proximity is implemented from 0.5.30; separate auxiliary activity and
+stronger confidence combinations remain pending.
+
 Version 0.4.9 keeps the validated projections as stable public entities.
 Every projection is derived from the same canonical snapshot revision. An
 entity does not publish MQTT, call a Home Assistant service or replace another
@@ -55,16 +60,23 @@ appearance re-identification or a calibrated probability of identity.
 From 0.5.17, `devices` may expose `network_attachment`,
 `network_attachment_area` and `network_attachment_observed_at`. These describe
 the current endpoint/AP connection, not a physical room measurement. The device
-`location` remains home scope with no room; `linked_identity` is an optional
+raw observation remains home scope with no room; `linked_identity` is an optional
 owner association, not face recognition or proof that the owner carries it.
 AP changes while the tracker remains connected are supported, and unknown or
 disconnected endpoints lose active attachment facts even when old router
 attributes remain. Downloadable diagnostics redact the AP identifier.
 
-Wi-Fi alone creates no body, room occupancy or detection. It cannot replace
-direct visual/radar evidence, remove the owner on disconnect, or degrade
-observer coverage. Existing Bluetooth/body association and continuity are
-unchanged; AP attachment is not triangulation or a calibrated probability.
+The implemented Wi-Fi adapter creates no body, physical room occupancy or
+detection. From 0.5.30 the resolver retains inferred home presence and low-confidence
+personal proximity near a mapped AP for a reviewed personal endpoint with an
+explicit owner. It still cannot assert an exact room, override current direct
+identity/location, remove the owner on disconnect or degrade observer coverage.
+Derived device/personal locations use `wifi_ap_proximity`, `low` and personal
+status `possible`. Consumers must label the area as "near the AP of...", not a
+confirmed room. Conflicting owned AP areas remain alternatives at home scope.
+These hypotheses contribute no confirmed physical minimum/current occupancy,
+anonymous-body identity or PTZ support; attachment fields are neither
+triangulation nor probabilities.
 
 ## Coverage
 

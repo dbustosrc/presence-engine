@@ -33,17 +33,25 @@ class WifiTrackerTests(unittest.TestCase):
             "last_changed": at(changed).isoformat(),
             "last_updated": at(second if observed is None else observed).isoformat()}, at(changed), at(second)))
 
-    def test_attachment_change_while_home_never_creates_presence(self):
+    def test_owned_attachment_creates_only_low_proximity_not_confirmed_body(self):
         first = self.deliver("home", 1)
         second = self.deliver("home", 2, "AP Beta")
         self.assertTrue(first.changed and second.changed)
         device = second.snapshot.devices[0]
         self.assertEqual(device.network_attachment_area, "beta")
         self.assertEqual(device.network_attachment_observed_at, at(2))
-        self.assertIsNone(device.location.area)
-        self.assertEqual(device.location.level.value, "home")
-        self.assertEqual(second.snapshot.presences, ())
-        self.assertEqual(second.snapshot.count_maximum, 0)
+        self.assertEqual(device.location.area, "beta")
+        self.assertEqual(device.location.method, "wifi_ap_proximity")
+        person = second.snapshot.presences[0]
+        self.assertEqual(person.identity, "person_a")
+        self.assertEqual(person.location.area, "beta")
+        self.assertEqual(person.location.quality.value, "low")
+        self.assertEqual(person.location_status, "possible")
+        self.assertEqual(person.location.observed_at, at(2))
+        self.assertEqual((second.snapshot.count_minimum, second.snapshot.count_maximum), (0, 1))
+        self.assertEqual(second.snapshot.area_occupancies, ())
+        saved = decode_observation(self.runtime.export_state()["observations"][0])
+        self.assertIsNone(saved.location.area)  # Raw attachment remains a device fact.
         self.assertEqual(second.detections, ())
         self.assertEqual(second.failures, ())
         self.assertEqual(snapshot_payload(second.snapshot)["devices"][0]["network_attachment"], "AP Beta")
@@ -58,6 +66,28 @@ class WifiTrackerTests(unittest.TestCase):
         self.assertIsNone(device.location.area)
         self.assertIsNone(self.deliver("home", 2, None).snapshot.devices[0].network_attachment)
         self.assertEqual(self.deliver("home", 3, 42).failures, ())
+
+    def test_unmapped_owned_device_retains_weak_home_estimate_and_no_body(self):
+        update = self.deliver("home", 1, "Unmapped AP")
+        person = update.snapshot.presences[0]
+        self.assertIsNone(person.location.area)
+        self.assertEqual(person.location.level.value, "home")
+        self.assertEqual(person.location_status, "possible")
+        self.assertEqual((update.snapshot.count_minimum, update.snapshot.count_maximum), (0, 1))
+
+    def test_anonymous_radar_does_not_identify_ap_owner_or_create_ptz_vote(self):
+        self.raw["sources"].append({"source_id": "radar", "adapter": "binary_presence",
+            "entity_ids": ["binary_sensor.radar"], "area": "alpha", "spatial_quality": "high"})
+        self.runtime = PresenceRuntime(parse_configuration(self.raw), now=lambda: at(self.second))
+        self.deliver("home", 1)
+        self.second = 2
+        update = self.runtime.process(AdapterEnvelope("state", "binary_sensor.radar",
+            {"state": "on"}, at(2), at(2)))
+        owner = next(p for p in update.snapshot.presences if p.identity)
+        self.assertEqual(owner.location.method, "wifi_ap_proximity")
+        self.assertEqual(owner.location_status, "possible")
+        self.assertEqual((update.snapshot.count_minimum, update.snapshot.count_maximum), (1, 2))
+        self.assertNotIn("wifi_tracker", update.snapshot.area_occupancies[0].support_families)
 
     def test_absence_and_unknown_clear_attachment_without_degrading_coverage(self):
         for state, status in (("not_home", ObservationStatus.ENDED), ("unknown", ObservationStatus.UNKNOWN),
@@ -113,6 +143,47 @@ class WifiTrackerTests(unittest.TestCase):
         self.assertEqual(after.presences[0].identity, "person_a")
         self.assertEqual(after.presences[0].location.area, "beta")
         self.assertEqual((after.count_minimum, after.count_maximum), (1, 1))
+
+    def test_ended_face_continues_at_original_clock_then_falls_back_to_ap(self):
+        self.test_camera_radar_and_phone_in_another_area_do_not_move_owner()
+        self.deliver("home", 4, changed=4)
+        self.second = 5
+        self.runtime.process(AdapterEnvelope("state", "binary_sensor.radar", {"state": "off"}, at(5), at(5)))
+        update = self.runtime.process(AdapterEnvelope("mqtt", "vision/events", {"type": "end",
+            "after": {"id": "body_a", "camera": "cam", "label": "person",
+                "start_time": at(2).timestamp(), "frame_time": at(5).timestamp(),
+                "end_time": at(5).timestamp()}}, at(5), at(5)))
+        person = update.snapshot.presences[0]
+        self.assertEqual(person.location.area, "beta")
+        self.assertEqual(person.location_status, "continued")
+        original = person.location.observed_at
+        self.second = 100
+        update = self.runtime.refresh()
+        person = update.snapshot.presences[0]
+        self.assertEqual(person.location.area, "alpha")
+        self.assertEqual(person.location.method, "wifi_ap_proximity")
+        self.assertEqual(person.location_status, "possible")
+        self.assertEqual(person.location.observed_at, at(4))
+        self.assertLess(original, at(100))
+        self.assertEqual((update.snapshot.count_minimum, update.snapshot.count_maximum), (0, 1))
+        self.assertEqual(update.detections, ())
+
+    def test_conflicting_owned_aps_keep_home_and_alternatives_not_arbitrary_room(self):
+        other = deepcopy(self.raw["sources"][0])
+        other.update(source_id="wifi_b", entity_ids=["device_tracker.phone_b"])
+        other["options"]["device_id"] = "phone_b"
+        self.raw["sources"].append(other)
+        self.runtime = PresenceRuntime(parse_configuration(self.raw), now=lambda: at(self.second))
+        self.deliver("home", 1)
+        self.second = 2
+        update = self.runtime.process(AdapterEnvelope("state", "device_tracker.phone_b", {
+            "state": "home", "attributes": {"source_type": "router", "connected_ap": "AP Beta"},
+            "last_changed": at(2).isoformat(), "last_updated": at(2).isoformat()}, at(2), at(2)))
+        self.assertEqual(len(update.snapshot.presences), 1)
+        person = update.snapshot.presences[0]
+        self.assertIsNone(person.location.area)
+        self.assertEqual(set(person.candidate_areas), {"alpha", "beta"})
+        self.assertEqual((update.snapshot.count_minimum, update.snapshot.count_maximum), (0, 1))
 
     def test_metadata_does_not_accept_gps_as_wifi_or_copy_private_attributes(self):
         update = self.deliver("home", 1, extra={"source_type": "gps", "tracking_type": "position"})

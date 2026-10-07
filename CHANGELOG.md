@@ -1,5 +1,11 @@
 # Historial de cambios
 
+## 0.5.30 — Proximidad estimada mediante dispositivos Wi-Fi vinculados
+
+- Conserva presencia doméstica inferida y una ubicación posible cerca del AP mapeado para un dispositivo Wi-Fi personal con propietario explícito, incluso sin Bermuda. La estimación es de confianza baja: no confirma una habitación, transporte del teléfono ni reconocimiento facial. Dispositivos sin propietario no crean personas; AP contradictorios conservan alternativas.
+- Mantiene la prioridad de evidencia corporal identificada, las asociaciones Bluetooth más fuertes y la continuidad física de hasta 90 segundos con su reloj original. Al terminar esa evidencia, vuelve a la estimación disponible sin renovar el reloj espacial con paquetes repetidos.
+- Las estimaciones Wi-Fi no elevan el mínimo corporal confirmado, no identifican detecciones anónimas, no generan avisos de detección ni aportan votos de control PTZ. Reutiliza campos, suscripciones y persistencia existentes sin nuevas opciones ni polling.
+
 ## 0.5.29 — Estabilidad temporal de conteos compuestos
 
 - Corrige el inicio de la ventana de estabilidad de los contadores MTR combinados: una entrada antigua en cero o mantenida no hace que un conteo nuevo de varios objetivos parezca estable de inmediato. Conserva valores, áreas, máximos y relojes de medición; no elimina objetivos ni identifica ecos como personas o animales.

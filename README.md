@@ -12,6 +12,8 @@ automatizaciones consumidoras.
 ## Capacidades
 
 - Núcleo determinista independiente de Home Assistant.
+- Proximidad posible cerca del AP para dispositivos Wi-Fi personales vinculados,
+  de confianza baja y sin confirmar cuerpos ni desplazar un rostro vigente.
 - Adaptadores para eventos y rostros de Frigate, contexto PTZ, áreas Bermuda,
   radares binarios, contadores simples, MTR multizona y salud de
   infraestructura.
@@ -44,6 +46,12 @@ automatizaciones consumidoras.
 - La configuración física de una casa no pertenece al repositorio.
 
 ## Estado de la versión
+
+La [política de evidencia y confianza](docs/evidence-policy.md) acordada distingue
+actividad de área, presencia doméstica inferida y proximidad personal estimada
+al AP de una habitación corporalmente confirmada. Define corroboración entre
+fuentes sin exigir Bermuda; su implementación completa sigue pendiente. Las
+notas versionadas siguientes conservan el comportamiento realmente publicado.
 
 `0.5.29` corrige el reloj de estabilidad de los conteos MTR compuestos y
 reevalúa su ventana existente de tres segundos sin polling. Una entrada antigua
@@ -108,6 +116,7 @@ se omiten si no está instalado y CI las ejecuta en su contenedor oficial.
 - `docs/configuration.md`: contrato de configuración y fuentes.
 - `docs/compatibility.md`: versiones y APIs verificadas.
 - `docs/contract.md`: semántica del contrato v1 y límites entre capas.
+- `docs/evidence-policy.md`: política objetivo de actividad, estimación y confianza.
 - `docs/regression-matrix.md`: invariantes y su prueba ejecutable.
 - `docs/installation.md`: publicación e instalación por HACS.
 - `docs/comparison.md`: protocolo de comparación sin efectos.

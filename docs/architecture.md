@@ -26,7 +26,9 @@ asíncrono.
   Una solicitud no confirma posición física. La zona actual válida tiene
   prioridad; el perfil requiere confirmación de estado estable.
 - `bermuda_area`: representa un dispositivo enlazado a una identidad. Nunca lo
-  convierte automáticamente en una persona. Si el dispositivo no está
+  convierte automáticamente en un cuerpo confirmado. La fusión puede conservar
+  una estimación personal débil según la [política de evidencia](evidence-policy.md),
+  sin equipararla a una asociación corporal corroborada. Si el dispositivo no está
   disponible, se retira únicamente esa observación; no se declara degradada la
   cobertura de los receptores.
 - `mtr_count`: trata total y zonas como una fuente compuesta. Publica cada zona

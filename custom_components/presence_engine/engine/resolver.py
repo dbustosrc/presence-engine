@@ -268,6 +268,26 @@ class PresenceResolver:
                 person.certainty = Quality.LOW
                 person.status = "possible"
                 reasons.append("device_room_candidate_without_body_confirmation")
+        # Apply AP proximity only after body correlation. An attachment is not
+        # a measured room/trajectory and must not consume an anonymous body.
+        for identity, person in people.items():
+            wifi = [device for device in devices if device.linked_identity == identity
+                    and device.location and device.location.method in {"wifi_connection", "wifi_ap_proximity"}]
+            if not wifi or (person.location and person.location.area):
+                continue
+            if person.from_device or person.status not in {"possible", "resolved", "location_cleared"}:
+                continue  # Preserve stronger radio associations and contradictions.
+            areas = {device.location.area for device in wifi if device.location.area}
+            person.candidate_areas.update(areas)
+            if len(areas) == 1:
+                chosen = max((device for device in wifi if device.location.area),
+                             key=lambda device: device.location.observed_at)
+                person.location = chosen.location
+                person.location_sources = set(chosen.source_ids)
+                person.sources.update(chosen.source_ids)
+                person.certainty = Quality.LOW
+                person.status = "possible"
+                reasons.append("wifi_ap_proximity_without_body_confirmation")
         animal_hypotheses,animal_min,animal_max=self._resolve_animals(groups)
         person_hypotheses=tuple(self._to_hypothesis(candidate) for candidate in people.values())
         population_min=self._population_minimum(counted_groups)
@@ -281,9 +301,12 @@ class PresenceResolver:
         if population_min < extra_min:
             reasons.append("cross_area_population_overlap")
         continued=sum(person.status in {"continued", "device_carried_probable"} for person in people.values())
+        weak=sum(person.status == "possible" and person.location is not None
+                 and person.location.method in {"wifi_connection", "wifi_ap_proximity"} for person in people.values())
         unlocated=sum(person.status != "continued" and person.location is not None
+                      and not (person.status == "possible" and person.location.method == "wifi_connection")
                       and person.location.level is SpatialLevel.HOME for person in people.values())
-        minimum=max(len(person_hypotheses), len(person_hypotheses)-continued-unlocated+population_min)+animal_min
+        minimum=max(len(person_hypotheses)-weak, len(person_hypotheses)-weak-continued-unlocated+population_min)+animal_min
         if unlocated and population_min:
             reasons.append("home_identity_may_overlap_current_body")
         if continued and population_min:
@@ -603,10 +626,18 @@ class PresenceResolver:
         for item in observations:
             if item.target_kind is not TargetKind.DEVICE:
                 continue
+            location = item.location
+            if (item.source.family == "wifi_tracker" and item.identity and location
+                    and item.network_attachment_area and item.network_attachment_observed_at):
+                location = replace(location, level=SpatialLevel.AREA,
+                                   area=item.network_attachment_area,
+                                   floor=self._config.area_floors.get(item.network_attachment_area),
+                                   method="wifi_ap_proximity", quality=Quality.LOW,
+                                   observed_at=item.network_attachment_observed_at)
             result.append(DeviceState(
                 device_id=item.target_id or item.observation_id,
                 linked_identity=item.identity.value if item.identity else None,
-                location=item.location,
+                location=location,
                 source_ids=(item.source.source_id,),
                 network_attachment=item.network_attachment,
                 network_attachment_area=item.network_attachment_area,
@@ -669,7 +700,7 @@ class PresenceResolver:
                 continue
             identity=item.identity.value
             if item.source.family == "wifi_tracker":
-                # An AP attachment cannot create a body or room association.
+                # Add provenance now; weak owner fallback follows stronger radios.
                 if identity in people:
                     people[identity].sources.add(item.source.source_id)
                 continue
@@ -698,12 +729,27 @@ class PresenceResolver:
                 device_locations=[item.location] if item.location is not None else [],
             )
 
+        for item in observations:
+            if (item.target_kind is not TargetKind.DEVICE or item.identity is None
+                    or item.source.family != "wifi_tracker" or item.location is None):
+                continue
+            identity = item.identity.value
+            if identity in people:
+                people[identity].sources.add(item.source.source_id)
+                continue
+            people[identity] = _PersonCandidate(
+                identity=identity, location=item.location, certainty=Quality.LOW,
+                identity_quality=Quality.MEDIUM, identity_method="registered_device_presence",
+                identity_observed_at=item.identity.observed_at, identity_score=None,
+                identity_sources={item.source.source_id}, location_sources={item.source.source_id},
+                sources={item.source.source_id}, direct_person=False, from_device=False, status="possible")
+
         if previous is not None:
             for prior in previous.presences:
                 if prior.kind is not TargetKind.PERSON or not prior.identity:
                     continue
                 current=people.get(prior.identity)
-                if prior.location and prior.location.method == "device_room_candidate":
+                if prior.location and prior.location.method in {"device_room_candidate", "wifi_ap_proximity"}:
                     continue  # Revalidate fresh radio support, never remember it as a body.
                 if (current and prior.location and prior.location.method == "correlated_receiver_trajectory"
                         and any(d.area != prior.location.area and d.observed_at > prior.location.observed_at
@@ -757,6 +803,10 @@ class PresenceResolver:
                                              and (item.count is None or (item.count.minimum > 0
                                                                         and item.count.observed_at <= now))
                                              for item in observations))
+                                 or (current.location.method == "wifi_connection" and prior.location.area
+                                     and prior.location.quality.rank >= Quality.MEDIUM.rank
+                                     and prior.location_status != "possible"
+                                     and not (set(prior.location_source_ids) & set(unavailable)))
                                  or (prior.location.area and current.location.area
                                      and prior.location.quality.rank >= current.location.quality.rank))
                             and (prior.location.observed_at > current.location.observed_at
