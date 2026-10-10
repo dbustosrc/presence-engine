@@ -392,6 +392,35 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(geo["geographic_confidence"],"low")
         self.assertNotIn("fixture-secret",str(diagnostic))
 
+    async def test_native_person_gps_dependency_expires_without_a_new_state_callback(self):
+        from datetime import timedelta
+        from presence_engine.configuration import parse_configuration
+        from homeassistant.core import State
+        from homeassistant.util import dt as dt_util
+        configuration=parse_configuration({"schema_version":1,"sources":[
+            {"source_id":"home","adapter":"person_home","entity_ids":["person.owner"],"identity":"owner"},
+            {"source_id":"gps","adapter":"gps_tracker","entity_ids":["device_tracker.phone"],
+             "identity":"owner","expires_after_seconds":30,"options":{"device_id":"phone"}}]})
+        hass=HomeAssistant("/tmp/presence-engine-no-io")
+        entry=catalogue_entry()
+        runtime=HomeAssistantPresenceRuntime(hass,entry,configuration,max_records=2000,save_delay_seconds=15)
+        runtime._store=Mock(async_save=AsyncMock())
+        runtime._reschedule_expiration=Mock()
+        now=dt_util.utcnow()
+        runtime.engine._now=lambda:dt_util.utcnow()
+        with patch("presence_engine.ha_runtime.dt_util.utcnow",return_value=now):
+            await runtime._async_process_state("person.owner",State("person.owner","home",
+                {"source":"device_tracker.phone"},last_changed=now,last_updated=now))
+            await runtime._async_process_state("device_tracker.phone",State("device_tracker.phone","home",
+                {"source_type":"gps","latitude":10.0,"longitude":20.0,"gps_accuracy":100},
+                last_changed=now,last_updated=now))
+        self.assertEqual((runtime.coordinator.data.count_minimum,runtime.coordinator.data.count_maximum),(0,1))
+        self.assertEqual(runtime.engine.next_expiration(),now+timedelta(seconds=30))
+        with patch("presence_engine.ha_runtime.dt_util.utcnow",return_value=now+timedelta(seconds=30)):
+            await runtime._async_refresh_expirations()
+        self.assertFalse(runtime.coordinator.data.presences or runtime.coordinator.data.devices)
+        self.assertFalse(runtime.coordinator.data.coverage_degraded or runtime.engine.failures)
+
     async def test_native_radio_handoff_publishes_only_semantic_change_without_detection(self):
         from test_device_association import DeviceAssociationTests
         from homeassistant.core import State

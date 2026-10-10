@@ -1,5 +1,11 @@
 # Historial de cambios
 
+## 0.5.34 — Vigencia GPS y referencias radio débiles consistentes
+
+- Una persona nativa derivada de un GPS configurado con el mismo propietario ya no duplica ni prolonga su evidencia doméstica. El tracker directo conserva precisión, reloj y caducidad; los demás trackers personales siguen disponibles y un dato perdido no prueba una salida. Tras restaurar, el origen de la persona se recalifica con su estado actual.
+- Contrasta las series BLE recientes completas para referencias débiles, sin convertir dos lecturas favorables entre mediciones solapadas en otra ubicación. Una etiqueta radio fluctuante no borra una referencia aún respaldada por rangos; la pérdida de soporte, datos inválidos o caducidad la retiran sin prórroga. Conserva alternativas y reevalúa vencimientos mediante el temporizador existente.
+- Presencia doméstica inferida mediante GPS o Wi-Fi permite una referencia BLE posible sin exigir un segundo voto de la persona nativa ni inventar un cuerpo. Mantiene prioridad corporal/facial inmediata, confianza baja, relojes originales y asociaciones de hasta 90 segundos sin nuevas opciones, polling o acciones físicas.
+
 ## 0.5.33 — Confianza geográfica separada y compatibilidad con Home Assistant 2026.10
 
 - Distingue calidad geográfica del dispositivo y ubicación personal: una posición exterior admite confianza alta/media según precisión y reloj, mientras GPS doméstico sigue siendo contexto de baja confianza, nunca una habitación. Bandas de precisión configurables desde el formulario; calidad referida al instante de medición y desconocida tras caducar.

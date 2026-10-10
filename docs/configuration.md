@@ -407,3 +407,21 @@ GPS sin ningún campo posicional queda `missing`, listo para recibir una medici�
 no equivale a `not_home` corporal. Valores parciales/incorrectos siguen siendo
 inválidos. Compartir propietario no prueba que dos trackers describan el mismo
 teléfono: vincule `device_id` común solo con confirmación, sin sumar cuerpos/votos.
+
+Desde 0.5.34, si una fuente `person_home` declara como `attributes.source` un
+GPS habilitado directamente y vinculado al mismo propietario, se consume solo
+el tracker normalizado: la persona derivada no renueva el fix ni duplica su voto.
+Otro tracker nativo, un GPS deshabilitado o un propietario diferente no se
+descartan por esta regla. Al restaurar, las personas con GPS configurado se
+recalifican desde el estado nativo actual porque los guardados anteriores no
+incluían ese origen. GPS/Wi-Fi domésticos permiten referencias BLE posibles,
+pero no un mínimo corporal confirmado.
+
+Las referencias BLE débiles comparan toda la ventana reciente de 20 segundos,
+con al menos dos mediciones válidas distintas. No es una espera obligatoria:
+una serie limpia puede calificar inmediatamente; una serie solapada no vuelve
+a calificar por solo dos lecturas favorables. Una referencia previa puede
+seguir siendo posible ante un salto de etiqueta únicamente si sus rangos aún
+predominan. Caducidad o invalidación retiran el soporte sin extender relojes;
+las alternativas quedan visibles y cuerpo/rostro no esperan esta ventana.
+Los traslados corporalmente anclados mantienen su contrato separado.

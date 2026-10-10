@@ -204,5 +204,78 @@ class GpsActivityTests(unittest.TestCase):
             self.raw["sources"][0]["options"].update(high_accuracy_m=high,medium_accuracy_m=medium)
             with self.assertRaises(ConfigurationError):parse_configuration(self.raw)
 
+    def test_native_person_cannot_renew_or_duplicate_its_registered_gps_home(self):
+        self.raw["sources"].append({"source_id":"home", "adapter":"person_home",
+            "entity_ids":["person.owner"], "identity":"owner",
+            "options":{"ignored_source_prefixes":["device_tracker.indoor_"]}})
+        self.runtime=PresenceRuntime(parse_configuration(self.raw),now=lambda:at(self.second))
+        self.deliver("person.owner","home",1,{"source":"device_tracker.phone"})
+        self.assertFalse(self.runtime.snapshot.presences)
+        update=self.gps(second=2)
+        self.assertEqual((update.snapshot.count_minimum,update.snapshot.count_maximum),(0,1))
+        self.assertEqual(update.snapshot.presences[0].source_ids,("gps",))
+        self.deliver("person.owner","home",20,{"source":"device_tracker.phone"})
+        self.assertEqual(self.runtime.next_expiration(),at(32))
+        self.second=32; update=self.runtime.refresh()
+        self.assertFalse(update.snapshot.presences or update.snapshot.devices or update.snapshot.coverage_degraded)
+        self.deliver("person.owner","home",40,{"source":"device_tracker.phone"})
+        self.assertFalse(self.runtime.snapshot.presences)
+        self.gps("not_home",second=41)
+        self.assertFalse(self.runtime.snapshot.presences)
+        self.assertEqual(self.runtime.snapshot.devices[0].geographic_position.native_zone,"not_home")
+        self.runtime._store.upsert(observation("face",identity_claim=identity("owner",42),location=area("beta",42)))
+        self.second=42; self.runtime._snapshot=self.runtime._resolve_snapshot()
+        self.assertEqual(self.runtime.snapshot.presences[0].location.area,"beta")
+        self.assertEqual((self.runtime.snapshot.count_minimum,self.runtime.snapshot.count_maximum),(1,1))
+        self.assertFalse(self.runtime.failures)
+
+    def test_native_person_non_gps_origin_and_unregistered_channels_remain_usable(self):
+        self.raw["sources"].append({"source_id":"home", "adapter":"person_home",
+            "entity_ids":["person.owner"], "identity":"owner"})
+        for changes in ({}, {"enabled":False}, {"identity":"someone_else"}):
+            with self.subTest(changes=changes):
+                raw=config();raw["sources"][0].update(changes)
+                raw["sources"].append(self.raw["sources"][-1])
+                self.runtime=PresenceRuntime(parse_configuration(raw),now=lambda:at(self.second))
+                self.deliver("person.owner","home",1,{"source":"device_tracker.watch"})
+                self.assertEqual(self.runtime.snapshot.presences[0].identity,"owner")
+                self.deliver("person.owner","home",2,{"source":"device_tracker.phone"})
+                self.assertEqual(bool(self.runtime.snapshot.presences),bool(changes))
+
+    def test_restore_requalifies_native_person_origin_without_renewing_saved_fix(self):
+        self.raw["sources"].append({"source_id":"home", "adapter":"person_home",
+            "entity_ids":["person.owner"], "identity":"owner"})
+        self.runtime=PresenceRuntime(parse_configuration(self.raw),now=lambda:at(self.second))
+        self.deliver("person.owner","home",1,{"source":"device_tracker.watch"})
+        self.gps(second=2)
+        saved=self.runtime.export_state()
+        self.second=40
+        self.runtime=PresenceRuntime(parse_configuration(self.raw),now=lambda:at(self.second))
+        self.runtime.restore_state(saved)
+        self.assertFalse(self.runtime.snapshot.presences or self.runtime.snapshot.devices)
+        self.deliver("person.owner","home",41,{"source":"device_tracker.phone"})
+        self.assertFalse(self.runtime.snapshot.presences)
+        self.deliver("person.owner","home",42,{"source":"device_tracker.watch"})
+        self.assertEqual(self.runtime.snapshot.presences[0].identity,"owner")
+
+    def test_direct_gps_home_keeps_weak_ble_room_without_inventing_a_body(self):
+        self.raw["sources"].extend([
+            {"source_id":"home", "adapter":"person_home", "entity_ids":["person.owner"], "identity":"owner"},
+            {"source_id":"ble", "adapter":"bermuda_area", "entity_ids":["sensor.area"], "identity":"owner",
+             "spatial_quality":"medium", "options":{"target_id":"phone"}},
+            {"source_id":"range", "adapter":"bermuda_signal", "area":"alpha", "entity_ids":["sensor.range"],
+             "identity":"owner", "options":{"device_id":"phone", "receiver_id":"alpha", "metric":"distance"}}])
+        self.runtime=PresenceRuntime(parse_configuration(self.raw),now=lambda:at(self.second))
+        self.deliver("person.owner","home",1,{"source":"device_tracker.phone"})
+        self.gps(second=2)
+        self.deliver("sensor.area","alpha",3)
+        self.deliver("sensor.range","3.4",4,{"unit_of_measurement":"m"})
+        update=self.deliver("sensor.range","3.2",5,{"unit_of_measurement":"m"})
+        p,=update.snapshot.presences
+        self.assertEqual((p.location.area,p.location.method,p.location_status,p.location.quality),
+                         ("alpha","device_room_candidate","possible",Quality.LOW))
+        self.assertEqual((update.snapshot.count_minimum,update.snapshot.count_maximum),(0,1))
+        self.assertFalse(update.snapshot.area_occupancies or update.detections)
+
 
 if __name__=="__main__":unittest.main()

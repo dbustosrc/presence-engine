@@ -364,7 +364,9 @@ class PresenceRuntime:
         count_matured = any(self.snapshot.evaluated_at < deadline <= now
                             for deadline in self._count_stability_deadlines(now))
         changed = source_expired or continuity_expired or history_expired
-        if count_matured or association_expired or self._associations.anchors:
+        room_window_expired = (self._associations.room_hint_deadline is not None
+            and now >= self._associations.room_hint_deadline)
+        if count_matured or association_expired or room_window_expired or self._associations.anchors:
             candidate = self._resolve_snapshot()
             changed = changed or replace(candidate, evaluated_at=self.snapshot.evaluated_at) != self.snapshot
         if changed:
@@ -555,6 +557,10 @@ class PresenceRuntime:
                     continue
                 if observation.source.family == "auxiliary_activity":
                     continue  # Live baseline requalifies current area/states/dependencies after reload.
+                if (observation.source.family == "person_home" and observation.identity
+                        and any(s.enabled and s.adapter is AdapterType.GPS_TRACKER
+                                and s.identity == observation.identity.value for s in self.configuration.sources)):
+                    continue  # Reseed the native person's current origin; old saves do not carry it.
                 if observation.source.source_id in self._wifi_source_ids:
                     adapter = next(a for a in self._adapters if a.source_id == observation.source.source_id)
                     if not adapter.restore_wifi_observation(observation):
@@ -782,6 +788,15 @@ class PresenceRuntime:
             elif definition.adapter is AdapterType.MTR_COUNT:
                 adapters.append(MTRCountAdapter(definition))
             elif definition.adapter is not AdapterType.PTZ_CONTEXT:
+                if definition.adapter is AdapterType.PERSON_HOME and definition.identity:
+                    # A native person derived from a registered GPS is not a second,
+                    # unbounded home vote. The direct fix owns its clock and expiry.
+                    gps_entities = tuple(entity for source in self.configuration.sources
+                        if source.enabled and source.adapter is AdapterType.GPS_TRACKER
+                        and source.identity == definition.identity for entity in source.entity_ids)
+                    definition = replace(definition, options={**definition.options,
+                        "ignored_source_ids": tuple(dict.fromkeys((
+                            *definition.options.get("ignored_source_ids", ()), *gps_entities)))})
                 adapters.append(EntityStateAdapter(definition))
         return tuple(adapters)
 

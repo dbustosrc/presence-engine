@@ -53,6 +53,13 @@ al AP de una habitación corporalmente confirmada. Define corroboración entre
 fuentes sin exigir Bermuda; su implementación completa sigue pendiente. Las
 notas versionadas siguientes conservan el comportamiento realmente publicado.
 
+`0.5.34` evita que una persona nativa derivada de un GPS configurado prolongue
+un fix doméstico antiguo. El dato directo conserva su caducidad; la falta de
+comunicación no demuestra una salida. Las referencias BLE débiles comparan
+toda la serie reciente y resisten saltos de etiqueta solo mientras sus rangos
+siguen respaldándolas. Mantiene alternativas, retiro por invalidación/caducidad,
+prioridad corporal inmediata y 90 segundos, sin introducir otra espera fija.
+
 `0.5.29` corrige el reloj de estabilidad de los conteos MTR compuestos y
 reevalúa su ventana existente de tres segundos sin polling. Una entrada antigua
 no confirma instantáneamente un aumento reciente. Conserva máximos y mediciones,

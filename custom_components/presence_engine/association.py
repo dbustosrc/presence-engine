@@ -52,7 +52,7 @@ class DeviceAssociations:
         Keep the first qualification clock; radio refreshes only maintain validity.
         """
         homes = {o.identity.value for o in observations if o.status is ObservationStatus.ACTIVE
-            and o.source.family == "person_home" and o.identity
+            and o.source.family in {"person_home", "gps_tracker", "wifi_tracker"} and o.identity
             and o.identity.quality.rank >= Quality.MEDIUM.rank and o.identity.observed_at <= now
             and o.location and o.location.level is SpatialLevel.HOME and o.received_at <= now}
         phones = [o for o in observations if o.status is ObservationStatus.ACTIVE
@@ -79,32 +79,42 @@ class DeviceAssociations:
             ranges = {sid: value for sid, d in self.definitions.items()
                 if d.area and d.options["device_id"] == phone.target_id
                 and d.options["metric"] == "distance" and d.identity in {None, phone.identity.value}
-                and (value := self._range(histories.get(sid, []), now, start, now))}
-            # A weak radio reference must consistently beat other fresh receivers,
-            # not just echo the area label during overlapping/noisy measurements.
-            supporting = [sid for sid, band in ranges.items()
-                if self.definitions[sid].area == phone.location.area
-                and all(band[1] < other[0] for rival, other in ranges.items()
-                        if self.definitions[rival].area != phone.location.area
-                        and self.definitions[rival].options["receiver_id"] != self.definitions[sid].options["receiver_id"])]
-            if not supporting:
-                continue
+                and (value := self._range(histories.get(sid, []), now, start, now, whole_window=True))}
+            deadlines.extend(s.observed_at + self.measurement_window for sid in ranges
+                for s in histories[sid] if s.status == "valid" and start <= s.observed_at <= now
+                and s.observed_at + self.measurement_window > now)
             key = (phone.identity.value, phone.target_id)
-            sources = tuple(sorted((phone.source.source_id, *supporting)))
             prior = self.room_hints.get(key)
+            possible_areas = {phone.location.area}
+            if prior:
+                possible_areas.add(prior.location.area)
+            # A weak radio reference must consistently beat other fresh receivers,
+            # across the window, not just two samples or a noisy area label.
+            supporting = [sid for sid, band in ranges.items()
+                if self.definitions[sid].area in possible_areas
+                and all(band[1] < other[0] for rival, other in ranges.items()
+                        if self.definitions[rival].area != self.definitions[sid].area
+                        and self.definitions[rival].options["receiver_id"] != self.definitions[sid].options["receiver_id"])]
+            supported_areas = {self.definitions[sid].area for sid in supporting}
+            if len(supported_areas) != 1:
+                continue
+            chosen_area = next(iter(supported_areas))
+            sources = tuple(sorted((phone.source.source_id, *supporting)))
             # Source membership is factual; adding a receiver must not renew
             # the person's spatial observation clock.
-            observed = prior.location.observed_at if prior and prior.location.area == phone.location.area else now
+            retained = prior is not None and prior.location.area == chosen_area
+            observed = prior.location.observed_at if retained else now
             hints[key] = DeviceState(phone.target_id, phone.identity.value,
-                SpatialClaim(SpatialLevel.AREA, observed, area=phone.location.area,
-                    floor=phone.location.floor, method="device_room_candidate", quality=Quality.LOW), sources)
-            deadlines.append(max(histories[sid][-2].observed_at + self.measurement_window for sid in supporting))
+                SpatialClaim(SpatialLevel.AREA, observed, area=chosen_area,
+                    floor=prior.location.floor if retained else phone.location.floor,
+                    candidates=tuple(sorted(possible_areas)),
+                    method="device_room_candidate", quality=Quality.LOW), sources)
         self.room_hints = hints
         self.room_hint_deadline = min(deadlines, default=None)
         return tuple(hints.values())
 
     def _range(self, history: list[DeviceSignalSample], now: datetime,
-               start: datetime, end: datetime) -> tuple[float, float] | None:
+               start: datetime, end: datetime, *, whole_window: bool = False) -> tuple[float, float] | None:
         # A missing/invalid sample breaks the range. Attribute-only callbacks
         # have already been removed by the runtime's measurement deduplicator.
         samples = []
@@ -117,7 +127,8 @@ class DeviceAssociations:
                 samples.append(sample)
         if len(samples) < 2:
             return None
-        values = [s.value * {"m": 1, "cm": .01, "mm": .001}[s.unit] for s in samples[-2:]]
+        values = [s.value * {"m": 1, "cm": .01, "mm": .001}[s.unit]
+                  for s in (samples if whole_window else samples[-2:])]
         return min(values), max(values)
 
     @staticmethod

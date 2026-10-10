@@ -97,7 +97,7 @@ class DeviceAssociationTests(unittest.TestCase):
         update = self.deliver("sensor.distance_beta", 3.1, 4)
         self.assertFalse(update.changed)
         self.assertEqual(self.owner().location.observed_at, first)
-        self.assertEqual(self.runtime.next_expiration(), at(23))
+        self.assertEqual(self.runtime.next_expiration(), at(22))
         self.second = 23
         self.runtime.refresh()
         self.assertIsNone(self.owner().location.area)
@@ -118,12 +118,15 @@ class DeviceAssociationTests(unittest.TestCase):
         self.assertIsNone(self.owner().location.area)
         self.deliver("sensor.distance_alpha", 1.5, 6)
         self.deliver("sensor.distance_alpha", 1.4, 7)
+        self.assertIsNone(self.owner().location.area)
+        self.deliver("sensor.distance_alpha", 1.3, 21)
+        self.second = 23; self.runtime.refresh()
         self.assertEqual(self.owner().location.area, "alpha")
         self.assertEqual(self.owner().location_status, "possible")
         original = self.owner().location.observed_at
-        self.deliver("sensor.distance_alpha", 1.3, 8)
+        self.deliver("sensor.distance_alpha", 1.2, 24)
         self.assertEqual(self.owner().location.observed_at, original)
-        self.body("beta", 9)
+        self.body("beta", 25)
         self.assertEqual(self.owner().location.area, "beta")
         self.assertNotEqual(self.owner().location.method, "device_room_candidate")
 
@@ -145,6 +148,55 @@ class DeviceAssociationTests(unittest.TestCase):
         self.assertEqual(self.owner().location.observed_at, original)
         self.assertFalse(self.runtime.snapshot.area_occupancies)
         self.assertEqual((self.runtime.snapshot.count_minimum, self.runtime.snapshot.count_maximum), (1, 2))
+
+    def test_weak_ble_label_jitter_keeps_only_a_still_measured_winner(self):
+        self.enable_room_fallback()
+        wifi=parse_configuration({"schema_version":1,"areas":{"alpha":"ground","beta":"upper"},
+            "sources":[{"source_id":"wifi", "adapter":"wifi_tracker",
+            "entity_ids":["device_tracker.phone"], "identity":"person_a",
+            "options":{"device_id":"phone_a", "ap_attribute":"ap", "ap_area_map":{"AP Beta":"beta"}}}]}).sources[0]
+        self.runtime=PresenceRuntime(replace(self.runtime.configuration,
+            sources=(*self.runtime.configuration.sources,wifi)),now=lambda:at(self.second))
+        self.deliver("person.owner","home",0)
+        self.deliver("sensor.phone","Alpha",1)
+        self.second=2
+        self.runtime.process(AdapterEnvelope("state","device_tracker.phone",
+            {"state":"home","attributes":{"source_type":"router","ap":"AP Beta"}},at(2),at(2)))
+        self.deliver("sensor.distance_alpha",1.5,3)
+        self.deliver("sensor.distance_beta",5,3.1)
+        self.deliver("sensor.distance_alpha",1.4,4)
+        self.deliver("sensor.distance_beta",5.1,4.1)
+        first=self.owner().location.observed_at
+        self.deliver("sensor.phone","Beta",5)
+        self.assertEqual((self.owner().location.area,self.owner().location.method,self.owner().location.observed_at),
+                         ("alpha","device_room_candidate",first))
+        self.assertEqual(self.owner().candidate_areas,("alpha","beta"))
+        self.assertEqual(self.owner().location.quality,Quality.LOW)
+        self.deliver("sensor.distance_alpha",6,6)
+        self.deliver("sensor.distance_alpha",5.5,7)
+        self.assertEqual(self.owner().location.method,"wifi_ap_proximity")
+        self.deliver("sensor.distance_alpha",1.3,8)
+        self.deliver("sensor.distance_alpha",1.2,9)
+        self.assertEqual((self.owner().location.area,self.owner().location.method),("beta","wifi_ap_proximity"))
+        self.body("alpha",10)
+        self.assertEqual(self.owner().location.area,"alpha")
+        self.assertEqual(self.owner().location.quality,Quality.HIGH)
+
+    def test_invalid_receiver_withdraws_retained_weak_hint_without_a_grace_period(self):
+        self.enable_room_fallback()
+        self.deliver("person.owner","home",0)
+        self.deliver("sensor.phone","Alpha",1)
+        self.deliver("sensor.distance_alpha",1.5,2)
+        self.deliver("sensor.distance_alpha",1.4,3)
+        self.deliver("sensor.phone","Beta",4)
+        self.assertEqual(self.owner().location.area,"alpha")
+        self.deliver("sensor.distance_alpha","unknown",5)
+        self.assertIsNone(self.owner().location.area)
+        self.assertFalse(self.runtime._associations.room_hints)
+        self.deliver("sensor.distance_alpha",1.3,6)
+        self.assertIsNone(self.owner().location.area)
+        self.deliver("sensor.distance_alpha",1.2,7)
+        self.assertIsNone(self.owner().location.area)  # No current label or retained hint in that area.
 
     def test_ambiguous_ble_keeps_owned_ap_proximity_without_body_vote(self):
         config = configuration()

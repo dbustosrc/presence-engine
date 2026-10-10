@@ -259,12 +259,15 @@ class PresenceResolver:
         for device in device_room_candidates if not any(g.kind is not TargetKind.ANIMAL and g.maximum
                 and g.location and g.location.area for g in groups) else ():
             person = people.get(device.linked_identity)
-            if (person and person.direct_person and person.location
+            if (person and person.location
                     and person.location.level is SpatialLevel.HOME and device.location
                     and device.location.method == "device_room_candidate"
                     and device.location.quality is Quality.LOW
                     and device.location.observed_at <= now):
                 person.location = device.location
+                person.candidate_areas.update(device.location.candidates)
+                person.candidate_areas.update(d.location.area for d in devices
+                    if d.linked_identity == person.identity and d.location and d.location.area)
                 person.location_sources = set(device.source_ids)
                 person.sources.update(device.source_ids)
                 person.certainty = Quality.LOW
@@ -306,7 +309,9 @@ class PresenceResolver:
             reasons.append("cross_area_population_overlap")
         continued=sum(person.status in {"continued", "device_carried_probable"} for person in people.values())
         weak=sum(person.status == "possible" and person.location is not None
-                 and person.location.method in {"wifi_connection", "wifi_ap_proximity", "gps_device_home"} for person in people.values())
+                 and (person.location.method in {"wifi_connection", "wifi_ap_proximity", "gps_device_home"}
+                      or person.location.method == "device_room_candidate" and not person.direct_person)
+                 for person in people.values())
         unlocated=sum(person.status != "continued" and person.location is not None
                       and (person.location.level is SpatialLevel.HOME
                            and not (person.status == "possible" and person.location.method == "wifi_connection")
