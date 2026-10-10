@@ -84,6 +84,7 @@ class _PersonCandidate:
     device_locations: list[SpatialClaim] = field(default_factory=list)
     last_location: SpatialClaim | None = None
     clear_sources: set[str] = field(default_factory=set)
+    remembered_location_source: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,11 +187,9 @@ class PresenceResolver:
                 corroborated=self._device_corroboration_match(eligible,replace(group,minimum=group_min),physical_areas)
                 if corroborated is not None:
                     person_consumption.add((corroborated.identity, self._identity_bucket(group)))
-                    applied=self._apply_group_location(corroborated,group,True)
+                    applied=self._apply_group_location(corroborated,group,False)
                     group_min=max(0,group_min-1)
-                    if applied and self._exact_identity_match(corroborated,group,active):
-                        group_max=max(0,group_max-1)
-                    elif not applied:
+                    if not applied:
                         reasons.append("older_location_did_not_rewind_person")
                     else:
                         reasons.append("anonymous_body_identity_overlap")
@@ -202,10 +201,8 @@ class PresenceResolver:
                     if separated is not None:
                         # A registered device and an anonymous physical presence
                         # in different rooms are two intact observations, but
-                        # not proof of either one or two people. Keep the device
-                        # location separate and retain the physical presence as
-                        # a possible visitor.
-                        group_min=0
+                        # not proof of body identity. Keep the device separate;
+                        # owner overlap must not discount independent bodies.
                         reasons.append("device_separated_from_physical_presence")
                     same_area=[person for person in eligible.values()
                                if self._same_area(person.location,group.location)]
@@ -220,12 +217,29 @@ class PresenceResolver:
                                         and abs(group.location.observed_at-person.location.observed_at)
                                             <= self._config.trajectory_window):
                                     person.location_sources.update(group.source_ids)
-                                # Corroborate location, not identity; active evidence
-                                # may repeat, but must not rewind the retained path.
-                                if (person.status == "continued"
-                                        and person.device_locations
-                                        and group.location.observed_at >= person.location.observed_at):
-                                    self._apply_group_location(person, group, True)
+                                wifi=[d for d in devices if d.linked_identity == person.identity
+                                      and d.location and d.location.method == "wifi_ap_proximity"]
+                                if (person.status == "continued" and len(same_area) == 1
+                                        and group.minimum == group.maximum == 1 and group.observer_id is None
+                                        and person.location.quality.rank >= Quality.MEDIUM.rank
+                                        and group.location.quality.rank >= Quality.MEDIUM.rank
+                                        and timedelta(0) <= now-person.location.observed_at <= self._config.trajectory_window
+                                        and person.location.observed_at <= group.location.observed_at <= now
+                                        and not (set(group.source_ids) & set(unavailable))
+                                        and wifi and {d.location.area for d in wifi} == {person.location.area}
+                                        and all(d.location.observed_at <= now
+                                            and abs(d.location.observed_at-group.location.observed_at) <= self._config.trajectory_window
+                                            and not (set(d.source_ids) & set(unavailable)) for d in wifi)
+                                        and not any(d.geographic_position and d.device_id in {w.device_id for w in wifi}
+                                            and d.geographic_position.native_zone.casefold() != "home"
+                                            and d.geographic_position.geographic_quality.rank >= Quality.MEDIUM.rank
+                                            and timedelta(0) <= now-d.geographic_position.observed_at <= self._config.trajectory_window
+                                            for d in devices)):
+                                    # A recent personal path can corroborate AP/body proximity, not identify the anonymous body.
+                                    person.location=replace(person.location,quality=Quality.MEDIUM)
+                                    person.location_sources.update(group.source_ids)
+                                    person.location_sources.update(sid for d in wifi for sid in d.source_ids)
+                                    reasons.append("recent_personal_path_with_ap_and_body_support")
                         consumed=min(len(same_area),group_max)
                         for person in same_area[:consumed]:
                             person_consumption.add((person.identity, self._identity_bucket(group)))
@@ -266,8 +280,7 @@ class PresenceResolver:
             if group_max > group_min:
                 extras.append(self._anonymous_hypothesis(group,group_min,"possible",Quality.LOW))
 
-        for device in device_room_candidates if not any(g.kind is not TargetKind.ANIMAL and g.maximum
-                and g.location and g.location.area for g in groups) else ():
+        for device in device_room_candidates:
             person = people.get(device.linked_identity)
             if (person and person.location
                     and person.location.level is SpatialLevel.HOME and device.location
@@ -619,6 +632,8 @@ class PresenceResolver:
             return (group.observer_id is None and group.target_id is None
                     and self._same_area(person.location, group.location)
                     and bool(set(group.source_ids) & person.location_sources))
+        if person.status in {"continued", "ambiguous_movement"}:
+            return False  # Anonymous bodies cannot confirm a remembered/inferred identity.
         if group.observer_id is None:
             return True  # Room aggregates may include an already located occupant.
         return group.target_id is not None and any(item.identity and item.identity.value == person.identity
@@ -837,7 +852,7 @@ class PresenceResolver:
                                  # room clock stays fixed while radio is missing.
                                  or (current.location.level is SpatialLevel.HOME
                                      and not current.device_locations
-                                     and prior.location_status in {"correlated_movement", "continued"}
+                                     and prior.location_status in {"resolved", "correlated_movement", "continued"}
                                      and prior.location.area
                                      and any(item.target_kind in {TargetKind.PERSON, TargetKind.UNKNOWN_LIVING}
                                              and (item.identity is None or item.identity.value == prior.identity)
@@ -863,6 +878,7 @@ class PresenceResolver:
                             current.candidate_areas.add(current.location.area)
                         current.location=prior.location
                         current.location_sources=set(prior.location_source_ids)
+                        current.remembered_location_source=next(iter(prior.location_source_ids),None)
                         current.status="continued"
                         current.from_device=False
                         current.sources.update(prior.source_ids)
@@ -897,26 +913,26 @@ class PresenceResolver:
         group: _EvidenceGroup,
         physical_areas: set[str],
     ) -> _PersonCandidate | None:
-        """Use physical evidence to locate one device-backed person.
+        """Refine a recent personal path with compatible body/device evidence.
 
-        The device does not locate its owner. It only helps correlate a
-        separate physical observation when both independently agree on the
-        room and there is exactly one eligible identity.
+        Ownership plus co-location is not body identity. Without a recent
+        personal path, keep the owner estimate and anonymous body separate.
         """
-        if group.location is None or group.location.area is None or not group.minimum:
+        now=self._clock.now()
+        if (group.location is None or group.location.area is None or not group.minimum
+                or group.location.quality.rank < Quality.MEDIUM.rank or group.location.observed_at > now):
             return None
         candidates = [
             person
             for person in people.values()
-            if person.status != "device_association_unconfirmed"
-            and ((person.from_device and not (person.location and person.location.area))
-                or (person.status == "continued" and person.location is not None
-                    and person.location.area not in physical_areas and group.minimum > 0))
+            if person.status == "continued" and person.location and person.location.area
+            and person.location.area not in physical_areas
+            and abs(group.location.observed_at-person.location.observed_at) <= self._config.trajectory_window
             and any(
                 location.area == group.location.area
-                and (person.status != "continued" or abs(
-                    location.observed_at - group.location.observed_at
-                ) <= self._config.trajectory_window)
+                and location.quality.rank >= Quality.MEDIUM.rank
+                and person.location.observed_at <= location.observed_at <= now
+                and abs(location.observed_at-group.location.observed_at) <= self._config.trajectory_window
                 for location in person.device_locations
             )
         ]
@@ -930,8 +946,8 @@ class PresenceResolver:
         """Preserve a phone/person split without inventing an identity.
 
         A device only supports home scope. When a physical source does not
-        corroborate its room, neither observation may overwrite the other and
-        the anonymous presence must remain possible.
+        corroborate its room, neither observation may overwrite the other or
+        discount the independently located anonymous body.
         """
         if group.location is None or group.location.area is None:
             return None
@@ -1239,7 +1255,9 @@ class PresenceResolver:
     @staticmethod
     def _to_hypothesis(candidate: _PersonCandidate) -> PresenceHypothesis:
         areas=set(candidate.candidate_areas)
-        primary_sources=candidate.location_sources & candidate.identity_sources
+        primary_sources=({candidate.remembered_location_source}
+                         if candidate.status == "continued" and candidate.remembered_location_source in candidate.location_sources
+                         else candidate.location_sources & candidate.identity_sources)
         if candidate.location and candidate.location.area:
             areas.add(candidate.location.area)
         return PresenceHypothesis(

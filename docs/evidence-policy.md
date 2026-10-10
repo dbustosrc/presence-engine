@@ -14,6 +14,13 @@ Un radar explicable enteramente por un animal no respalda el traslado de una
 persona. El refinamiento de planta a habitación por un cuerpo anónimo es una
 asociación posible de confianza media, no identidad confirmada ni conteo exacto;
 el mismo objeto visual identificado conserva su refinamiento directo.
+Desde0.5.36, la propiedad del dispositivo y un cuerpo anónimo coincidentes no
+prueban una identidad corporal ni un individuo exacto. Se mantienen referencias
+BLE débiles medidas ante cuerpos anónimos. Una trayectoria personal previamente
+aceptada, dentro de la ventana temporal existente y con AP/radar compatibles,
+admite apoyo medio al punto recordado, conservando su reloj y cuerpo anónimo.
+Sin ese respaldo, AP sigue bajo; contador o teléfono quietos no renuevan la
+identidad corporal. Esto no acredita las escenas físicas pendientes.
 Los contratos versionados, fixtures y pruebas existentes describen sus versiones
 reales. La implementación y aceptación pendientes se mantienen en el plan actual.
 
@@ -85,6 +92,15 @@ Son condiciones, no una suma automática ni una tabla que identifique a un
 visitante por eliminación. Cámara anónima/radar y AP con dueño conocido pueden
 describir actores distintos. Con varias personas o mascotas, conservar los
 candidatos y disminuir confianza si el vínculo no está resuelto.
+
+En la combinación AP/radar implementada, «asociación no ambigua» requiere una
+trayectoria personal reciente ya aceptada en el área y un único candidato con
+población física de una presencia. Ambos sensores deben estar disponibles y
+temporalmente compatibles; AP conflictivos o GPS exterior preciso/reciente del
+mismo dispositivo impiden ese apoyo. No demuestra teléfono transportado ni
+actualiza el reloj del punto recordado: conserva `continued`, confianza media
+y margen para el cuerpo anónimo/visitante. Una mera conexión AP + radar no cumple
+esas condiciones y permanece como proximidad baja e identidad sin confirmar.
 
 ## Prioridades, contradicciones y tiempos
 

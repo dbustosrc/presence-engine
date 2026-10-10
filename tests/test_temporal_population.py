@@ -50,8 +50,8 @@ class TemporalPopulationTests(unittest.TestCase):
         self.assertEqual(inferred.location.area, "alpha", "historical observation stays intact")
 
     def test_continuity_and_adjacent_populations_are_not_four_exact_individuals(self):
-        previous = self.resolve(self.device(), observation("old-radar", kind=TargetKind.UNKNOWN_LIVING,
-                                location=area("delta", -10)))
+        previous = self.resolve(self.device(), observation("old-face", location=area("delta", -10),
+                                identity_claim=identity(seconds=-10)))
         items = (self.device(), observation("visual", target_id="body-a", location=area("alpha", -3)),
                  observation("radar-beta", kind=TargetKind.UNKNOWN_LIVING, location=area("beta", -2)),
                  observation("radar-gamma", kind=TargetKind.UNKNOWN_LIVING, location=area("gamma", -1)))
@@ -157,7 +157,11 @@ class TemporalPopulationTests(unittest.TestCase):
         radar=observation("radar",family="binary_presence",kind=TargetKind.UNKNOWN_LIVING,location=area("alpha"))
         result=self.resolve(device,radar)
         self.assertEqual(public_presence_projection(result)["active_areas"][0]["current_source_families"],
-                         ["bermuda_area","physical_presence"])
+                         ["physical_presence"])
+        face=observation("face",family="frigate_event",target_id="body-a",location=area("alpha"),identity_claim=identity())
+        associated=self.resolve(device,radar,face)
+        self.assertEqual(public_presence_projection(associated)["active_areas"][0]["current_source_families"],
+                         ["bermuda_area","physical_presence","visual"])
         dog=observation("dog",family="frigate_event",kind=TargetKind.ANIMAL,classification="dog",
                         target_id="animal-a",location=area("alpha"))
         result=self.resolve(device,dog)

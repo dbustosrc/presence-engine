@@ -446,6 +446,47 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data["identity_observed_at"],at(-3).isoformat())
         self.assertEqual((runtime.coordinator.data.count_minimum,runtime.coordinator.data.count_maximum),(1,1))
 
+    async def test_native_ap_and_body_support_keeps_remembered_primary_and_clock(self):
+        from dataclasses import replace
+        from homeassistant.core import State
+        from presence_engine.configuration import parse_configuration
+        from presence_engine.engine import CountClaim, ObservationStatus
+        from presence_engine.public_projection import identity_projection
+        from helpers import area, identity, observation
+        config=parse_configuration({"schema_version":1,"areas":{"alpha":"floor_alpha"},"sources":[
+            {"source_id":"wifi","adapter":"wifi_tracker","entity_ids":["device_tracker.phone"],"identity":"person_a",
+             "options":{"device_id":"phone","ap_attribute":"ap","ap_area_map":{"AP Alpha":"alpha"}}},
+            {"source_id":"radar","adapter":"binary_presence","entity_ids":["binary_sensor.radar"],
+             "area":"alpha","spatial_quality":"high"}]})
+        hass=HomeAssistant("/tmp/presence-engine-no-io")
+        runtime=HomeAssistantPresenceRuntime(hass,catalogue_entry(),config,max_records=2000,save_delay_seconds=15)
+        runtime._store=Mock(async_save=AsyncMock())
+        runtime._reschedule_expiration=Mock()
+        clock=[at(0)]
+        runtime.engine._now=lambda:clock[0]
+        face=observation("face",family="resolved_event",target_id="body-a",location=area("alpha"),identity_claim=identity())
+        runtime.engine._store.upsert(face)
+        runtime.engine._snapshot=runtime.engine._resolve_snapshot()
+        with patch("presence_engine.ha_runtime.dt_util.utcnow",side_effect=lambda:clock[0]):
+            clock[0]=at(1)
+            await runtime._async_process_state("device_tracker.phone",State("device_tracker.phone","home",
+                {"source_type":"router","ap":"AP Alpha"},last_changed=at(1),last_updated=at(1)))
+            clock[0]=at(2)
+            await runtime._async_process_state("binary_sensor.radar",State("binary_sensor.radar","on",
+                last_changed=at(2),last_updated=at(2)))
+            clock[0]=at(3)
+            runtime.engine._store.upsert(replace(face,status=ObservationStatus.ENDED,ended_at=at(3),received_at=at(3),
+                count=CountClaim(0,0,at(3),True)))
+            await runtime._async_process_state("binary_sensor.radar",State("binary_sensor.radar","on",
+                last_changed=at(3),last_updated=at(3)))
+        data=identity_projection(runtime.coordinator.data,"person_a")
+        self.assertEqual(data["location_source"],"source.face")
+        self.assertEqual(data["location_confidence"],"medium")
+        self.assertEqual(data["location_observed_at"],at(0).isoformat())
+        self.assertEqual(set(data["location_sources"]),{"source.face","wifi","radar"})
+        self.assertEqual((runtime.coordinator.data.count_minimum,runtime.coordinator.data.count_maximum),(1,2))
+        self.assertTrue(any(p.identity is None for p in runtime.coordinator.data.presences))
+
     async def test_native_radio_handoff_publishes_only_semantic_change_without_detection(self):
         from test_device_association import DeviceAssociationTests
         from homeassistant.core import State
@@ -620,6 +661,8 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(runtime.engine.radar_history_payload()[0]["status"], "unavailable")
 
     async def test_native_physical_clear_keeps_home_identity_and_separate_history(self):
+        from dataclasses import replace
+        from presence_engine.engine import Observation, SourceRef, TargetKind, IdentityClaim, Quality, SpatialClaim, SpatialLevel, CountClaim, ObservationStatus
         from datetime import timedelta
         from presence_engine.configuration import parse_configuration
         from presence_engine.public_projection import public_presence_projection, identity_projection
@@ -635,9 +678,17 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
         runtime._store = Mock(async_save=AsyncMock())
         runtime._reschedule_expiration = Mock()
         start = dt_util.utcnow() - timedelta(seconds=20)
+        face=Observation("accepted-face",SourceRef("accepted_face","resolved_event"),start,start,TargetKind.PERSON,
+            identity=IdentityClaim("person_a",start,"face",Quality.HIGH),
+            location=SpatialClaim(SpatialLevel.AREA,start,area="alpha",floor="ground",quality=Quality.HIGH,method="direct"))
+        runtime.engine._store.upsert(face)
+        runtime.engine._snapshot=runtime.engine._resolve_snapshot()
         for entity, value in (("person.owner", "home"), ("sensor.area", "alpha"), ("binary_sensor.radar", "on")):
             await runtime._async_process_state(entity, State(entity, value, last_changed=start, last_updated=start))
         self.assertEqual(runtime.engine.snapshot.presences[0].location.area, "alpha")
+        runtime.engine._store.upsert(replace(face,status=ObservationStatus.ENDED,ended_at=start+timedelta(seconds=1),
+            received_at=start+timedelta(seconds=1),count=CountClaim(0,0,start+timedelta(seconds=1),True)))
+        runtime.engine._snapshot=runtime.engine._resolve_snapshot()
         cleared = start + timedelta(seconds=10)
         await runtime._async_process_state("binary_sensor.radar", State("binary_sensor.radar", "off",
             last_changed=cleared, last_updated=cleared))

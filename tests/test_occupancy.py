@@ -34,19 +34,20 @@ class OccupancyTests(unittest.TestCase):
         for step in self.fixture["steps"][:7]:
             self.deliver(step)
 
-    def test_held_radar_survives_visual_end_without_renewing_identity_or_location(self):
+    def test_held_radar_survives_anonymous_visual_end_without_identifying_device_owner(self):
         self.seed_held_radar()
         snapshot = self.runtime.snapshot
         public = public_presence_projection(snapshot)
         area_result = public["active_areas"][0]
-        person = snapshot.presences[0]
+        person = next(p for p in snapshot.presences if p.identity)
         self.assertEqual(area_result["current_minimum_count"], 1)
         self.assertEqual(area_result["last_current_observed_at"], at(1).isoformat())
-        self.assertEqual(person.location_status, "continued")
-        self.assertEqual(person.location.observed_at, at(2))
+        self.assertEqual(person.location_status, "home_from_device")
+        self.assertIsNone(person.location.area)
+        self.assertEqual(person.location.observed_at, at(0))
         self.assertEqual(identity_projection(snapshot, "person_a")["identity_observed_at"],
                          at(0).isoformat())
-        self.assertEqual((snapshot.count_minimum, snapshot.count_maximum), (1, 1))
+        self.assertEqual((snapshot.count_minimum, snapshot.count_maximum), (1, 2))
         self.assertEqual(snapshot_payload(snapshot)["area_occupancies"][0]["source_ids"], ["radar"])
 
     def test_radar_zero_clears_current_occupancy_but_not_historical_location(self):
@@ -58,15 +59,14 @@ class OccupancyTests(unittest.TestCase):
         self.assertEqual(self.runtime.snapshot.area_occupancies, ())
         person = self.runtime.snapshot.presences[0]
         self.assertIsNone(person.location.area)
-        self.assertEqual(person.last_location.area, "alpha")
+        self.assertIsNone(person.last_location)
 
     def test_unavailable_radar_removes_occupancy(self):
         self.seed_held_radar()
         self.deliver({"at": 4, "channel_type": "state", "channel": "sensor.total",
                       "payload": {"state": "unavailable"}})
         self.assertEqual(self.runtime.snapshot.area_occupancies, ())
-        self.assertEqual(public_presence_projection(self.runtime.snapshot)["active_areas"][0]
-                         ["current_minimum_count"], 0)
+        self.assertEqual(public_presence_projection(self.runtime.snapshot)["active_areas"],[])
 
     def test_source_expiration_is_not_extended_by_person_continuity(self):
         configuration = deepcopy(self.fixture["configuration"])
@@ -88,7 +88,8 @@ class OccupancyTests(unittest.TestCase):
         self.runtime.restore_state(saved)
         self.assertEqual(public_presence_projection(self.runtime.snapshot)["active_areas"][0]
                          ["current_minimum_count"], 1)
-        self.assertEqual(len(self.runtime.snapshot.presences), 1)
+        self.assertEqual(len(self.runtime.snapshot.presences),2)
+        self.assertEqual((self.runtime.snapshot.count_minimum,self.runtime.snapshot.count_maximum),(1,2))
         after=public_presence_projection(self.runtime.snapshot)["active_areas"][0]
         self.assertEqual(after["current_source_families"],before["current_source_families"])
         self.assertEqual(after["current_location_confidence"],before["current_location_confidence"])

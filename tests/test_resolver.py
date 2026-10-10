@@ -202,7 +202,7 @@ class ResolverTests(unittest.TestCase):
             for ordered in permutations((candidate,dog,radar)):
                 result=self.resolve(*ordered)
                 named=next(p for p in result.presences if p.identity)
-                self.assertEqual(named.location.area,"alpha")
+                self.assertEqual(named.location.area,"alpha" if candidate is person else None)
                 self.assertTrue(any(p.kind is TargetKind.ANIMAL for p in result.presences))
                 self.assertIn("anonymous_count_may_include_animal",result.reasons)
 
@@ -224,7 +224,7 @@ class ResolverTests(unittest.TestCase):
         self.assertEqual((result.count_minimum, result.count_maximum), (1, 2))
         self.assertIn("presence_count_is_an_interval", result.conflicts)
 
-    def test_registered_device_corroborated_in_same_area_is_one_person(self) -> None:
+    def test_registered_device_and_same_area_body_retain_identity_uncertainty(self) -> None:
         device = observation(
             "device-a",
             kind=TargetKind.DEVICE,
@@ -241,12 +241,26 @@ class ResolverTests(unittest.TestCase):
 
         result = self.resolve(device, current_count)
 
-        self.assertEqual((result.count_minimum, result.count_maximum), (1, 1))
+        self.assertEqual((result.count_minimum, result.count_maximum), (1, 2))
         person = next(item for item in result.presences if item.identity == "person_a")
-        self.assertEqual(person.location.area, "alpha")
-        self.assertEqual(person.location_status, "correlated_movement")
+        self.assertIsNone(person.location.area)
+        self.assertEqual(person.location_status, "home_from_device")
         self.assertEqual(person.identity_quality, Quality.MEDIUM)
         self.assertEqual(result.devices[0].location.area, "alpha")
+
+    def test_owned_static_radio_and_anonymous_body_do_not_prove_one_named_person(self) -> None:
+        phone=observation("phone",family="bermuda_area",kind=TargetKind.DEVICE,
+            location=area("alpha",-2,quality=Quality.MEDIUM),identity_claim=identity("person_a",-2,method="registered_owner"))
+        body=observation("radar",family="binary_presence",kind=TargetKind.UNKNOWN_LIVING,
+            location=area("alpha",0),count=CountClaim(1,1,at(0),True))
+        for ordered in permutations((phone,body)):
+            result=self.resolve(*ordered)
+            named=next(p for p in result.presences if p.identity)
+            self.assertNotIn(body.source.source_id,named.identity_source_ids)
+            self.assertNotIn(body.source.source_id,named.location_source_ids)
+            self.assertEqual(named.location.level,SpatialLevel.HOME)
+            self.assertTrue(any(p.identity is None and p.location.area=="alpha" for p in result.presences))
+            self.assertEqual((result.count_minimum,result.count_maximum),(1,2))
 
     def test_face_radio_and_radar_expose_spatial_support_without_rewriting_face_clock(self) -> None:
         face=observation("face",family="frigate_event",target_id="body-a",
@@ -311,7 +325,7 @@ class ResolverTests(unittest.TestCase):
         result=self.resolve(face)
         self.assertEqual(result.presences[0].location_source_ids,("source.face",))
 
-    def test_home_scope_person_is_refined_by_registered_device_and_room_count(self) -> None:
+    def test_home_scope_and_registered_device_do_not_identify_a_room_body(self) -> None:
         home = observation(
             "person-home",
             kind=TargetKind.PERSON,
@@ -340,13 +354,13 @@ class ResolverTests(unittest.TestCase):
 
         result = self.resolve(home, device, room)
 
-        self.assertEqual((result.count_minimum, result.count_maximum), (1, 1))
+        self.assertEqual((result.count_minimum, result.count_maximum), (1, 2))
         person = next(item for item in result.presences if item.identity == "person_a")
-        self.assertEqual(person.location.area, "alpha")
-        self.assertEqual(person.location_status, "correlated_movement")
+        self.assertIsNone(person.location.area)
+        self.assertEqual(person.location_status, "resolved")
         self.assertEqual(
             set(person.source_ids),
-            {"source.person-home", "source.device-a", "source.radar-a"},
+            {"source.person-home", "source.device-a"},
         )
 
     def test_phone_and_physical_presence_in_different_rooms_remain_separate(self) -> None:
@@ -391,7 +405,7 @@ class ResolverTests(unittest.TestCase):
         )
         possible = next(item for item in result.presences if item.identity is None)
         self.assertEqual(possible.location.area, "delta")
-        self.assertEqual(possible.location_status, "possible")
+        self.assertEqual(possible.location_status, "resolved")
         self.assertEqual(result.devices[0].location.area, "alpha")
 
     def test_registered_device_alone_supports_home_not_owner_room(self) -> None:
@@ -411,6 +425,17 @@ class ResolverTests(unittest.TestCase):
         self.assertIsNone(person.location.area)
         self.assertEqual(person.location_status, "home_from_device")
         self.assertEqual(result.devices[0].location.area, "alpha")
+
+    def test_device_separation_does_not_lower_independent_physical_population(self) -> None:
+        phone=observation("phone",family="bermuda_area",kind=TargetKind.DEVICE,
+            location=area("alpha",-1,quality=Quality.MEDIUM),identity_claim=identity(method="registered_owner"))
+        first=observation("radar-a",family="binary_presence",kind=TargetKind.UNKNOWN_LIVING,location=area("alpha"))
+        second=observation("radar-b",family="binary_presence",kind=TargetKind.UNKNOWN_LIVING,location=area("delta"))
+        for ordered in permutations((phone,first,second)):
+            result=self.resolve(*ordered)
+            self.assertEqual((result.count_minimum,result.count_maximum),(2,3))
+            self.assertEqual({p.location.area for p in result.presences if p.identity is None},{"alpha","delta"})
+            self.assertTrue(all(a.count.minimum==1 for a in result.area_occupancies))
 
     def test_multiple_registered_devices_are_alternative_support_for_one_person(self) -> None:
         first = observation(
@@ -495,7 +520,7 @@ class ResolverTests(unittest.TestCase):
             count=CountClaim(1,2,at(0),False),active_since=-1,dependency_group="radar-a",
         )
         result=self.resolve(device,spike)
-        self.assertEqual((result.count_minimum,result.count_maximum),(1,2))
+        self.assertEqual((result.count_minimum,result.count_maximum),(1,3))
 
     def test_same_area_stable_count_two_preserves_second_person(self) -> None:
         person=observation(
@@ -598,7 +623,7 @@ class ResolverTests(unittest.TestCase):
         result=self.resolve(device,path,previous=previous)
         person=next(item for item in result.presences if item.identity == "person_a")
         self.assertEqual(person.location.area,"beta")
-        self.assertEqual((result.count_minimum,result.count_maximum),(1,1))
+        self.assertEqual((result.count_minimum,result.count_maximum),(1,2))
 
     def test_new_physical_room_and_device_release_unobserved_previous_room(self) -> None:
         home = observation(
@@ -608,9 +633,9 @@ class ResolverTests(unittest.TestCase):
         )
         previous = self.resolve(
             home,
-            observation("device-old", kind=TargetKind.DEVICE, location=area("alpha", -10),
-                        identity_claim=identity(seconds=-10, method="registered_owner")),
-            observation("radar-old", kind=TargetKind.UNKNOWN_LIVING, location=area("alpha", -10)),
+            observation("device-old", kind=TargetKind.DEVICE, location=area("alpha", -1),
+                        identity_claim=identity(seconds=-1, method="registered_owner")),
+            observation("face-old", location=area("alpha", 0),identity_claim=identity()),
         )
         self.resolver = PresenceResolver(self.resolver._config, FrozenClock(at(20)))
         device = observation("device-new", kind=TargetKind.DEVICE, location=area("gamma", 19),
@@ -621,8 +646,9 @@ class ResolverTests(unittest.TestCase):
         moved = self.resolve(home, device, new_radar, previous=previous)
         person = next(item for item in moved.presences if item.identity == "person_a")
         self.assertEqual(person.location.area, "gamma")
-        self.assertEqual(person.location_status, "correlated_movement")
-        self.assertEqual((moved.count_minimum, moved.count_maximum), (1, 1))
+        self.assertEqual(person.location_status, "ambiguous_movement")
+        self.assertEqual(person.location.quality,Quality.MEDIUM)
+        self.assertEqual((moved.count_minimum, moved.count_maximum), (1, 2))
 
         still_observed = self.resolve(
             home, device, new_radar,
@@ -645,37 +671,36 @@ class ResolverTests(unittest.TestCase):
         self.assertTrue(any(item.identity is None and item.location.area == "gamma"
                             for item in visitor.presences))
 
-    def test_current_same_area_evidence_refreshes_continued_location(self) -> None:
+    def test_current_same_area_body_does_not_refresh_continued_identity(self) -> None:
         device = observation(
             "device", kind=TargetKind.DEVICE, location=area("alpha", -10),
             identity_claim=identity(seconds=-10, method="registered_owner"),
         )
-        prior = self.resolve(device, observation("prior", location=area("alpha", -1)))
+        prior = self.resolve(device, observation("prior", location=area("alpha", -1),identity_claim=identity(seconds=-1)))
         for kind in (TargetKind.PERSON, TargetKind.UNKNOWN_LIVING):
             with self.subTest(kind=kind):
                 current = observation("current", kind=kind, location=area("alpha", 0))
                 result = self.resolve(device, current, previous=prior)
-                person = result.presences[0]
-                self.assertEqual(person.location_status, "correlated_movement")
-                self.assertEqual(person.location.observed_at, at(0))
-                self.assertEqual(person.location_source_ids, ("source.current",))
-                self.assertEqual(person.identity_quality, prior.presences[0].identity_quality)
-                self.assertEqual(person.identity_method, prior.presences[0].identity_method)
-                self.assertEqual(person.identity_observed_at, prior.presences[0].identity_observed_at)
-                self.assertEqual((result.count_minimum, result.count_maximum), (1, 1))
-                self.assertEqual(_active_areas(result.presences)[0]["current_minimum_count"], 1)
-                # Still-active evidence remains current on another evaluation;
-                # equality must not send it back to continuity.
+                person = next(p for p in result.presences if p.identity)
+                self.assertEqual(person.location_status, "continued")
+                self.assertEqual(person.location.observed_at, at(-1))
+                self.assertEqual(person.location_source_ids, prior.presences[0].location_source_ids)
+                self.assertEqual(person.identity_quality,Quality.MEDIUM)
+                self.assertEqual(person.identity_method,"registered_device_presence")
+                self.assertEqual(person.identity_observed_at,at(-10))
+                self.assertEqual((result.count_minimum, result.count_maximum), (1, 2))
+                self.assertEqual(result.area_occupancies[0].count.minimum,1)
                 repeated = self.resolve(device, current, previous=result)
-                self.assertEqual(repeated.presences[0].location_status, "correlated_movement")
-                self.assertEqual(repeated.presences[0].location.observed_at, at(0))
+                known=next(p for p in repeated.presences if p.identity)
+                self.assertEqual(known.location_status, "continued")
+                self.assertEqual(known.location.observed_at, at(-1))
 
     def test_same_area_uncertain_or_older_evidence_does_not_refresh_continuity(self) -> None:
         device = observation(
             "device", kind=TargetKind.DEVICE, location=area("alpha", -10),
             identity_claim=identity(seconds=-10, method="registered_owner"),
         )
-        prior = self.resolve(device, observation("prior", location=area("alpha", -1)))
+        prior = self.resolve(device, observation("prior", location=area("alpha", -1),identity_claim=identity(seconds=-1)))
         cases = (
             (),
             (observation("older", location=area("alpha", -2)),),
@@ -701,13 +726,17 @@ class ResolverTests(unittest.TestCase):
         prior = self.resolve(*(observation(
             "prior-" + name, location=area("alpha", -1), identity_claim=identity(name, -1),
         ) for name in ("person_a", "person_b")))
-        for minimum, expected in ((1, "continued"), (2, "correlated_movement")):
+        for minimum in (1,2):
             with self.subTest(minimum=minimum):
                 current = observation("population", location=area("alpha", 0),
                                       count=CountClaim(minimum, minimum, at(0), True))
                 result = self.resolve(*devices, current, previous=prior)
-                self.assertEqual(len(result.presences), 2)
-                self.assertTrue(all(item.location_status == expected for item in result.presences))
+                known=[p for p in result.presences if p.identity]
+                self.assertEqual(len(known),2)
+                self.assertTrue(all(item.location_status == "continued" for item in known))
+                self.assertTrue(all(item.location.observed_at==at(-1) for item in known))
+                self.assertTrue(any(p.identity is None for p in result.presences))
+                self.assertEqual(result.count_maximum,2+minimum)
 
     def test_current_same_area_refresh_does_not_replace_direct_identity_evidence(self) -> None:
         face = observation("face", location=area("alpha", -1), identity_claim=identity(seconds=-1))
@@ -728,7 +757,7 @@ class ResolverTests(unittest.TestCase):
             return observation("body", family="resolved_event", target_id="body-track",
                 coverage_group="camera:beta", location=area("beta", seconds),
                 count=CountClaim(1, 1, at(seconds), True))
-        previous = self.resolve(home, phone, body(0))
+        previous = self.resolve(home, phone, replace(body(0),identity=identity()))
         original = next(p for p in previous.presences if p.identity)
         for seconds in (15, 30, 89, 90):
             with self.subTest(seconds=seconds):
@@ -739,7 +768,7 @@ class ResolverTests(unittest.TestCase):
                 if seconds < 90:
                     self.assertEqual(person.location_status, "continued")
                     self.assertEqual(person.location.observed_at, original.location.observed_at)
-                self.assertEqual(person.identity_observed_at, original.identity_observed_at)
+                self.assertEqual(person.identity_observed_at, home.identity.observed_at)
                 self.assertEqual((result.count_minimum, result.count_maximum), (1, 2))
                 previous = result
 

@@ -9,7 +9,7 @@ from presence_engine.configuration import ConfigurationError, parse_configuratio
 from presence_engine.engine import ObservationStatus
 from presence_engine.projection import snapshot_payload
 from presence_engine.runtime import PresenceRuntime
-from helpers import at
+from helpers import at, area, identity, observation
 
 
 def configuration():
@@ -184,6 +184,76 @@ class WifiTrackerTests(unittest.TestCase):
         self.assertIsNone(person.location.area)
         self.assertEqual(set(person.candidate_areas), {"alpha", "beta"})
         self.assertEqual((update.snapshot.count_minimum, update.snapshot.count_maximum), (0, 1))
+
+    def test_recent_personal_path_with_matching_ap_and_radar_is_medium_not_body_identity(self):
+        self.test_camera_radar_and_phone_in_another_area_do_not_move_owner()
+        self.deliver("home",4,"AP Beta",changed=4)
+        self.second=5
+        update=self.runtime.process(AdapterEnvelope("mqtt","vision/events",{"type":"end",
+            "after":{"id":"body_a","camera":"cam","label":"person",
+                "start_time":at(2).timestamp(),"frame_time":at(2).timestamp(),"end_time":at(5).timestamp()}},at(5),at(5)))
+        person=next(p for p in update.snapshot.presences if p.identity)
+        self.assertEqual(person.location.area,"beta")
+        self.assertEqual(person.location_status,"continued")
+        self.assertEqual(person.location.quality.value,"medium")
+        self.assertEqual(person.location.observed_at,at(2))
+        self.assertEqual(person.location_source_ids[0],"resolved-event:body_a")
+        self.assertEqual(set(person.location_source_ids),{"resolved-event:body_a","wifi_a","radar"})
+        self.assertEqual(person.identity_method,"registered_device_presence")
+        self.assertEqual(person.identity_source_ids,("wifi_a",))
+        self.assertEqual((update.snapshot.count_minimum,update.snapshot.count_maximum),(1,2))
+        self.assertTrue(any(p.identity is None for p in update.snapshot.presences))
+        self.assertEqual(update.snapshot.area_occupancies[0].support_families,("physical_presence",))
+        self.assertIn("recent_personal_path_with_ap_and_body_support",update.snapshot.reasons)
+        self.assertTrue(all(d.detection_id == "body_a" and d.detected_at == at(2) for d in update.detections))
+        repeated=self.deliver("home",7,"AP Beta",changed=4)
+        self.assertFalse(repeated.detections)
+        self.assertEqual(next(p for p in self.runtime.snapshot.presences if p.identity).location.observed_at,at(2))
+        self.second=92
+        expired=self.runtime.refresh().snapshot
+        person=next(p for p in expired.presences if p.identity)
+        self.assertEqual(person.location.method,"wifi_ap_proximity")
+        self.assertEqual(person.location.quality.value,"low")
+        self.assertNotIn("radar",person.location_source_ids)
+        self.assertNotIn("recent_personal_path_with_ap_and_body_support",expired.reasons)
+
+    def test_ap_radar_corroboration_rejects_conflict_old_path_and_lost_support(self):
+        for case in ("ap_conflict","old_path","radar_loss","ap_loss","multiple_people"):
+            with self.subTest(case=case):
+                self.setUp()
+                self.test_camera_radar_and_phone_in_another_area_do_not_move_owner()
+                self.deliver("home",4,"AP Alpha" if case=="ap_conflict" else "AP Beta",changed=4)
+                self.second=25 if case=="old_path" else 5
+                if case=="multiple_people":
+                    self.runtime._store.upsert(observation("other-face",family="resolved_event",
+                        target_id="other-body",location=area("beta",5),identity_claim=identity("person_b",5),received=5))
+                self.runtime.process(AdapterEnvelope("mqtt","vision/events",{"type":"end",
+                    "after":{"id":"body_a","camera":"cam","label":"person",
+                        "start_time":at(2).timestamp(),"frame_time":at(2).timestamp(),"end_time":at(self.second).timestamp()}},at(self.second),at(self.second)))
+                if case=="radar_loss":
+                    self.runtime.mark_channel_unavailable(("radar",))
+                elif case=="ap_loss":
+                    self.deliver("not_home",6,changed=6)
+                self.assertNotIn("recent_personal_path_with_ap_and_body_support",self.runtime.snapshot.reasons)
+
+    def test_ap_body_support_rejects_recent_outside_gps_for_the_same_device(self):
+        from dataclasses import replace
+        from presence_engine.engine import GeographicPosition, TargetKind
+        self.test_camera_radar_and_phone_in_another_area_do_not_move_owner()
+        self.deliver("home",4,"AP Beta",changed=4)
+        self.second=5
+        gps=observation("gps",family="gps_tracker",kind=TargetKind.DEVICE,target_id="phone_a",
+            identity_claim=identity("person_a",5,method="registered_owner"),received=5)
+        self.runtime._store.upsert(replace(gps,geographic_position=GeographicPosition(
+            1,1,5,at(5),"not_home","provider_timestamp")))
+        update=self.runtime.process(AdapterEnvelope("mqtt","vision/events",{"type":"end",
+            "after":{"id":"body_a","camera":"cam","label":"person",
+                "start_time":at(2).timestamp(),"frame_time":at(2).timestamp(),"end_time":at(5).timestamp()}},at(5),at(5)))
+        self.assertNotIn("recent_personal_path_with_ap_and_body_support",update.snapshot.reasons)
+        owner=next(p for p in update.snapshot.presences if p.identity)
+        self.assertEqual(owner.location.observed_at,at(2))
+        self.assertEqual(owner.location_source_ids[0],"resolved-event:body_a")
+        self.assertNotIn("wifi_a",owner.location_source_ids)
 
     def test_metadata_does_not_accept_gps_as_wifi_or_copy_private_attributes(self):
         update = self.deliver("home", 1, extra={"source_type": "gps", "tracking_type": "position"})

@@ -811,6 +811,8 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(len(runtime.export_state()["observations"]), 1)
 
     def test_continued_location_expires_without_another_sensor_event(self) -> None:
+        from presence_engine.engine import CountClaim, ObservationStatus
+        from helpers import observation, area, identity
         current = [at(0)]
         runtime = PresenceRuntime(integration_config(), now=lambda: current[0])
         runtime.process(
@@ -822,6 +824,11 @@ class RuntimeTests(unittest.TestCase):
                 at(0),
             )
         )
+        current[0]=at(1)
+        face=observation("accepted-face",family="resolved_event",target_id="body-a",
+            location=area("alpha",1),identity_claim=identity(seconds=1),received=1)
+        runtime._store.upsert(face)
+        runtime._snapshot=runtime._resolve_snapshot()
         located = runtime.process(
             AdapterEnvelope(
                 "state",
@@ -832,6 +839,11 @@ class RuntimeTests(unittest.TestCase):
             )
         )
         self.assertEqual(located.snapshot.presences[0].location.area, "alpha")
+
+        current[0]=at(1.5)
+        runtime._store.upsert(replace(face,status=ObservationStatus.ENDED,ended_at=at(1.5),received_at=at(1.5),
+            count=CountClaim(0,0,at(1.5),True)))
+        runtime._snapshot=runtime._resolve_snapshot()
 
         current[0] = at(2)
         continued = runtime.process(

@@ -59,6 +59,15 @@ antiguo no atribuye una habitación nueva ni confirma un cuerpo adicional.
 El apoyo corporal/radio compatible queda en las fuentes espaciales del
 resultado, sin renovar relojes; la fuente corporal principal permanece primera.
 
+`0.5.36` separa también al propietario de un dispositivo del cuerpo anónimo
+coincidente: la propiedad no demuestra identidad y el contador no renueva una
+ubicación recordada. Mantiene referencias BLE medidas como posibilidades bajas.
+AP + radar admite respaldo medio solo con trayectoria personal reciente y
+compatible; conserva su reloj, incertidumbre de visitante y fuente principal,
+sin reconocer cuerpos ni crear votos físicos de Wi-Fi. Sin esa trayectoria,
+AP sigue como proximidad baja. Los traslados por movimiento medido conservan
+sus requisitos y los 90 segundos existentes.
+
 `0.5.34` evita que una persona nativa derivada de un GPS configurado prolongue
 un fix doméstico antiguo. El dato directo conserva su caducidad; la falta de
 comunicación no demuestra una salida. Las referencias BLE débiles comparan

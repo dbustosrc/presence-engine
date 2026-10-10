@@ -33,7 +33,16 @@ class NegativeSupportTests(unittest.TestCase):
     def seed(self):
         self.deliver("person.owner", "home", 0)
         self.deliver("sensor.phone_area", "Alpha", 1)
-        return self.deliver("binary_sensor.radar", "on", 2).snapshot
+        self.deliver("binary_sensor.radar", "on", 2)
+        face=observation("accepted-face",family="resolved_event",target_id="body-a",
+            location=area("alpha",2),identity_claim=identity(seconds=2),received=2)
+        self.runtime._store.upsert(face)
+        self.runtime._snapshot=self.runtime._resolve_snapshot()
+        self.second=3
+        self.runtime._store.upsert(replace(face,status=ObservationStatus.ENDED,ended_at=at(3),received_at=at(3),
+            count=CountClaim(0,0,at(3),True)))
+        self.runtime._snapshot=self.runtime._resolve_snapshot()
+        return self.runtime.snapshot
 
     def test_measured_clear_retires_room_not_owner_and_phone_does_not_move_body(self):
         self.assertEqual(self.seed().presences[0].location.area, "alpha")
@@ -57,9 +66,11 @@ class NegativeSupportTests(unittest.TestCase):
         arrived = PresenceResolver(self.runtime._resolver_config, FrozenClock(at(12))).resolve((home, phone,
             observation("new_radar", family="binary_presence", kind=TargetKind.UNKNOWN_LIVING,
                         location=area("beta", 12))), revision=5, previous=moved)
-        self.assertEqual(arrived.presences[0].location.area, "beta")
-        self.assertIsNone(arrived.presences[0].last_location)
-        self.assertEqual(arrived.presences[0].location_clear_source_ids, ())
+        owner=next(p for p in arrived.presences if p.identity)
+        self.assertIsNone(owner.location.area)
+        self.assertEqual(owner.last_location.area,"alpha")
+        self.assertEqual(owner.location_clear_source_ids,("radar",))
+        self.assertTrue(any(p.identity is None and p.location.area=="beta" for p in arrived.presences))
         self.assertEqual(self.runtime.next_expiration(), at(92))
         self.second = 92
         self.assertTrue(self.runtime.refresh().changed)

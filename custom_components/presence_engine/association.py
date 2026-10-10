@@ -47,8 +47,8 @@ class DeviceAssociations:
     def room_candidates(self, observations, histories, now) -> tuple[DeviceState, ...]:
         """A device-supported room is possible, never a body or carried phone.
 
-        A measured physical area takes this fallback out of contention. A floor
-        aggregate cannot invalidate a room reference or identify its owner.
+        Anonymous bodies do not invalidate a measured weak reference or identify
+        its owner. Stronger personal locations take priority in the resolver.
         Keep the first qualification clock; radio refreshes only maintain validity.
         """
         homes = {o.identity.value for o in observations if o.status is ObservationStatus.ACTIVE
@@ -60,20 +60,13 @@ class DeviceAssociations:
             and o.identity and o.identity.value in homes and o.identity.observed_at <= now
             and o.location and o.location.area and o.location.quality.rank >= Quality.MEDIUM.rank
             and o.location.observed_at <= now and o.received_at <= now]
-        body = any(o.status is ObservationStatus.ACTIVE
-            and o.target_kind in {TargetKind.PERSON, TargetKind.UNKNOWN_LIVING}
-            and o.source.family != "person_home" and o.location
-            and o.location.level is SpatialLevel.AREA
-            and o.location.quality.rank >= Quality.MEDIUM.rank and o.location.observed_at <= now
-            and o.received_at <= now and (o.count is None or o.count.maximum > 0)
-            for o in observations)
         areas = {}
         for phone in phones:
             areas.setdefault(phone.identity.value, set()).add(phone.location.area)
         hints, deadlines = {}, []
         start = max(now - self.measurement_window,
             self.capture_after + timedelta(microseconds=1) if self.capture_after else now - self.measurement_window)
-        for phone in phones if not body else ():
+        for phone in phones:
             if len(areas[phone.identity.value]) != 1:
                 continue
             ranges = {sid: value for sid, d in self.definitions.items()
@@ -170,14 +163,23 @@ class DeviceAssociations:
             channels = ()
             body_clock = body.location.observed_at if body else None
             body_source = body.source.source_id if body else None
-            if (body is None and previous and previous.count_minimum == previous.count_maximum == 1
+            if (body is None and previous
+                    and sum(p.identity is not None for p in previous.presences) == 1
+                    and not any(a.location.area != phone.location.area and a.count.minimum > 0
+                                for a in previous.area_occupancies)
+                    and not any(p.kind is TargetKind.ANIMAL and p.location
+                                and p.location.area == phone.location.area for p in previous.presences)
                     and not any(b.identity.value == phone.identity.value or b.location.area == phone.location.area
                                 for b in bodies)):
                 accepted = next((p for p in previous.presences if p.identity == phone.identity.value
-                    and p.location and p.location.area == phone.location.area
+                    and p.location
                     and p.identity_quality.rank >= Quality.MEDIUM.rank
-                    and p.location_status == "correlated_movement"), None)
-                supported = [s for s in positions if accepted and s.source_id in accepted.location_source_ids
+                    and (p.location.level is SpatialLevel.HOME
+                         or p.location.area == phone.location.area and (p.location_status == "correlated_movement"
+                             or p.location_status == "possible" and p.location.method == "device_room_candidate"))), None)
+                occupancy = next((a for a in previous.area_occupancies if accepted
+                    and a.location.area == phone.location.area and a.count.minimum == a.count.maximum == 1), None)
+                supported = [s for s in positions if occupancy and s.source_id in occupancy.source_ids
                     and any(o.source.source_id == s.source_id and o.status is ObservationStatus.ACTIVE
                         and o.identity is None and o.source.family in {"binary_presence", "mtr_count", "count"}
                         and o.target_kind in {TargetKind.PERSON, TargetKind.UNKNOWN_LIVING}

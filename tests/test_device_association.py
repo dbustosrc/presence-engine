@@ -130,6 +130,29 @@ class DeviceAssociationTests(unittest.TestCase):
         self.assertEqual(self.owner().location.area, "beta")
         self.assertNotEqual(self.owner().location.method, "device_room_candidate")
 
+    def test_anonymous_body_does_not_remove_a_measured_weak_owner_reference(self):
+        for body_area in ("alpha", "beta"):
+            with self.subTest(body_area=body_area):
+                self.second=0
+                self.enable_room_fallback()
+                self.deliver("person.owner", "home", 0)
+                self.deliver("sensor.phone", "Beta", 1)
+                self.deliver("sensor.distance_beta", 3.4, 2)
+                self.deliver("sensor.distance_beta", 3.2, 3)
+                original=self.owner().location.observed_at
+                update=self.deliver("binary_sensor."+body_area,"on",4)
+                person=self.owner()
+                self.assertEqual(person.location.method,"device_room_candidate")
+                self.assertEqual(person.location.area,"beta")
+                self.assertEqual(person.location.quality,Quality.LOW)
+                self.assertEqual(person.location.observed_at,original)
+                self.assertTrue(any(p.identity is None and p.location.area==body_area for p in update.snapshot.presences))
+                self.assertNotIn("radar_"+body_area,person.location_source_ids)
+                self.assertEqual((update.snapshot.count_minimum,update.snapshot.count_maximum),(1,2))
+                self.assertFalse(update.detections)
+                self.deliver("sensor.distance_beta","unknown",5)
+                self.assertNotEqual(self.owner().location.method,"device_room_candidate")
+
     def test_floor_only_pulse_does_not_erase_or_renew_a_weak_room_reference(self):
         self.enable_room_fallback()
         self.deliver("person.owner", "home", 0)
@@ -222,7 +245,7 @@ class DeviceAssociationTests(unittest.TestCase):
         self.assertEqual(self.owner().location.area, "alpha")
         self.assertNotEqual(self.owner().location.method, "wifi_ap_proximity")
 
-    def test_room_fallback_rejects_body_conflict_missing_signal_and_restart(self):
+    def test_room_fallback_yields_to_identified_body_and_rejects_missing_signal_restart(self):
         self.enable_room_fallback()
         self.deliver("person.owner", "home", 0)
         self.deliver("sensor.phone", "Beta", 1)
@@ -230,7 +253,7 @@ class DeviceAssociationTests(unittest.TestCase):
         self.deliver("sensor.distance_beta", 320, 3, "cm")
         self.assertEqual(self.owner().location.area, "beta")
         self.deliver("binary_sensor.alpha", "on", 4)
-        self.assertNotEqual(self.owner().location.method, "device_room_candidate")
+        self.assertEqual(self.owner().location.method, "device_room_candidate")
         self.body("alpha", 5)
         self.assertEqual(self.owner().location.area, "alpha")
         self.setUp()
@@ -528,6 +551,15 @@ class DeviceAssociationTests(unittest.TestCase):
         if physical:
             return self.deliver("binary_sensor.beta", "on", 13)
         return self.runtime.snapshot
+
+    def test_weaker_measured_anchor_does_not_identify_the_origin_body(self):
+        self.correlated_seed()
+        self.assertTrue(self.runtime._associations.anchors)
+        self.assertIsNone(self.owner().location.area)
+        self.assertEqual(self.owner().identity_method,"home_scope")
+        self.assertEqual((self.runtime.snapshot.count_minimum,self.runtime.snapshot.count_maximum),(1,2))
+        self.assertTrue(any(p.identity is None and p.location.area=="alpha" for p in self.runtime.snapshot.presences))
+        self.assertNotIn("radar_alpha",self.owner().location_source_ids)
 
     def test_correlated_body_measurements_and_clear_can_follow_radio_before_area_label(self):
         self.correlated_seed()

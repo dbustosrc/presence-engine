@@ -1,5 +1,13 @@
 # Historial de cambios
 
+## 0.5.36 — Dispositivos, cuerpos y corroboración AP conservadora
+
+- Un dispositivo registrado y un cuerpo anónimo coincidentes ya no se convierten por sí solos en una persona exacta. Conserva el cuerpo, la identidad inferida y el intervalo; un contador anónimo tampoco renueva la ubicación personal recordada. Una trayectoria personal reciente con dispositivo y cuerpo compatibles puede seguir refinándose como asociación de confianza media, no identificación.
+- La posible separación de un teléfono no descuenta cuerpos detectados independientemente en otras áreas. El intervalo puede ser más amplio cuando falta identidad corporal; no oculta visitantes ni inventa una habitación personal histórica a partir de un radar y un teléfono.
+- Una referencia BLE débil respaldada por mediciones sigue disponible ante cuerpos anónimos, sin elevarse a presencia corporal ni perder su reloj original. Un cuerpo identificado más fiable prevalece. El anclaje basado en rangos radar/BLE utiliza la población física y sus medidas, no una supuesta identidad deducida del conteo; mantiene traslado probable, vaciado de origen, rangos opuestos, rechazo de contradicciones y límite de 90 segundos.
+- AP y radar pueden respaldar una trayectoria personal reciente compatible como referencia de confianza media, conservando el reloj y la fuente corporal históricos. Sin trayectoria previa mantiene proximidad baja del AP; múltiples candidatos, pérdida de soporte, AP contradictorios y GPS exterior preciso del mismo dispositivo no califican. No reconoce al cuerpo anónimo, crea detecciones ni añade votos físicos de Wi-Fi.
+- La fuente principal de una ubicación recordada conserva su orden aunque cambie la evidencia de identidad actual, evitando presentar un teléfono como origen de una observación corporal anterior.
+
 ## 0.5.35 — Asociaciones ambiguas y respaldo espacial explicable
 
 - No elige una identidad por proximidad temporal o nombre cuando varias trayectorias son compatibles con una presencia anónima. Conserva las personas, alternativas y cuerpo detectado, con incertidumbre de solapamiento; tracks visuales distintos siguen contando como visitantes independientes.

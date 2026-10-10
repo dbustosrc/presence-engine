@@ -22,6 +22,17 @@ An anonymous body with several compatible identities keeps its own location
 and unresolved overlap, while candidate areas remain available on the named
 records. Timing or an identifier is not used to choose its owner.
 
+From0.5.36, an owned device and anonymous body in one area do not establish
+an exact named occupant. Anonymous positives do not renew remembered personal
+locations; their current physical occupancy remains separate. Measured weak
+BLE references may coexist as `possible` without taking identity/body votes.
+Recent accepted personal paths with matching AP and single-body physical
+support can retain `continued` with medium location confidence and explicit
+location support, original location clock and remembered primary source.
+AP conflict, multiple candidates, unavailable support or recent precise outside
+GPS on the same device reject that corroboration. Visitor headroom remains;
+the AP is still neither a body identity nor an independent physical control vote.
+
 Version 0.4.9 keeps the validated projections as stable public entities.
 Every projection is derived from the same canonical snapshot revision. An
 entity does not publish MQTT, call a Home Assistant service or replace another
@@ -91,7 +102,7 @@ identity/location, remove the owner on disconnect or degrade observer coverage.
 Derived device/personal locations use `wifi_ap_proximity`, `low` and personal
 status `possible`. Consumers must label the area as "near the AP of...", not a
 confirmed room. Conflicting owned AP areas remain alternatives at home scope.
-These hypotheses contribute no confirmed physical minimum/current occupancy,
+AP-only hypotheses contribute no confirmed physical minimum/current occupancy,
 anonymous-body identity or PTZ support; attachment fields are neither
 triangulation nor probabilities.
 
