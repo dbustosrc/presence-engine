@@ -16,6 +16,7 @@ from presence_engine.engine import (
     PresenceResolver,
     PresenceSnapshot,
     Quality,
+    SourceRef,
     SpatialClaim,
     SpatialLevel,
     TargetKind,
@@ -91,8 +92,119 @@ class ResolverTests(unittest.TestCase):
             "target-a",kind=TargetKind.PERSON,target_id="target-a",location=area("alpha",0),
         )
         result=self.resolve(person,area_evidence)
-        self.assertEqual((result.count_minimum,result.count_maximum),(1,1))
-        self.assertEqual(result.presences[0].location.area,"alpha")
+        self.assertEqual((result.count_minimum,result.count_maximum),(1,2))
+        named=next(p for p in result.presences if p.identity)
+        self.assertEqual(named.location.area,"alpha")
+        self.assertEqual(named.location.quality,Quality.MEDIUM)
+
+    def test_anonymous_room_body_does_not_choose_between_compatible_people(self) -> None:
+        first=observation("person-a",location=floor(-5),identity_claim=identity("person_a",-5))
+        second=observation("person-b",location=floor(-1),identity_claim=identity("person_b",-1))
+        body=observation("radar",family="binary_presence",kind=TargetKind.UNKNOWN_LIVING,
+            location=area("beta",0),count=CountClaim(1,1,at(0),True))
+        for ordered in permutations((first,second,body)):
+            result=self.resolve(*ordered)
+            known=[p for p in result.presences if p.identity]
+            self.assertEqual({p.identity for p in known},{"person_a","person_b"})
+            self.assertTrue(all(p.location.level is SpatialLevel.FLOOR for p in known))
+            self.assertTrue(all("beta" in p.candidate_areas for p in known))
+            anonymous,=[p for p in result.presences if p.identity is None]
+            self.assertEqual((anonymous.location.area,anonymous.location_status),("beta","possible"))
+            self.assertEqual((result.count_minimum,result.count_maximum),(2,3))
+            self.assertIn("anonymous_body_has_multiple_identity_candidates",result.reasons)
+
+    def test_old_floor_identity_is_not_a_current_room_association(self) -> None:
+        old=observation("person-a",location=floor(-30),identity_claim=identity("person_a",-30))
+        body=observation("radar",family="binary_presence",kind=TargetKind.UNKNOWN_LIVING,
+            location=area("beta",0),count=CountClaim(1,1,at(0),True))
+        result=self.resolve(old,body)
+        person=next(p for p in result.presences if p.identity)
+        self.assertEqual(person.location,floor(-30))
+        self.assertTrue(any(p.identity is None and p.location.area=="beta" for p in result.presences))
+        self.assertEqual((result.count_minimum,result.count_maximum),(1,2))
+
+    def test_fresh_floor_identity_and_anonymous_radar_are_not_an_exact_room_identity(self) -> None:
+        person=observation("face",location=floor(-1),identity_claim=identity("person_a",-1))
+        radar=observation("radar",family="binary_presence",kind=TargetKind.UNKNOWN_LIVING,
+            location=area("alpha",0),count=CountClaim(1,1,at(0),True))
+        result=self.resolve(person,radar)
+        named=next(p for p in result.presences if p.identity)
+        self.assertEqual(named.location.area,"alpha")
+        self.assertEqual(named.location_status,"ambiguous_movement")
+        self.assertEqual(named.location.quality,Quality.MEDIUM)
+        self.assertEqual(named.identity_source_ids,("source.face",))
+        self.assertEqual((result.count_minimum,result.count_maximum),(1,2))
+
+    def test_current_room_on_the_same_identified_visual_target_is_exact(self) -> None:
+        person=observation("face",family="frigate_event",target_id="body-a",
+            location=floor(-1),identity_claim=identity("person_a",-1))
+        body=observation("body",family="frigate_event",target_id="body-a",location=area("alpha",0))
+        items=tuple(replace(o,source=replace(o.source,native_id="camera")) for o in (person,body))
+        for ordered in permutations(items):
+            result=self.resolve(*ordered)
+            named,=result.presences
+            self.assertEqual(named.location,body.location)
+            self.assertEqual(named.identity_source_ids,("source.face",))
+            self.assertEqual((result.count_minimum,result.count_maximum),(1,1))
+
+    def test_radar_fully_explained_by_a_dog_cannot_locate_a_floor_identity(self) -> None:
+        person=observation("face",location=floor(-1),identity_claim=identity("person_a",-1))
+        dog=observation("dog",family="frigate_event",kind=TargetKind.ANIMAL,classification="dog",
+            target_id="dog-a",location=area("alpha",0),count=CountClaim(1,1,at(0),True))
+        radar=observation("radar",family="binary_presence",kind=TargetKind.UNKNOWN_LIVING,
+            location=area("alpha",0),count=CountClaim(1,1,at(0),True))
+        for ordered in permutations((person,dog,radar)):
+            result=self.resolve(*ordered)
+            named=next(p for p in result.presences if p.identity)
+            self.assertEqual(named.location,person.location)
+            self.assertEqual((result.count_minimum,result.count_maximum),(2,3))
+
+    def test_radar_fully_explained_by_a_dog_cannot_locate_a_device_owner(self) -> None:
+        phone=observation("phone",family="bermuda_area",kind=TargetKind.DEVICE,
+            location=area("alpha",-1,quality=Quality.MEDIUM),identity_claim=identity("person_a",-1,method="registered_owner"))
+        dog=observation("dog",family="frigate_event",kind=TargetKind.ANIMAL,classification="dog",
+            target_id="dog-a",location=area("alpha",0),count=CountClaim(1,1,at(0),True))
+        radar=observation("radar",family="binary_presence",kind=TargetKind.UNKNOWN_LIVING,
+            location=area("alpha",0),count=CountClaim(1,1,at(0),True))
+        for ordered in permutations((phone,dog,radar)):
+            result=self.resolve(*ordered)
+            named=next(p for p in result.presences if p.identity)
+            self.assertEqual(named.location.level,SpatialLevel.HOME)
+            self.assertIsNone(named.location.area)
+            self.assertTrue(any(p.kind is TargetKind.ANIMAL for p in result.presences))
+
+    def test_distinct_visual_visitor_is_not_hidden_by_multiple_floor_identities(self) -> None:
+        first=observation("person-a",family="frigate_event",target_id="body-a",
+            location=floor(-5),identity_claim=identity("person_a",-5))
+        second=observation("person-b",family="frigate_event",target_id="body-b",
+            location=floor(-1),identity_claim=identity("person_b",-1))
+        visitor=observation("visitor",family="frigate_event",target_id="visitor",
+            location=area("beta",0))
+        items=tuple(replace(o,source=replace(o.source,native_id="camera")) for o in (first,second,visitor))
+        for ordered in permutations(items):
+            result=self.resolve(*ordered)
+            self.assertEqual((result.count_minimum,result.count_maximum),(3,3))
+            known=[p for p in result.presences if p.identity]
+            self.assertTrue(all(p.location.level is SpatialLevel.FLOOR for p in known))
+            body,=[p for p in result.presences if p.identity is None]
+            self.assertEqual(body.location.area,"beta")
+            self.assertNotIn("anonymous_body_has_multiple_identity_candidates",result.reasons)
+
+    def test_animal_overlap_does_not_block_an_additional_person_supported_by_radar(self) -> None:
+        person=observation("face",location=floor(-1),identity_claim=identity("person_a",-1))
+        phone=observation("phone",family="bermuda_area",kind=TargetKind.DEVICE,
+            location=area("alpha",-1,quality=Quality.MEDIUM),identity_claim=identity("person_a",-1,method="registered_owner"))
+        dog=observation("dog",family="frigate_event",kind=TargetKind.ANIMAL,classification="dog",
+            target_id="dog-a",location=area("alpha",0),count=CountClaim(1,1,at(0),True))
+        radar=observation("radar",family="binary_presence",kind=TargetKind.UNKNOWN_LIVING,
+            location=area("alpha",0),count=CountClaim(2,2,at(0),True))
+        for candidate in (person,phone):
+            for ordered in permutations((candidate,dog,radar)):
+                result=self.resolve(*ordered)
+                named=next(p for p in result.presences if p.identity)
+                self.assertEqual(named.location.area,"alpha")
+                self.assertTrue(any(p.kind is TargetKind.ANIMAL for p in result.presences))
+                self.assertIn("anonymous_count_may_include_animal",result.reasons)
 
     def test_device_floor_scope_plus_area_evidence_keeps_visitor_uncertainty(self) -> None:
         device = observation(
@@ -135,6 +247,69 @@ class ResolverTests(unittest.TestCase):
         self.assertEqual(person.location_status, "correlated_movement")
         self.assertEqual(person.identity_quality, Quality.MEDIUM)
         self.assertEqual(result.devices[0].location.area, "alpha")
+
+    def test_face_radio_and_radar_expose_spatial_support_without_rewriting_face_clock(self) -> None:
+        face=observation("face",family="frigate_event",target_id="body-a",
+            location=area("alpha",-2),identity_claim=identity("person_a",-3))
+        phone=observation("phone",family="bermuda_area",kind=TargetKind.DEVICE,target_id="phone-a",
+            location=area("alpha",-1,quality=Quality.MEDIUM),identity_claim=identity("person_a",-1,method="registered_owner"))
+        radar=observation("radar",family="binary_presence",kind=TargetKind.UNKNOWN_LIVING,
+            location=area("alpha",0),count=CountClaim(1,1,at(0),True))
+        for ordered in permutations((face,phone,radar)):
+            result=self.resolve(*ordered)
+            person,=result.presences
+            self.assertEqual(person.location_source_ids,("source.face","source.phone","source.radar"))
+            self.assertEqual(person.identity_source_ids,("source.face",))
+            self.assertEqual(person.location.observed_at,at(-2))
+            self.assertEqual(person.identity_observed_at,at(-3))
+            self.assertEqual(person.location.quality,Quality.HIGH)
+            self.assertEqual((result.count_minimum,result.count_maximum),(1,1))
+        self.assertEqual(face.location.observed_at,at(-2))
+
+    def test_spatial_corroboration_rejects_old_conflicting_and_other_owner_radio(self) -> None:
+        face=observation("face",family="frigate_event",target_id="body-a",
+            location=area("alpha",0),identity_claim=identity("person_a",0))
+        phone=observation("phone",family="bermuda_area",kind=TargetKind.DEVICE,target_id="phone-a",
+            location=area("alpha",-1,quality=Quality.MEDIUM),identity_claim=identity("person_a",-1,method="registered_owner"))
+        for other in (replace(phone,location=area("alpha",-30,quality=Quality.MEDIUM)),
+                      replace(phone,location=area("delta",-1,quality=Quality.MEDIUM)),
+                      replace(phone,identity=identity("person_b",-1,method="registered_owner")),
+                      replace(phone,location=area("alpha",1,quality=Quality.MEDIUM)),
+                      replace(phone,location=area("alpha",-1,quality=Quality.LOW))):
+            with self.subTest(other=other):
+                result=self.resolve(face,other)
+                person=next(p for p in result.presences if p.identity=="person_a")
+                self.assertEqual(person.location_source_ids,("source.face",))
+        old_radar=observation("radar",family="binary_presence",kind=TargetKind.UNKNOWN_LIVING,
+            location=area("alpha",-30),count=CountClaim(1,1,at(-30),True))
+        for radar in (old_radar,replace(old_radar,location=area("alpha",0,quality=Quality.LOW)),
+                      replace(old_radar,location=area("alpha",1))):
+            result=self.resolve(face,radar)
+            self.assertEqual(result.presences[0].location_source_ids,("source.face",))
+
+    def test_radio_support_cannot_replace_primary_body_source_or_promote_ap_gps(self) -> None:
+        face=observation("face",family="frigate_event",target_id="body-a",
+            location=area("alpha",0),identity_claim=identity("person_a",0))
+        phone=observation("aaa-phone",family="bermuda_area",kind=TargetKind.DEVICE,target_id="phone-a",
+            location=area("alpha",-1,quality=Quality.MEDIUM),identity_claim=identity("person_a",-1,method="registered_owner"))
+        result=self.resolve(face,phone)
+        person,=result.presences
+        self.assertEqual(person.location_source_ids,("source.face","source.aaa-phone"))
+        from presence_engine.public_projection import identity_projection
+        self.assertEqual(identity_projection(result,"person_a")["location_source"],"source.face")
+        home=SpatialClaim(SpatialLevel.HOME,at(-1),method="wifi_connection",quality=Quality.LOW)
+        wifi=replace(phone,source=SourceRef("source.wifi","wifi_tracker"),location=home,
+            network_attachment="AP Alpha",network_attachment_area="alpha",network_attachment_observed_at=at(-1))
+        gps=replace(phone,source=SourceRef("source.gps","gps_tracker"),location=replace(home,method="gps_device_home"))
+        for device in (wifi,gps):
+            result=self.resolve(face,device)
+            person,=result.presences
+            self.assertEqual(person.location_source_ids,("source.face",))
+            self.assertIn(device.source.source_id,person.source_ids)
+            self.assertEqual(person.location,face.location)
+            self.assertEqual(person.identity_source_ids,("source.face",))
+        result=self.resolve(face)
+        self.assertEqual(result.presences[0].location_source_ids,("source.face",))
 
     def test_home_scope_person_is_refined_by_registered_device_and_room_count(self) -> None:
         home = observation(

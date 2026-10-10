@@ -6,6 +6,14 @@ La estimación AP débil está implementada en 0.5.30. Desde 0.5.32, GPS se
 normaliza como posición del dispositivo y la actividad auxiliar se expone
 separada del conteo corporal. Combinaciones de corroboración adicionales
 y su aceptación física siguen en la matriz, no se dan por completadas aquí.
+Desde0.5.35, el soporte espacial compatible del cuerpo identificado conserva
+sus fuentes sin renovar el reloj corporal/facial, y las asociaciones anónimas
+con varias identidades siguen como alternativas. Esto no acredita toda la
+corroboración AP/radar ni las escenas físicas pendientes.
+Un radar explicable enteramente por un animal no respalda el traslado de una
+persona. El refinamiento de planta a habitación por un cuerpo anónimo es una
+asociación posible de confianza media, no identidad confirmada ni conteo exacto;
+el mismo objeto visual identificado conserva su refinamiento directo.
 Los contratos versionados, fixtures y pruebas existentes describen sus versiones
 reales. La implementación y aceptación pendientes se mantienen en el plan actual.
 

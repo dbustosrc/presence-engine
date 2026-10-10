@@ -421,6 +421,31 @@ class NativeConfigurationTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(runtime.coordinator.data.presences or runtime.coordinator.data.devices)
         self.assertFalse(runtime.coordinator.data.coverage_degraded or runtime.engine.failures)
 
+    async def test_native_corroboration_keeps_primary_body_source_and_original_clocks(self):
+        from presence_engine.public_projection import identity_projection
+        from homeassistant.core import State
+        from helpers import area, identity, observation
+        hass=HomeAssistant("/tmp/presence-engine-no-io")
+        runtime=HomeAssistantPresenceRuntime(hass,catalogue_entry(),integration_config(),
+            max_records=2000,save_delay_seconds=15)
+        runtime._store=Mock(async_save=AsyncMock())
+        runtime._reschedule_expiration=Mock()
+        runtime.engine._now=lambda:at(0)
+        runtime.engine._store.upsert(observation("face",family="resolved_event",target_id="body-a",
+            location=area("alpha",-2),identity_claim=identity("person_a",-3)))
+        runtime.engine._snapshot=runtime.engine._resolve_snapshot()
+        with patch("presence_engine.ha_runtime.dt_util.utcnow",return_value=at(0)):
+            await runtime._async_process_state("sensor.device_area",State("sensor.device_area","Alpha Room",
+                last_changed=at(-1),last_updated=at(-1)))
+            await runtime._async_process_state("sensor.area_count",State("sensor.area_count","1",
+                last_changed=at(0),last_updated=at(0)))
+        data=identity_projection(runtime.coordinator.data,"person_a")
+        self.assertEqual(data["location_sources"],["source.face","area_count","device_area"])
+        self.assertEqual(data["location_source"],"source.face")
+        self.assertEqual(data["location_observed_at"],at(-2).isoformat())
+        self.assertEqual(data["identity_observed_at"],at(-3).isoformat())
+        self.assertEqual((runtime.coordinator.data.count_minimum,runtime.coordinator.data.count_maximum),(1,1))
+
     async def test_native_radio_handoff_publishes_only_semantic_change_without_detection(self):
         from test_device_association import DeviceAssociationTests
         from homeassistant.core import State

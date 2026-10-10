@@ -53,6 +53,12 @@ al AP de una habitación corporalmente confirmada. Define corroboración entre
 fuentes sin exigir Bermuda; su implementación completa sigue pendiente. Las
 notas versionadas siguientes conservan el comportamiento realmente publicado.
 
+`0.5.35` conserva la ambigüedad cuando un cuerpo puede corresponder a varias
+personas, en lugar de elegir por reloj o identificador. El alcance de planta
+antiguo no atribuye una habitación nueva ni confirma un cuerpo adicional.
+El apoyo corporal/radio compatible queda en las fuentes espaciales del
+resultado, sin renovar relojes; la fuente corporal principal permanece primera.
+
 `0.5.34` evita que una persona nativa derivada de un GPS configurado prolongue
 un fix doméstico antiguo. El dato directo conserva su caducidad; la falta de
 comunicación no demuestra una salida. Las referencias BLE débiles comparan

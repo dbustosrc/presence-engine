@@ -183,7 +183,7 @@ class PresenceResolver:
                         for source in group.source_ids:
                             animal_consumption.setdefault(source,set()).add(overlap.key)
                         reasons.append("anonymous_count_may_include_animal")
-                corroborated=self._device_corroboration_match(eligible,group,physical_areas)
+                corroborated=self._device_corroboration_match(eligible,replace(group,minimum=group_min),physical_areas)
                 if corroborated is not None:
                     person_consumption.add((corroborated.identity, self._identity_bucket(group)))
                     applied=self._apply_group_location(corroborated,group,True)
@@ -213,6 +213,13 @@ class PresenceResolver:
                         if group_min >= len(same_area):
                             for person in same_area:
                                 person.sources.update(group.source_ids)
+                                if (person.status in {"resolved", "correlated_movement"}
+                                        and person.location.quality.rank >= Quality.MEDIUM.rank
+                                        and group.location.quality.rank >= Quality.MEDIUM.rank
+                                        and group.location.observed_at <= now
+                                        and abs(group.location.observed_at-person.location.observed_at)
+                                            <= self._config.trajectory_window):
+                                    person.location_sources.update(group.source_ids)
                                 # Corroborate location, not identity; active evidence
                                 # may repeat, but must not rewind the retained path.
                                 if (person.status == "continued"
@@ -228,7 +235,7 @@ class PresenceResolver:
                         if exact < consumed:
                             reasons.append("anonymous_body_identity_overlap")
                     elif group.maximum:
-                        match,exact=self._movement_match(eligible,replace(group, minimum=group_min),now)
+                        match,exact,overlap_reason=self._movement_match(eligible,replace(group, minimum=group_min),now,active)
                         if match is not None:
                             person_consumption.add((match.identity, self._identity_bucket(group)))
                             applied=self._apply_group_location(match,group,exact)
@@ -237,6 +244,9 @@ class PresenceResolver:
                                 group_max=max(0,group_max-1)
                             else:
                                 reasons.append("movement_correlation_kept_visitor_uncertainty")
+                        elif overlap_reason:
+                            group_min=0
+                            reasons.append(overlap_reason)
                         elif (
                             group.location is not None
                             and group.location.area is None
@@ -737,6 +747,14 @@ class PresenceResolver:
                 candidate.sources.add(item.source.source_id)
                 if item.location is not None:
                     candidate.device_locations.append(item.location)
+                    if (candidate.direct_person and candidate.identity_quality is Quality.HIGH
+                            and candidate.location and candidate.location.area
+                            and self._same_area(candidate.location,item.location)
+                            and item.location.quality.rank >= Quality.MEDIUM.rank
+                            and item.location.observed_at <= now
+                            and abs(item.location.observed_at-candidate.location.observed_at)
+                                <= self._config.trajectory_window):
+                        candidate.location_sources.add(item.source.source_id)
                 if candidate.location is None or candidate.location.area is None:
                     candidate.from_device=True
                 continue
@@ -885,7 +903,7 @@ class PresenceResolver:
         separate physical observation when both independently agree on the
         room and there is exactly one eligible identity.
         """
-        if group.location is None or group.location.area is None or not group.maximum:
+        if group.location is None or group.location.area is None or not group.minimum:
             return None
         candidates = [
             person
@@ -1060,10 +1078,12 @@ class PresenceResolver:
         people: dict[str,_PersonCandidate],
         group: _EvidenceGroup,
         now: datetime,
-    ) -> tuple[_PersonCandidate | None,bool]:
-        if group.location is None:
-            return (None,False)
+        observations: tuple[Observation, ...],
+    ) -> tuple[_PersonCandidate | None,bool,str | None]:
+        if group.location is None or not group.minimum:
+            return (None,False,None)
         candidates=[]
+        possible_overlap=False
         for person in people.values():
             location=person.location
             if location is None:
@@ -1075,14 +1095,18 @@ class PresenceResolver:
                     and bool(person.clear_sources & set(group.source_ids))
                     and last.observed_at < group.location.observed_at <= now
                     and group.location.observed_at - last.observed_at <= self._config.trajectory_window):
-                candidates.append((0, group.location.observed_at - last.observed_at, person, False))
+                candidates.append((person,False))
                 continue  # Same observer, probable continuity; no persistent slot identity.
             delta=abs(group.location.observed_at-location.observed_at)
             if location.level is SpatialLevel.FLOOR and group.location.area:
                 group_floor=self._config.area_floors.get(group.location.area)
                 if group_floor and group_floor == location.floor:
-                    candidates.append((0,delta,person,person.direct_person))
-                    continue
+                    possible_overlap=True
+                    if delta <= self._config.trajectory_window:
+                        exact=bool(group.observer_id and group.target_id
+                                   and self._exact_identity_match(person,group,observations))
+                        candidates.append((person,exact))
+                        continue
             if location.area and group.location.area and self._adjacent(location.area,group.location.area):
                 allowed=(self._config.device_continuity_window if person.from_device
                          else self._config.trajectory_window)
@@ -1090,11 +1114,17 @@ class PresenceResolver:
                     # Adjacency alone permits a trajectory hypothesis but never
                     # proves that the anonymous observation is the same person;
                     # retain room for a real visitor.
-                    candidates.append((1,delta,person,False))
+                    candidates.append((person,False))
         if not candidates:
-            return (None,False)
-        _,_,person,exact=min(candidates,key=lambda item:(item[0],item[1],item[2].identity))
-        return (person,exact)
+            return (None,False,"floor_identity_may_overlap_current_body" if possible_overlap else None)
+        if len(candidates) > 1:
+            # Compatible trajectories are alternatives, not identities selected by a clock or name.
+            for person,_ in candidates:
+                if group.location.area:
+                    person.candidate_areas.add(group.location.area)
+            return (None,False,"anonymous_body_has_multiple_identity_candidates")
+        person,exact=candidates[0]
+        return (person,exact,None)
 
     def _apply_group_location(self, person: _PersonCandidate, group: _EvidenceGroup, exact: bool) -> bool:
         assert group.location is not None
@@ -1114,7 +1144,8 @@ class PresenceResolver:
             person.candidate_areas.add(person.location.area)
         if group.location.area:
             person.candidate_areas.add(group.location.area)
-        person.location=group.location
+        person.location=(group.location if exact or group.location.quality.rank <= Quality.MEDIUM.rank
+                         else replace(group.location,quality=Quality.MEDIUM))
         person.last_location=None
         person.clear_sources.clear()
         person.location_sources=set(group.source_ids)
@@ -1208,6 +1239,7 @@ class PresenceResolver:
     @staticmethod
     def _to_hypothesis(candidate: _PersonCandidate) -> PresenceHypothesis:
         areas=set(candidate.candidate_areas)
+        primary_sources=candidate.location_sources & candidate.identity_sources
         if candidate.location and candidate.location.area:
             areas.add(candidate.location.area)
         return PresenceHypothesis(
@@ -1225,7 +1257,7 @@ class PresenceResolver:
             identity_observed_at=candidate.identity_observed_at,
             identity_score=candidate.identity_score,
             identity_source_ids=tuple(sorted(candidate.identity_sources)),
-            location_source_ids=tuple(sorted(candidate.location_sources)),
+            location_source_ids=tuple(sorted(primary_sources))+tuple(sorted(candidate.location_sources-primary_sources)),
             last_location=candidate.last_location,
             location_clear_source_ids=tuple(sorted(candidate.clear_sources)),
         )

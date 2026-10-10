@@ -1,5 +1,12 @@
 # Historial de cambios
 
+## 0.5.35 — Asociaciones ambiguas y respaldo espacial explicable
+
+- No elige una identidad por proximidad temporal o nombre cuando varias trayectorias son compatibles con una presencia anónima. Conserva las personas, alternativas y cuerpo detectado, con incertidumbre de solapamiento; tracks visuales distintos siguen contando como visitantes independientes.
+- Una identidad conocida solo a nivel de planta requiere compatibilidad temporal para atribuirle una habitación nueva. Un dato anterior puede solaparse con el cuerpo actual sin demostrar su identidad ni un individuo adicional exacto. No añade demoras ni cambia la continuidad de 90 segundos.
+- Una detección radar que puede estar explicada enteramente por un animal no localiza al propietario de un dispositivo ni a una identidad de planta. Un cuerpo adicional sigue siendo utilizable; el refinamiento anónimo de planta a habitación conserva confianza media e incertidumbre de visitante, mientras el mismo objeto visual identificado permite una ubicación exacta.
+- Conserva sensores corporales y radio vinculada compatibles como fuentes de apoyo espacial de una ubicación identificada, manteniendo primero la fuente corporal principal. No cambia los relojes de rostro/ubicación, la confianza ordinal o el conteo; GPS/AP siguen siendo hechos de dispositivo y estimaciones débiles, no reconocimiento corporal.
+
 ## 0.5.34 — Vigencia GPS y referencias radio débiles consistentes
 
 - Una persona nativa derivada de un GPS configurado con el mismo propietario ya no duplica ni prolonga su evidencia doméstica. El tracker directo conserva precisión, reloj y caducidad; los demás trackers personales siguen disponibles y un dato perdido no prueba una salida. Tras restaurar, el origen de la persona se recalifica con su estado actual.

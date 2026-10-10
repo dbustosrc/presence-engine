@@ -10,6 +10,18 @@ confidence, with no implied individual or body count. It is separate from
 `active_areas` and physical occupancy so it cannot become a PTZ vote. Additional
 confidence combinations and physical acceptance remain separate work.
 
+From0.5.35, compatible body/radio support appears in the existing
+`location_sources` list without changing the primary spatial observation clock.
+For a currently identified body, its primary sources precede corroborating
+sources so `location_source` cannot silently become an alphabetical radio
+endpoint. The remaining order is deterministic. This is provenance, not an
+extra person, a new confidence enum or proof that a phone is being carried.
+Conflicting, low-quality or temporally incompatible support does not qualify;
+AP/GPS remain device facts and weak owner estimates, not body recognition.
+An anonymous body with several compatible identities keeps its own location
+and unresolved overlap, while candidate areas remain available on the named
+records. Timing or an identifier is not used to choose its owner.
+
 Version 0.4.9 keeps the validated projections as stable public entities.
 Every projection is derived from the same canonical snapshot revision. An
 entity does not publish MQTT, call a Home Assistant service or replace another
