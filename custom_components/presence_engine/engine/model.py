@@ -404,8 +404,11 @@ class PresenceHypothesis:
     location_source_ids: tuple[str, ...] = ()
     last_location: SpatialClaim | None = None
     location_clear_source_ids: tuple[str, ...] = ()
+    possible_identity_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        if self.possible_identity_ids and self.identity is not None:
+            raise ValueError("identified presence cannot have alternative owners")
         if self.identity_observed_at is not None:
             require_aware(self.identity_observed_at, "identity_observed_at")
 

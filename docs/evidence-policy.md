@@ -21,6 +21,13 @@ aceptada, dentro de la ventana temporal existente y con AP/radar compatibles,
 admite apoyo medio al punto recordado, conservando su reloj y cuerpo anónimo.
 Sin ese respaldo, AP sigue bajo; contador o teléfono quietos no renuevan la
 identidad corporal. Esto no acredita las escenas físicas pendientes.
+Desde 0.5.37, una referencia BLE medida y un agregado corporal compatible de la
+misma área exponen el posible solapamiento explícitamente. La presentación puede
+agruparlos como evidencia de un posible mismo ocupante; no elimina las hipótesis
+originales, confirma identidad, eleva confianza ni reduce el intervalo. Varias
+identidades candidatas permanecen alternativas. Un teléfono abandonado junto
+a un visitante sigue siendo compatible con esos mismos datos; no se identifica
+al visitante por propiedad ni por eliminación.
 Los contratos versionados, fixtures y pruebas existentes describen sus versiones
 reales. La implementación y aceptación pendientes se mantienen en el plan actual.
 

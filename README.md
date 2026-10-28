@@ -130,6 +130,12 @@ existentes automáticamente.
 
 ## Pruebas
 
+Desde `0.5.37`, `possible_identity_ids` expresa solapamiento posible entre
+evidencia corporal agregada y un propietario con soporte BLE medido vigente.
+`display_presences` permite agrupar una alternativa única sin presentar dos
+individuos independientes; conserva el cuerpo anónimo, los relojes y el intervalo
+en `presences`. No constituye identidad facial ni confirma teléfono transportado.
+
 Desde este directorio:
 
 ```powershell

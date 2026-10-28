@@ -43,6 +43,7 @@ def snapshot_payload(
                 "kind": presence.kind.value,
                 "classification": presence.classification,
                 "identity": presence.identity,
+                "possible_identity_ids": list(presence.possible_identity_ids),
                 "identity_quality": presence.identity_quality.value,
                 "identity_method": presence.identity_method,
                 "identity_observed_at": (

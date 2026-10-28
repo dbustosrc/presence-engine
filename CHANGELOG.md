@@ -1,5 +1,11 @@
 # Historial de cambios
 
+## 0.5.37 — Solapamiento explícito entre dispositivo y presencia corporal
+
+- Expone identidades posibles para una presencia corporal anónima agregada compatible con una referencia BLE personal vigente. La coincidencia no confirma identidad, teléfono transportado ni un individuo adicional; conserva fuentes, relojes y límites de conteo originales.
+- Añade una proyección de presentación que agrupa la alternativa de un único propietario con su evidencia corporal, conservando todas las hipótesis en la proyección de diagnóstico. Varias identidades posibles, objetivos visuales distintos, animales compatibles, poblaciones múltiples, contradicciones y pérdida de soporte no se ocultan mediante una asociación automática.
+- No modifica la confianza facial, las ventanas temporales, la ocupación física ni los consumidores de control. Las interfaces existentes pueden seguir usando el contrato anterior; las nuevas vistas deben explicar la incertidumbre y el origen de la evidencia agrupada.
+
 ## 0.5.36 — Dispositivos, cuerpos y corroboración AP conservadora
 
 - Un dispositivo registrado y un cuerpo anónimo coincidentes ya no se convierten por sí solos en una persona exacta. Conserva el cuerpo, la identidad inferida y el intervalo; un contador anónimo tampoco renueva la ubicación personal recordada. Una trayectoria personal reciente con dispositivo y cuerpo compatibles puede seguir refinándose como asociación de confianza media, no identificación.

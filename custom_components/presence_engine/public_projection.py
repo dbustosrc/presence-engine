@@ -52,6 +52,7 @@ def public_presence_projection(
         "active_areas": active_areas,
         "persons": persons,
         "presences": presences,
+        "display_presences": _display_presences(presences),
         "devices": [device_payload(device) for device in snapshot.devices],
         "area_activity": activity_payload(snapshot),
         "unlocated_presences": [
@@ -176,6 +177,7 @@ def _presence_payload(
         "id": presence.identity or presence.hypothesis_id,
         "type": _public_type(presence),
         "identity": presence.identity,
+        "possible_identity_ids": list(presence.possible_identity_ids),
         "area": location.area if location else None,
         "scope": _scope_name(presence),
         "candidate_areas": list(presence.candidate_areas),
@@ -202,6 +204,20 @@ def _presence_payload(
         "entity_picture": _browser_image_reference(image_record),
         "last_image": _image_payload(image_record),
     }
+
+
+def _display_presences(presences: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Nest a canonical single-owner alternative; never alter physical counts."""
+    rows = {item["id"]: {**item, "compatible_body_evidence": []} for item in presences}
+    nested = set()
+    for item in presences:
+        candidates = item["possible_identity_ids"]
+        owner = rows.get(candidates[0]) if len(candidates) == 1 else None
+        if (owner and owner["identity"] and not item["identity"]
+                and item["area"] and item["area"] == owner["area"]):
+            owner["compatible_body_evidence"].append(item)
+            nested.add(item["id"])
+    return [rows[item["id"]] for item in presences if item["id"] not in nested]
 
 
 def _active_areas(

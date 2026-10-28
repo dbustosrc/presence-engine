@@ -1,5 +1,20 @@
 # Public projections
 
+From 0.5.37, anonymous aggregate presence hypotheses may carry
+`possible_identity_ids`. These are compatible owner alternatives, not identity
+claims, calibrated probabilities, or evidence that a phone is being carried.
+They require current measured BLE support in the same area; animal-compatible
+evidence, multiple bodies, distinct visual targets and unavailable support do
+not qualify. Several eligible owners remain explicit alternatives.
+
+`presences` retains every original hypothesis and its source clocks.
+`display_presences` nests a single-owner alternative under that owner's row in
+`compatible_body_evidence`; consumers can render this instead of two apparently
+independent individuals. Missing `display_presences` means use `presences` as
+before. Counts, identity records, confidence and physical area occupancies are
+unchanged. A phone left beside another occupant can produce the same evidence:
+the upper count bound remains and the body must not be labelled identified.
+
 The [evidence policy](evidence-policy.md) defines the agreed next behavior.
 The versioned projection contracts below describe implemented behavior;
 Weak AP proximity is implemented from 0.5.30. From 0.5.32, `devices` may include

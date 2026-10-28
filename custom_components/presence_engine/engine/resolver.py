@@ -319,6 +319,9 @@ class PresenceResolver:
                 person.status = "possible"
                 reasons.append("wifi_ap_proximity_without_body_confirmation")
         animal_hypotheses,animal_min,animal_max=self._resolve_animals(groups)
+        extras = self._link_device_body_alternatives(people, extras, groups, unavailable)
+        if any(item.possible_identity_ids for item in extras):
+            reasons.append("anonymous_body_may_match_device_owner")
         person_hypotheses=tuple(self._to_hypothesis(candidate) for candidate in people.values())
         population_min=self._population_minimum(counted_groups)
         overlapping = self._overlapping_visual_keys(tuple(group for group, _ in counted_groups))
@@ -906,6 +909,34 @@ class PresenceResolver:
                 if item.source.source_id in prior.location_source_ids
                 and item.location.area == prior.location.area
                 and item.count.observed_at > prior.location.observed_at}
+
+    def _link_device_body_alternatives(self, people, extras, groups, unavailable):
+        """Expose overlap, not identity: a left-behind phone remains possible."""
+        now = self._clock.now()
+        groups_by_key = {group.key: group for group in groups}
+        result = []
+        for item in extras:
+            group = groups_by_key[item.hypothesis_id.rsplit(":", 1)[0]]
+            candidates = ()
+            if (group.location and group.location.area and group.minimum == group.maximum == 1
+                    and group.observer_id is None and group.target_id is None
+                    and group.location.quality.rank >= Quality.MEDIUM.rank
+                    and group.location.observed_at <= now
+                    and not set(group.source_ids) & set(unavailable)
+                    and not any(other.kind is TargetKind.ANIMAL and other.maximum and other.location
+                                and self._possibly_same_location(other.location, group.location)
+                                for other in groups)
+                    and sum(other.location is not None and other.location.area == group.location.area
+                            for other in extras) == 1):
+                candidates = tuple(sorted(person.identity for person in people.values()
+                    if person.status == "possible" and person.location
+                    and person.location.observed_at <= now
+                    and person.location.method == "device_room_candidate"
+                    and self._same_area(person.location, group.location)
+                    and person.identity_quality.rank >= Quality.MEDIUM.rank
+                    and not person.location_sources & set(unavailable)))
+            result.append(replace(item, possible_identity_ids=candidates))
+        return result
 
     def _device_corroboration_match(
         self,

@@ -147,11 +147,17 @@ class DeviceAssociationTests(unittest.TestCase):
                 self.assertEqual(person.location.quality,Quality.LOW)
                 self.assertEqual(person.location.observed_at,original)
                 self.assertTrue(any(p.identity is None and p.location.area==body_area for p in update.snapshot.presences))
+                anonymous = next(p for p in update.snapshot.presences if p.identity is None)
+                self.assertEqual(anonymous.possible_identity_ids, ("person_a",) if body_area == "beta" else ())
+                projected = public_presence_projection(update.snapshot)
+                self.assertEqual(len(projected["display_presences"]), 1 if body_area == "beta" else 2)
+                self.assertIsNone(anonymous.identity)
                 self.assertNotIn("radar_"+body_area,person.location_source_ids)
                 self.assertEqual((update.snapshot.count_minimum,update.snapshot.count_maximum),(1,2))
                 self.assertFalse(update.detections)
                 self.deliver("sensor.distance_beta","unknown",5)
                 self.assertNotEqual(self.owner().location.method,"device_room_candidate")
+                self.assertFalse(any(p.possible_identity_ids for p in self.runtime.snapshot.presences))
 
     def test_floor_only_pulse_does_not_erase_or_renew_a_weak_room_reference(self):
         self.enable_room_fallback()
