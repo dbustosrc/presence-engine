@@ -1,5 +1,12 @@
 # Historial de cambios
 
+## 0.5.38 — Asociación temporal entre trayectoria BLE y cuerpo visual
+
+- Una referencia BLE personal medida y un agregado corporal pueden preparar un anclaje provisional sin exigir coordenadas de radar. Solo un vaciado medido del origen, desplazamiento entre receptores independientes y llegada visual compatible permiten una asociación personal probable de confianza media; la coincidencia estática no reconoce a nadie.
+- Una etiqueta de área BLE desconocida o fluctuante ya no destruye una trayectoria visual corroborada mientras sus distancias y evidencia corporal sigan siendo compatibles. Conserva los relojes originales de identidad y movimiento; los fotogramas actuales aportan su propio reloj espacial.
+- Vincula el objetivo visual concreto para evitar contarlo de nuevo como visitante. Conserva otros objetivos y población adicional. Los huecos de cámara requieren presencia física continua y señal vigente, caducan como máximo a los 90 segundos del último fotograma asociado y no se renuevan por contadores o radio quietos.
+- Una identidad corporal contradictoria, separación medida, vaciado, pérdida de soporte o reinicio retiran la asociación. Los cambios de objetivo requieren finalización del anterior, continuidad física compatible y un único candidato; no hay reidentificación facial ni nueva certeza biométrica.
+
 ## 0.5.37 — Solapamiento explícito entre dispositivo y presencia corporal
 
 - Expone identidades posibles para una presencia corporal anónima agregada compatible con una referencia BLE personal vigente. La coincidencia no confirma identidad, teléfono transportado ni un individuo adicional; conserva fuentes, relojes y límites de conteo originales.

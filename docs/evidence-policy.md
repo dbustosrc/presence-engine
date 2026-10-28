@@ -1,5 +1,22 @@
 # Política de evidencia, estimación y confianza
 
+Desde 0.5.38, una referencia BLE personal medida junto a un agregado corporal
+puede preparar un anclaje provisional, sin atribuir identidad al cuerpo. Su
+vaciado medido, una trayectoria radio entre receptores independientes y una
+llegada visual única compatible permiten ubicación personal probable/media.
+La etiqueta BLE puede fluctuar o desaparecer si las distancias actuales siguen
+respaldando la asociación; un salto de etiqueta por sí solo no es una salida.
+Se vincula el objetivo visual concreto, sin consumir otros visitantes. Cada
+fotograma espacial nuevo conserva su reloj y no renueva reconocimiento facial
+ni la medición histórica del desplazamiento. En un hueco de cámara, solo el
+destino físico continuo y radio vigente pueden conservar ese punto, como máximo
+90 segundos desde el último fotograma asociado. Un contador mantenido, callback
+radio o foto histórica no reinician ese plazo. Un nuevo objetivo exige fin del
+anterior, continuidad física sin vaciado, un candidato único y ausencia de
+animal que explique el puente; sigue siendo asociación probable, no biometría.
+Contradicción corporal, separación medida, pérdida de soporte o reinicio rompen
+la asociación. Esto no acredita las escenas físicas pendientes de la matriz.
+
 Política acordada para la siguiente implementación. Este documento define el
 comportamiento objetivo; no afirma que esté disponible en una versión publicada.
 La estimación AP débil está implementada en 0.5.30. Desde 0.5.32, GPS se

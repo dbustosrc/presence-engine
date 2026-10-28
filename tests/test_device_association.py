@@ -534,6 +534,150 @@ class DeviceAssociationTests(unittest.TestCase):
         self.assertNotEqual(self.owner().location.area, "beta")
         self.assertFalse(self.runtime._associations.handoffs)
 
+    def visual_seed(self):
+        self.enable_room_fallback()
+        for channel, state, second in (("person.owner", "home", 0), ("sensor.phone", "Alpha", 1),
+                ("sensor.distance_alpha", 1, 2), ("sensor.distance_beta", 5, 2.1),
+                ("sensor.distance_alpha", 1.2, 3), ("sensor.distance_beta", 5.2, 3.1),
+                ("binary_sensor.alpha", "on", 4), ("sensor.distance_alpha", 1.1, 5)):
+            self.deliver(channel, state, second)
+
+    def visual_body(self, second, target="track_a", *, ended=False, detected=12.5, kind=TargetKind.PERSON):
+        item = observation(target, family="resolved_event", target_id=target,
+            location=area("beta", second), received=second, detected=detected, kind=kind,
+            count=CountClaim(0 if ended else 1, 0 if ended else 1, at(second), True, Quality.HIGH),
+            status=ObservationStatus.ENDED if ended else ObservationStatus.ACTIVE,
+            ended=second if ended else None)
+        item = replace(item, source=replace(item.source, native_id="camera_beta"))
+        self.second = second
+        self.runtime._store.upsert(item)
+        self.runtime._snapshot = self.runtime._resolve_snapshot()
+
+    def visual_move(self, *, clear=True, moving=True):
+        if clear:
+            self.deliver("binary_sensor.alpha", "off", 8)
+        self.deliver("sensor.phone", "Beta", 10)
+        self.deliver("sensor.distance_alpha", 5 if moving else 1.1, 11)
+        self.deliver("sensor.distance_alpha", 6 if moving else 1.2, 12)
+        self.deliver("sensor.distance_beta", 1.2 if moving else 5, 12.1)
+        self.deliver("sensor.distance_beta", 1 if moving else 5.1, 12.2)
+        self.visual_body(13)
+
+    def test_binary_departure_and_visual_arrival_associate_without_face_or_radar_coordinates(self):
+        self.visual_seed()
+        self.assertTrue(next(iter(self.runtime._associations.anchors.values())).requires_visual_arrival)
+        self.assertEqual(self.owner().location_status, "possible")
+        self.visual_move()
+        self.assertEqual(self.owner().location.area, "beta")
+        self.assertEqual(self.owner().location_status, "device_carried_probable")
+        self.assertEqual(self.owner().identity_quality, Quality.MEDIUM)
+        self.assertEqual(self.owner().identity_observed_at, at(0))
+        self.assertEqual((self.runtime.snapshot.count_minimum, self.runtime.snapshot.count_maximum), (1, 1))
+        self.assertFalse(any(p.identity is None for p in self.runtime.snapshot.presences))
+        self.assertEqual(self.runtime.device_association_payload()[0]["associated_visual_source"], "source.track_a")
+
+    def test_visual_continuity_survives_area_unknown_and_expired_origin_without_renewing_identity(self):
+        self.visual_seed(); self.visual_move()
+        accepted = self.runtime.device_association_payload()[0]["arrival_accepted_at"]
+        for second in range(14, 124, 5):
+            self.deliver("sensor.distance_beta", 1 + second / 1000, second)
+            self.visual_body(second + .1)
+            self.deliver("sensor.phone", "unknown", second + .2)
+            self.assertEqual(self.owner().location.area, "beta")
+            self.assertEqual(self.owner().location_status, "device_carried_probable")
+        self.assertEqual(self.owner().identity_observed_at, at(0))
+        self.assertEqual(self.runtime.device_association_payload()[0]["arrival_accepted_at"], accepted)
+        self.assertEqual(self.owner().location.observed_at, at(119.1))
+        self.second = 140
+        self.runtime.refresh()
+        self.assertFalse(self.runtime._associations.handoffs)
+        self.assertNotEqual(self.owner().location_status, "device_carried_probable")
+
+    def test_visual_arrival_rejects_stationary_phone_missing_clear_and_pet(self):
+        for clear, moving, pet in ((False, True, False), (True, False, False), (True, True, True)):
+            with self.subTest(clear=clear, moving=moving, pet=pet):
+                self.setUp(); self.visual_seed()
+                if pet:
+                    self.visual_body(6, kind=TargetKind.ANIMAL)
+                self.visual_move(clear=clear, moving=moving)
+                if pet:
+                    self.visual_body(14, kind=TargetKind.ANIMAL)
+                self.assertNotEqual(self.owner().location_status, "device_carried_probable")
+
+    def test_visual_departure_proof_survives_later_unknown_but_not_receiver_loss(self):
+        self.visual_seed()
+        self.deliver("binary_sensor.alpha", "off", 8)
+        self.deliver("sensor.distance_alpha", 5, 9)
+        self.deliver("sensor.distance_alpha", 6, 10)
+        self.deliver("sensor.distance_alpha", "unknown", 11)
+        self.deliver("sensor.phone", "unknown", 11.1)
+        self.deliver("sensor.distance_beta", 1.2, 12)
+        self.deliver("sensor.distance_beta", 1, 12.1)
+        self.visual_body(13)
+        self.assertEqual(self.owner().location_status, "device_carried_probable")
+        self.deliver("sensor.distance_beta", "unavailable", 14)
+        self.assertFalse(self.runtime._associations.handoffs)
+
+    def test_visual_association_keeps_extra_tracks_and_yields_to_face_elsewhere(self):
+        self.visual_seed(); self.visual_move()
+        self.visual_body(14, "visitor", detected=14)
+        self.assertEqual(self.owner().location_status, "device_carried_probable")
+        self.assertTrue(any(p.identity is None for p in self.runtime.snapshot.presences))
+        self.assertGreaterEqual(self.runtime.snapshot.count_maximum, 2)
+        self.body("alpha", 15)
+        self.assertEqual(self.owner().location.area, "alpha")
+        self.assertFalse(self.runtime._associations.handoffs)
+
+    def test_ended_visual_cannot_rebind_later_visitor_or_restore_after_restart(self):
+        self.visual_seed(); self.visual_move()
+        saved = self.runtime.export_state()
+        self.visual_body(14, ended=True)
+        self.visual_body(36, "visitor", detected=36)
+        self.assertNotEqual(self.owner().location_status, "device_carried_probable")
+        self.runtime = PresenceRuntime(self.runtime.configuration, now=lambda: at(self.second))
+        self.runtime.restore_state(saved)
+        self.assertFalse(self.runtime._associations.handoffs)
+
+    def test_visual_gap_uses_current_body_without_renewing_and_measured_clear_breaks_chain(self):
+        self.visual_seed(); self.visual_move()
+        self.deliver("binary_sensor.beta", "on", 13.5)
+        self.visual_body(14, ended=True)
+        for second in (15, 30, 45):
+            self.deliver("sensor.distance_beta", 1 + second / 1000, second)
+        self.assertEqual(self.owner().location_status, "device_carried_probable")
+        self.assertEqual(self.owner().location.observed_at, at(13))
+        self.assertEqual(self.runtime.device_association_payload()[0]["body_observed_at"], at(13).isoformat())
+        self.visual_body(46, "track_b", detected=45.5)
+        self.assertEqual(self.owner().location_status, "device_carried_probable")
+        self.assertEqual((self.runtime.snapshot.count_minimum, self.runtime.snapshot.count_maximum), (1, 1))
+        self.visual_body(47, "track_b", ended=True, detected=45.5)
+        self.deliver("binary_sensor.beta", "off", 48)
+        self.assertFalse(self.runtime._associations.handoffs)
+        self.deliver("binary_sensor.beta", "on", 49)
+        self.visual_body(50, "visitor", detected=49.5)
+        self.assertNotEqual(self.owner().location_status, "device_carried_probable")
+
+    def test_visual_gap_expires_with_held_counter_and_radio_only(self):
+        self.visual_seed(); self.visual_move()
+        self.deliver("binary_sensor.beta", "on", 13.5)
+        self.visual_body(14, ended=True)
+        for second in range(15, 106, 10):
+            self.deliver("sensor.distance_beta", 1 + second / 1000, second)
+        self.second = 106
+        self.runtime.refresh()
+        self.assertFalse(self.runtime._associations.handoffs)
+
+    def test_raw_ended_camera_metadata_can_bridge_resolved_targets(self):
+        self.visual_seed(); self.visual_move()
+        self.deliver("binary_sensor.beta", "on", 13.5)
+        self.runtime._store.remove_source("source.track_a")
+        ended = observation("track_a", family="frigate_event", target_id="track_a", event_id="track_a",
+            location=area("beta", 13), received=14, detected=12.5, status=ObservationStatus.ENDED, ended=14)
+        self.runtime._store.upsert(replace(ended, source=replace(ended.source, native_id="camera_beta")))
+        self.visual_body(15, "track_b", detected=14.5)
+        self.assertEqual(self.owner().location_status, "device_carried_probable")
+        self.assertEqual(self.runtime.device_association_payload()[0]["associated_visual_source"], "source.track_b")
+
     def correlated_seed(self):
         definition = configuration()
         sources = tuple(replace(s, entity_ids=(*s.entity_ids, "sensor.position_alpha"),

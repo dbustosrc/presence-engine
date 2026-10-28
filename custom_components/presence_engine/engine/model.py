@@ -383,6 +383,10 @@ class DeviceHandoff:
     origin_clear_source_id: str | None = None
     origin_measurement_channels: tuple[str, ...] = ()
     arrival_after: datetime | None = None
+    visual_source_id: str | None = None
+    body_observed_at: datetime | None = None
+    visual_target_id: str | None = None
+    visual_observer_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

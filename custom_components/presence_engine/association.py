@@ -30,6 +30,7 @@ class _Anchor:
     accepted_at: datetime | None = None
     measurement_channels: tuple[str, ...] = ()
     accepted_area: str | None = None
+    requires_visual_arrival: bool = False
 
 
 class DeviceAssociations:
@@ -136,7 +137,8 @@ class DeviceAssociations:
 
     def update(self, observations: tuple[Observation, ...], histories: Mapping[str, list[DeviceSignalSample]],
                now: datetime, *, previous: PresenceSnapshot | None = None,
-               positions: tuple[RadarSample, ...] = ()) -> tuple[DeviceHandoff, ...]:
+               positions: tuple[RadarSample, ...] = (),
+               ended_visuals: tuple[Observation, ...] = ()) -> tuple[DeviceHandoff, ...]:
         phones = [o for o in observations if o.status is ObservationStatus.ACTIVE
                   and o.target_kind is TargetKind.DEVICE and o.source.family == "bermuda_area"
                   and o.identity and o.location and o.location.area and o.location.observed_at <= now]
@@ -146,9 +148,11 @@ class DeviceAssociations:
                   and o.location.observed_at <= now and o.identity.observed_at <= now]
         phone_areas = {(o.identity.value, o.target_id): o.location.area for o in phones}
         self.anchors = {key: a for key, a in self.anchors.items()
-                        if key in phone_areas and now - a.observed_at < self.lifetime
+                        if (key in phone_areas or a.requires_visual_arrival)
+                        and now - max(a.observed_at, self.handoffs[key].body_observed_at
+                            if key in self.handoffs and self.handoffs[key].body_observed_at else a.observed_at) < self.lifetime
                         and not any(b.identity.value == a.identity and b.location.observed_at > a.observed_at
-                                    and b.location.area != phone_areas[key]
+                                    and b.location.area != phone_areas.get(key)
                                     or a.measurement_channels and b.identity.value != a.identity
                                     and b.location.area == a.area for b in bodies)}
         for phone in phones:
@@ -200,13 +204,55 @@ class DeviceAssociations:
                                   max(body_clock - self.measurement_window, self.capture_after)
                                       if channels and self.capture_after else body_clock - self.measurement_window,
                                   body_clock))}
-                    if any(definitions[sid].area == phone.location.area for sid in ranges):
+                    if any(definitions[sid].area == phone.location.area
+                            and all(band[1] < rival[0] for other, rival in ranges.items()
+                                if definitions[other].area != phone.location.area
+                                and definitions[other].options["receiver_id"] != definitions[sid].options["receiver_id"])
+                            for sid, band in ranges.items()):
                         self.anchors[key] = _Anchor(phone.identity.value, phone.target_id,
                             phone.location.area, body_clock, phone.source.source_id, body_source, ranges,
                             measurement_channels=channels)
+            # A held binary body can seed a provisional departure reference,
+            # not an identity. Only a later measured clear + radio journey +
+            # visual arrival may turn this weaker reference into a probable person.
+            if key not in self.anchors and previous and phone.location.quality.rank >= Quality.MEDIUM.rank:
+                owner = next((p for p in previous.presences if p.identity == phone.identity.value
+                    and p.location and p.location.area == phone.location.area
+                    and p.location.method == "device_room_candidate"), None)
+                origin = [o for o in observations if owner and o.status is ObservationStatus.ACTIVE
+                    and o.identity is None and o.target_id is None
+                    and o.source.family in {"binary_presence", "mtr_count", "count"}
+                    and o.target_kind in {TargetKind.PERSON, TargetKind.UNKNOWN_LIVING}
+                    and o.location and o.location.area == phone.location.area
+                    and o.location.quality.rank >= Quality.MEDIUM.rank
+                    and o.count and o.count.minimum == o.count.maximum == 1 and o.count.stable
+                    and o.count.quality.rank >= Quality.MEDIUM.rank
+                    and o.received_at <= now and o.count.observed_at <= now]
+                if (origin and not any(p.location and p.location.area == phone.location.area
+                        and (p.kind is TargetKind.ANIMAL or p.identity not in {None, phone.identity.value})
+                        for p in previous.presences)):
+                    ranges = {sid: value for sid in definitions if (value := self._range(
+                        histories.get(sid, []), now, max(now - self.measurement_window, self.capture_after)
+                            if self.capture_after else now - self.measurement_window, now))}
+                    if any(definitions[sid].area == phone.location.area for sid in ranges):
+                        self.anchors[key] = _Anchor(phone.identity.value, phone.target_id,
+                            phone.location.area, now, phone.source.source_id,
+                            max(origin, key=lambda o: o.count.observed_at).source.source_id, ranges,
+                            requires_visual_arrival=True)
         # A completed arrival has its own bounded clock. Expiry of the origin
         # anchor forbids new transfers, not this already supported destination.
         confirmed = {}
+        for key, anchor in tuple(self.anchors.items()):
+            if not anchor.requires_visual_arrival:
+                continue
+            prior = self.handoffs.get(key)
+            handoff = self._visual_handoff(anchor, observations, bodies, histories, now, prior, ended_visuals)
+            if handoff:
+                confirmed[key] = handoff
+            elif prior and prior.visual_source_id:
+                # A broken body chain must not reattach to a later visitor by
+                # recycling the same historical phone departure.
+                del self.anchors[key]
         for phone in phones:
             key = (phone.identity.value, phone.target_id)
             prior = self.handoffs.get(key)
@@ -224,6 +270,8 @@ class DeviceAssociations:
             if key in confirmed:
                 continue
             anchor = self.anchors.get(key)
+            if anchor is not None and anchor.requires_visual_arrival:
+                continue
             if anchor is not None and anchor.measurement_channels:
                 handoff = self._correlated_handoff(phone, anchor, observations, bodies, histories, now)
                 if handoff is not None:
@@ -272,12 +320,136 @@ class DeviceAssociations:
                         break
                 if key in confirmed:
                     break
+        visual_owners = {}
+        for h in confirmed.values():
+            if h.visual_source_id:
+                visual_owners.setdefault((h.visual_observer_id, h.visual_target_id), set()).add(h.identity)
+        confirmed = {key: h for key, h in confirmed.items()
+            if not h.visual_source_id or len(visual_owners[(h.visual_observer_id, h.visual_target_id)]) == 1}
         self.handoffs = confirmed
         # Conflicting devices of the same owner cannot pick a room by order.
         destinations = {}
         for handoff in confirmed.values():
             destinations.setdefault(handoff.identity, set()).add(handoff.destination)
         return tuple(h for h in confirmed.values() if len(destinations[h.identity]) == 1)
+
+    def _visual_handoff(self, anchor, observations, bodies, histories, now, prior, ended_visuals):
+        """Follow a measured departure into a unique current visual person.
+
+        Area-label loss is not departure. Renew only actual body-frame support;
+        neither a held counter nor radio callbacks renew a personal body clock.
+        """
+        if any(b.identity.value == anchor.identity for b in bodies):
+            return None
+        if prior and any(b.location.area == prior.destination for b in bodies):
+            return None
+        visuals = [o for o in observations if o.status is ObservationStatus.ACTIVE
+            and o.target_kind is TargetKind.PERSON and o.identity is None and o.target_id
+            and o.source.family in {"resolved_event", "frigate_event"} and o.source.native_id
+            and o.location and o.location.area and o.location.area != anchor.area
+            and o.location.quality.rank >= Quality.MEDIUM.rank
+            and timedelta(0) <= now - o.location.observed_at < self.measurement_window
+            and o.received_at <= now and o.detected_at <= now
+            and o.count and o.count.minimum == o.count.maximum == 1 and o.count.stable
+            and o.count.quality.rank >= Quality.MEDIUM.rank
+            and not any(b.location.area == o.location.area for b in bodies)]
+        if prior and prior.visual_source_id:
+            same = [o for o in visuals if o.source.source_id == prior.visual_source_id
+                and o.target_id == prior.visual_target_id and o.source.native_id == prior.visual_observer_id]
+            if same:
+                visuals = same
+            else:
+                ended = next((o for o in (*observations, *ended_visuals)
+                    if o.target_id == prior.visual_target_id and o.source.native_id == prior.visual_observer_id
+                    and o.status is ObservationStatus.ENDED and o.ended_at and o.ended_at <= now
+                    and o.received_at <= now), None)
+                # A new event is not the same person unless the old track ended
+                # first and the camera provides an unambiguous short continuation.
+                visuals = [o for o in visuals if ended and o.source.native_id == ended.source.native_id
+                    and o.location.area == prior.destination and ended.ended_at <= o.detected_at
+                    and timedelta(0) <= o.detected_at - prior.body_observed_at < self.lifetime]
+        if len(visuals) > 1 or not visuals and not prior:
+            return None
+        body = visuals[0] if visuals else None
+        destination_area = body.location.area if body else prior.destination
+        if prior and (body is None or body.source.source_id != prior.visual_source_id
+                or body.target_id != prior.visual_target_id or body.source.native_id != prior.visual_observer_id):
+            # A camera gap needs an uninterrupted physical destination. Held
+            # counters may bridge the gap, but never renew its last body clock.
+            if (now - prior.body_observed_at >= self.lifetime
+                    or any(o.status is ObservationStatus.ACTIVE and o.target_kind is TargetKind.ANIMAL
+                        and o.location and o.location.area == destination_area for o in observations)
+                    or any(o.status is ObservationStatus.ENDED and o.source_diagnostics.get("measured_clear")
+                        and o.location and o.location.area == destination_area and o.count
+                        and prior.body_observed_at < o.count.observed_at <= now for o in observations)
+                    or not any(o.status is ObservationStatus.ACTIVE and o.identity is None
+                        and o.source.family in {"binary_presence", "mtr_count", "count"}
+                        and o.location and o.location.area == destination_area
+                        and o.location.quality.rank >= Quality.MEDIUM.rank and o.location.observed_at <= now
+                        and o.count and o.count.minimum > 0 and o.count.observed_at <= now
+                        and o.received_at <= now for o in observations)):
+                return None
+        if prior is None and any(o.status is ObservationStatus.ACTIVE and o.target_kind is TargetKind.DEVICE
+                and o.identity and o.identity.value != anchor.identity and o.location
+                and o.location.area == destination_area and o.location.quality.rank >= Quality.MEDIUM.rank
+                and o.location.observed_at <= now for o in observations):
+            return None
+        definitions = {sid: d for sid, d in self.definitions.items() if d.area
+            and d.options["device_id"] == anchor.device_id and d.options["metric"] == "distance"
+            and d.identity in {None, anchor.identity}}
+        current = {sid: band for sid in definitions if (band := self._range(
+            histories.get(sid, []), now, now - self.measurement_window, now))}
+        destination_ids = [sid for sid in current if definitions[sid].area == destination_area]
+        if not destination_ids:
+            return None
+        for destination_id in destination_ids:
+            destination = definitions[destination_id]
+            # Sustained, nonoverlapping evidence of another device room is a
+            # contradiction; overlapping/noisy labels alone are not.
+            if any(definitions[sid].area != destination_area
+                    and definitions[sid].options["receiver_id"] != destination.options["receiver_id"]
+                    and (band := self._range(histories[sid], now, now - self.measurement_window, now, whole_window=True))
+                    and band[1] < current[destination_id][0] for sid in current):
+                continue
+            if prior and prior.visual_source_id:
+                if body is None:
+                    return prior
+                if body.location.observed_at < prior.body_observed_at:
+                    continue
+                return replace(prior, visual_source_id=body.source.source_id,
+                    visual_target_id=body.target_id, visual_observer_id=body.source.native_id,
+                    body_observed_at=body.location.observed_at,
+                    source_ids=tuple(sorted((set(prior.source_ids) - {prior.visual_source_id}) | {body.source.source_id})))
+            if not self._origin_clear(observations, anchor.body_source, anchor.area, anchor.observed_at, now):
+                continue
+            for origin_id, before in anchor.ranges.items():
+                if origin_id not in definitions or definitions[origin_id].area != anchor.area or (
+                        definitions[origin_id].options["receiver_id"] == destination.options["receiver_id"]):
+                    continue
+                # A later unknown must not erase an already measured departure.
+                departed = None
+                previous = None
+                for sample in histories.get(origin_id, []):
+                    if sample.status != "valid" or not anchor.observed_at < sample.observed_at <= now:
+                        previous = None
+                        continue
+                    value = sample.value * {"m": 1, "cm": .01, "mm": .001}[sample.unit]
+                    if previous and before[1] < previous[1] < value and sample.observed_at - previous[0] < self.measurement_window:
+                        departed = (sample.observed_at, value)
+                    previous = (sample.observed_at, value)
+                samples = histories[destination_id][-2:]
+                values = [s.value * {"m": 1, "cm": .01, "mm": .001}[s.unit] for s in samples]
+                if (departed is None or body.detected_at < anchor.observed_at
+                        or now - departed[0] >= self.lifetime or values[0] <= values[1]
+                        or current[destination_id][1] >= departed[1]):
+                    continue
+                return DeviceHandoff(anchor.identity, anchor.device_id, anchor.area, body.location.area,
+                    anchor.observed_at, max(departed[0], samples[-1].observed_at),
+                    tuple(sorted((anchor.body_source, anchor.phone_source, origin_id, destination_id, body.source.source_id))),
+                    True, origin_clear_source_id=anchor.body_source,
+                    visual_source_id=body.source.source_id, body_observed_at=body.location.observed_at,
+                    visual_target_id=body.target_id, visual_observer_id=body.source.native_id)
+        return None
 
     def _correlated_handoff(self, phone, anchor, observations, bodies, histories, now):
         """A weaker anchor needs its own clear, opposed radio and a current body.
@@ -363,6 +535,10 @@ class DeviceAssociations:
     def next_expiration(self, now: datetime) -> datetime | None:
         deadlines = [a.observed_at + self.lifetime for a in self.anchors.values()]
         deadlines.extend(h.accepted_at + self.lifetime for h in self.handoffs.values() if h.accepted_at is not None)
+        deadlines.extend(h.body_observed_at + self.measurement_window for h in self.handoffs.values()
+            if h.body_observed_at is not None)
+        deadlines.extend(h.body_observed_at + self.lifetime for h in self.handoffs.values()
+            if h.body_observed_at is not None)
         if self.room_hint_deadline is not None:
             deadlines.append(self.room_hint_deadline)
         return min((d for d in deadlines if d > now), default=None)

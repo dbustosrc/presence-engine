@@ -729,13 +729,15 @@ class PresenceRuntime:
                  "anchored_at": anchored.isoformat(),
                  "expires_at": (anchored + self._resolver_config.previous_continuity_window).isoformat(),
                  "arrival_accepted_at": h.accepted_at.isoformat() if h and h.accepted_at else None,
-                 "arrival_expires_at": (h.accepted_at + self._resolver_config.previous_continuity_window).isoformat()
+                 "arrival_expires_at": ((h.body_observed_at or h.accepted_at) + self._resolver_config.previous_continuity_window).isoformat()
                      if h and h.accepted_at else None,
                  "destination_area": h.destination if h else None,
                  "handoff_observed_at": h.observed_at.isoformat() if h else None,
+                 "body_observed_at": h.body_observed_at.isoformat() if h and h.body_observed_at else None,
+                 "associated_visual_source": h.visual_source_id if h else None,
                  "source_ids": list(h.source_ids) if h else [a.body_source, a.phone_source],
                  "requires_destination_body": h.requires_destination_body if h else None,
-                 "requires_origin_clear": bool(h.origin_clear_source_id) if h else bool(a.measurement_channels),
+                 "requires_origin_clear": bool(h.origin_clear_source_id) if h else bool(a.measurement_channels or a.requires_visual_arrival),
                  "origin_measurement_channels": list(h.origin_measurement_channels if h else a.measurement_channels),
                  "radar_motion_support": [{"source_id": m.source_id, "area": m.area,
                      "observed_at": m.observed_at.isoformat(), "entity_ids": list(m.entity_ids),
@@ -992,7 +994,9 @@ class PresenceRuntime:
         positions = self._radar.position_samples(self._resolver_config.trajectory_window,
             after=self._associations.capture_after) if self._association_enabled else ()
         handoffs = self._associations.update(observations, self._signal_samples, now,
-            previous=self._snapshot if allow_previous else None, positions=positions) if self._association_enabled else ()
+            previous=self._snapshot if allow_previous else None, positions=positions,
+            ended_visuals=tuple(o for o in self._store.values() if o.source.family == "frigate_event"
+                and o.status is ObservationStatus.ENDED and self._is_current(o, now))) if self._association_enabled else ()
         motion = self._radar.motion_support(observations, self._resolver_config.trajectory_window) if handoffs else ()
         rooms = self._associations.room_candidates(observations, self._signal_samples, now) if self._association_enabled else ()
         snapshot = resolver.resolve(

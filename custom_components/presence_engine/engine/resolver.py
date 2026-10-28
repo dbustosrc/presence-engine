@@ -85,6 +85,8 @@ class _PersonCandidate:
     last_location: SpatialClaim | None = None
     clear_sources: set[str] = field(default_factory=set)
     remembered_location_source: str | None = None
+    associated_visual_source: str | None = None
+    associated_visual_target: tuple[str, str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -396,11 +398,12 @@ class PresenceResolver:
             person = people.get(handoff.identity)
             if (person is None or handoff.observed_at > now or handoff.anchored_at > handoff.observed_at
                     or (handoff.accepted_at is not None and not handoff.observed_at <= handoff.accepted_at <= now)
-                    or now - (handoff.accepted_at or handoff.anchored_at) >= self._config.previous_continuity_window
+                    or now - (handoff.body_observed_at or handoff.accepted_at or handoff.anchored_at) >= self._config.previous_continuity_window
+                    or set(handoff.source_ids) & set(unavailable)
                     or any(o.target_kind is TargetKind.PERSON and o.identity and o.identity.value == handoff.identity
                            and o.location and o.location.area for o in active)
                     or handoff.destination not in self._config.area_floors
-                    or not any(d.area == handoff.destination or handoff.origin_clear_source_id
+                    or not handoff.visual_source_id and not any(d.area == handoff.destination or handoff.origin_clear_source_id
                                and d.area == handoff.origin for d in person.device_locations)):
                 continue
             # Physical evidence or a measured clear is required in addition
@@ -411,6 +414,23 @@ class PresenceResolver:
                        and (handoff.arrival_after is None or g.location.observed_at > handoff.arrival_after)
                        and abs(g.location.observed_at - handoff.observed_at) <= self._config.trajectory_window
                        for sid in g.source_ids}
+            if handoff.visual_source_id:
+                support = {sid for g in groups if handoff.visual_source_id in g.source_ids
+                    and (g.observer_id, g.target_id) == (handoff.visual_observer_id, handoff.visual_target_id)
+                    and g.kind is TargetKind.PERSON and g.location and g.location.area == handoff.destination
+                    and g.location.observed_at == handoff.body_observed_at
+                    and timedelta(0) <= now - g.location.observed_at < self._config.trajectory_window
+                    for sid in g.source_ids}
+                if not support:
+                    support = {sid for g in groups if g.observer_id is None and g.target_id is None
+                        and g.kind in {TargetKind.PERSON, TargetKind.UNKNOWN_LIVING} and g.minimum > 0
+                        and g.location and g.location.area == handoff.destination
+                        and g.location.quality.rank >= Quality.MEDIUM.rank
+                        and not any(o.location.area == handoff.destination
+                            and o.count.observed_at > handoff.body_observed_at for o in clears)
+                        for sid in g.source_ids}
+                    if not support:
+                        continue
             motion_sources = {m.source_id for m in (*radar_motion, *handoff.radar_motion)
                 if m.area == handoff.destination and handoff.anchored_at < m.observed_at <= now
                 and (handoff.arrival_after is None or m.observed_at > handoff.arrival_after)
@@ -431,11 +451,11 @@ class PresenceResolver:
             if not support:
                 continue
             if person.location and person.location.area:
-                if person.location.observed_at > handoff.observed_at:
+                if person.location.observed_at > (handoff.body_observed_at or handoff.observed_at):
                     continue
                 person.candidate_areas.add(person.location.area)
             person.candidate_areas.update((handoff.origin, handoff.destination))
-            person.location = SpatialClaim(SpatialLevel.AREA, handoff.observed_at,
+            person.location = SpatialClaim(SpatialLevel.AREA, handoff.body_observed_at or handoff.observed_at,
                 area=handoff.destination, floor=self._config.area_floors[handoff.destination],
                 method="correlated_receiver_trajectory" if handoff.origin_clear_source_id
                     else "anchored_device_handoff", quality=Quality.MEDIUM)
@@ -445,6 +465,8 @@ class PresenceResolver:
             person.from_device = False
             person.last_location = None
             person.clear_sources.clear()
+            person.associated_visual_source = handoff.visual_source_id
+            person.associated_visual_target = (handoff.visual_observer_id, handoff.visual_target_id) if handoff.visual_source_id else None
 
     def _area_occupancies(
         self, groups: tuple[_EvidenceGroup, ...], observations: tuple[Observation, ...],
@@ -632,7 +654,9 @@ class PresenceResolver:
             # selected room's population. Counting it again as a visitor is
             # not extra identity uncertainty. Never consume a distinct track
             # or an aggregate that did not actually support the association.
-            return (group.observer_id is None and group.target_id is None
+            return ((group.observer_id is None and group.target_id is None
+                     or person.associated_visual_source is not None and person.associated_visual_source in group.source_ids
+                     and person.associated_visual_target == (group.observer_id, group.target_id))
                     and self._same_area(person.location, group.location)
                     and bool(set(group.source_ids) & person.location_sources))
         if person.status in {"continued", "ambiguous_movement"}:
