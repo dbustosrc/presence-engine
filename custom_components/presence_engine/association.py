@@ -148,7 +148,7 @@ class DeviceAssociations:
                   and o.location.observed_at <= now and o.identity.observed_at <= now]
         phone_areas = {(o.identity.value, o.target_id): o.location.area for o in phones}
         self.anchors = {key: a for key, a in self.anchors.items()
-                        if (key in phone_areas or a.requires_visual_arrival)
+                        if (key in phone_areas or a.requires_visual_arrival or a.measurement_channels)
                         and now - max(a.observed_at, self.handoffs[key].body_observed_at
                             if key in self.handoffs and self.handoffs[key].body_observed_at else a.observed_at) < self.lifetime
                         and not any(b.identity.value == a.identity and b.location.observed_at > a.observed_at
@@ -243,10 +243,11 @@ class DeviceAssociations:
         # anchor forbids new transfers, not this already supported destination.
         confirmed = {}
         for key, anchor in tuple(self.anchors.items()):
-            if not anchor.requires_visual_arrival:
+            if not (anchor.requires_visual_arrival or anchor.measurement_channels):
                 continue
             prior = self.handoffs.get(key)
-            handoff = self._visual_handoff(anchor, observations, bodies, histories, now, prior, ended_visuals)
+            handoff = self._visual_handoff(anchor, observations, bodies, histories, now,
+                prior if prior and prior.visual_source_id else None, ended_visuals)
             if handoff:
                 confirmed[key] = handoff
             elif prior and prior.visual_source_id:
@@ -447,6 +448,7 @@ class DeviceAssociations:
                     anchor.observed_at, max(departed[0], samples[-1].observed_at),
                     tuple(sorted((anchor.body_source, anchor.phone_source, origin_id, destination_id, body.source.source_id))),
                     True, origin_clear_source_id=anchor.body_source,
+                    origin_measurement_channels=anchor.measurement_channels,
                     visual_source_id=body.source.source_id, body_observed_at=body.location.observed_at,
                     visual_target_id=body.target_id, visual_observer_id=body.source.native_id)
         return None

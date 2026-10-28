@@ -1,5 +1,11 @@
 # Historial de cambios
 
+## 0.5.39 — Asociación visual compatible con telemetría radar
+
+- Aplica la misma vinculación visual y continuidad BLE a los anclajes respaldados por medidas radar. La telemetría adicional ya no excluye esa ruta ni permite que un área BLE desconocida destruya una asociación corporal todavía corroborada.
+- Vincula el objetivo visual concreto sin duplicar su conteo y conserva los canales, relojes y fuentes del anclaje radar. Una llegada respaldada inicialmente por radar puede incorporar después el objetivo visual, sin tratar el contador previo como una identidad reconocida.
+- Mantiene vaciado de origen, desplazamiento medido, prioridad facial, límites temporales y retirada por contradicción. No modifica calibraciones ni convierte un teléfono quieto, una mascota o un visitante independiente en el propietario.
+
 ## 0.5.38 — Asociación temporal entre trayectoria BLE y cuerpo visual
 
 - Una referencia BLE personal medida y un agregado corporal pueden preparar un anclaje provisional sin exigir coordenadas de radar. Solo un vaciado medido del origen, desplazamiento entre receptores independientes y llegada visual compatible permiten una asociación personal probable de confianza media; la coincidencia estática no reconoce a nadie.

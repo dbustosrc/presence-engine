@@ -1,5 +1,13 @@
 # Política de evidencia, estimación y confianza
 
+Desde 0.5.39, la asociación visual y su continuidad se aplican también a anclajes
+respaldados por telemetría radar. Se conservan sus canales de medición originales;
+no se reduce su evidencia a un contador para forzar otra ruta. La información
+radar adicional no rebaja una asociación visual compatible ni obliga a perderla
+por un área BLE desconocida. Permanecen los mismos requisitos de vaciado,
+movimiento radio, cuerpo actual, prioridad facial y caducidad. Una llegada radar
+previa no sustituye el reloj corporal del objetivo visual que se vincule después.
+
 Desde 0.5.38, una referencia BLE personal medida junto a un agregado corporal
 puede preparar un anclaje provisional, sin atribuir identidad al cuerpo. Su
 vaciado medido, una trayectoria radio entre receptores independientes y una
